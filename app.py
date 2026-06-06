@@ -11,7 +11,9 @@ from kea import KeaError
 from helpers import (
 	get_client, load_leases, load_pool_stats, load_config, load_status
 )
+from auth            import is_authenticated, logout
 from db              import init_db
+from ui_login        import render_login
 from ui_pool         import render_pool
 from ui_leases       import render_leases
 from ui_reservations import render_reservations
@@ -39,7 +41,7 @@ init_db()
 
 def _sidebar_item(label: str, value: str) -> str:
 	return (
-		f'<div style="padding:8px 0;border-bottom:1px solid #e8ecf0;">'
+		f'<div style="padding:8px 0;border-bottom:1px solid #e8ecf0;text-align:center">'
 		f'<div style="font-family:monospace;font-size:10px;font-weight:700;color:#57606a;'
 		f'text-transform:uppercase;letter-spacing:.06em;margin-bottom:3px">{label}</div>'
 		f'<div style="font-family:monospace;font-size:12px;color:#1f2328">{value}</div>'
@@ -70,7 +72,7 @@ def render_sidebar(stats: Optional[dict], config: Optional[dict]) -> None:
 		_sidebar_item("Pool Range", f"{start} – {end}")
 		+ _sidebar_item("Subnet", subnet)
 		+ _sidebar_item("Router", router)
-		+ _sidebar_item("Addresses", str(total))
+		+ _sidebar_item("Address Pool", str(total))
 		+ _sidebar_item("Lease Time", "24h")
 		+ _sidebar_item("Stats Source", "API" if cumul > 0 else "lease list")
 	)
@@ -79,10 +81,19 @@ def render_sidebar(stats: Optional[dict], config: Optional[dict]) -> None:
 		unsafe_allow_html=True,
 	)
 
+	st.sidebar.markdown('<div style="margin-top:16px"></div>', unsafe_allow_html=True)
+	if st.sidebar.button("Sign out", use_container_width=True):
+		logout()
+		st.rerun()
+
 
 # --- Main ---------------------------------------------------------------------
 
 def main() -> None:
+	if not is_authenticated():
+		render_login()
+		return
+
 	kea    = get_client()
 	leases = []
 	try:

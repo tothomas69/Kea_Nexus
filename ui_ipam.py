@@ -40,9 +40,10 @@ _CHIP_STYLE: dict[str, tuple[str, str]] = {
 	_FREE:     ("#f6f8fa", "#57606a"),
 }
 
-_COL_WIDTHS  = [0.8, 2.0, 2.0, 2.3, 1.3, 1.8, 1.1]
-_COL_HEADERS = ["#", "IP Address", "Hostname", "MAC", "Status", "Info", ""]
-_CELL        = "font-family:monospace;font-size:13px;color:#1f2328"
+_COL_WIDTHS  = [2.0, 1.3, 2.0, 2.3, 2.6, 1.1]
+_COL_HEADERS = ["IP Address", "Status", "Hostname", "MAC", "Description", ""]
+_CELL        = "font-family:monospace;font-size:11px;color:#1f2328"
+_HEADER_CENTER = ";text-align:center"
 
 
 # --- IP row data model --------------------------------------------------------
@@ -55,7 +56,8 @@ class _IpRow:
 	status: str
 	hostname: str = ""
 	mac: str = ""
-	info: str = ""     # expiry for leases, notes for static, "reserved" for reservations
+	info: str = ""     # description for static, expiry for leases, "reserved" for reservations
+	notes: str = ""    # shown as tooltip on status chip (static entries only)
 	editable: bool = False  # True when this address accepts a static record
 
 
@@ -107,7 +109,8 @@ def _classify_all(
 			row.status   = _STATIC
 			row.hostname = s.get("hostname", "") or ""
 			row.mac      = s.get("mac_address", "") or ""
-			row.info     = s.get("notes", "") or s.get("description", "") or ""
+			row.info     = s.get("description", "") or ""
+			row.notes    = s.get("notes", "") or ""
 			row.editable = True
 		elif pool_start_octet <= octet <= pool_end_octet:
 			row.status = _SCOPE
@@ -121,19 +124,12 @@ def _classify_all(
 
 # --- HTML rendering -----------------------------------------------------------
 
-def _chip(label: str, status: str) -> str:
-	bg, fg = _CHIP_STYLE.get(status, _CHIP_STYLE[_FREE])
+def _chip(label: str, status: str, tooltip: str = "") -> str:
+	bg, fg       = _CHIP_STYLE.get(status, _CHIP_STYLE[_FREE])
+	tooltip_attr = f' data-tooltip="{tooltip}"' if tooltip else ""
 	return (
-		f'<span style="background:{bg};color:{fg};font-size:11px;font-weight:600;'
+		f'<span{tooltip_attr} style="background:{bg};color:{fg};font-size:11px;font-weight:600;'
 		f'padding:2px 9px;border-radius:10px;display:inline-block;white-space:nowrap">{label}</span>'
-	)
-
-
-def _row_num_chip(octet: int, status: str) -> str:
-	bg, color = _CHIP_STYLE.get(status, _CHIP_STYLE[_FREE])
-	return (
-		f'<span style="background:{bg};color:{color};font-size:11px;font-weight:700;'
-		f'padding:2px 9px;border-radius:10px;display:inline-block;white-space:nowrap">{octet}</span>'
 	)
 
 
@@ -197,8 +193,20 @@ def _render_table(
 	The header is pure HTML (CSS grid) so it is unaffected by column-row CSS.
 	"""
 	# Header as a single CSS grid element — matches st.columns fr proportions
-	col_template = " ".join(f"{w}fr" for w in _COL_WIDTHS)
-	cells = "".join(f'<div style="{_HEADER_CELL}">{h}</div>' for h in _COL_HEADERS)
+	# Status column (index 1) is centered to match its chip content
+	col_template  = " ".join(f"{w}fr" for w in _COL_WIDTHS)
+	header_styles = [
+		_HEADER_CELL,
+		_HEADER_CELL + _HEADER_CENTER,
+		_HEADER_CELL,
+		_HEADER_CELL,
+		_HEADER_CELL,
+		_HEADER_CELL,
+	]
+	cells = "".join(
+		f'<div style="{style}">{h}</div>'
+		for style, h in zip(header_styles, _COL_HEADERS)
+	)
 	st.markdown(
 		f'<div style="display:grid;grid-template-columns:{col_template};gap:0.4rem;'
 		f'border-bottom:2px solid #d0d7de;padding:6px 0 8px;margin-bottom:6px">'
@@ -208,15 +216,22 @@ def _render_table(
 
 	for row in rows:
 		c = st.columns(_COL_WIDTHS)
-		c[0].markdown(_row_num_chip(row.last_octet, row.status), unsafe_allow_html=True)
-		c[1].markdown(f'<span style="{_CELL};font-weight:600">{row.ip}</span>', unsafe_allow_html=True)
-		c[2].markdown(f'<span style="{_CELL}">{row.hostname or "—"}</span>', unsafe_allow_html=True)
+		c[0].markdown(f'<span style="{_CELL};font-weight:600">{row.ip}</span>', unsafe_allow_html=True)
+		c[1].markdown(
+			f'<div style="text-align:center">{_chip(row.status, row.status, tooltip=row.notes)}</div>',
+			unsafe_allow_html=True,
+		)
+		hostname_html = (
+			_chip(row.hostname, _STATIC)
+			if row.status == _STATIC and row.hostname
+			else f'<span style="{_CELL}">{row.hostname or "—"}</span>'
+		)
+		c[2].markdown(hostname_html, unsafe_allow_html=True)
 		c[3].markdown(f'<span style="{_CELL}">{row.mac or "—"}</span>', unsafe_allow_html=True)
-		c[4].markdown(_chip(row.status, row.status), unsafe_allow_html=True)
-		c[5].markdown(f'<span style="{_CELL}">{row.info or ""}</span>', unsafe_allow_html=True)
+		c[4].markdown(f'<span style="{_CELL}">{row.info or ""}</span>', unsafe_allow_html=True)
 		# Network (.0) and broadcast (.255) have nothing to edit
 		if row.last_octet not in (0, 255):
-			if c[6].button("Edit", key=f"ipam_edit_{row.ip}", use_container_width=True):
+			if c[5].button("Edit", key=f"ipam_edit_{row.ip}", use_container_width=True):
 				_edit_dialog(row.ip, prefix, pool_start_octet, pool_end_octet)
 
 
@@ -255,11 +270,15 @@ def render_ipam(leases: list[dict], config: Optional[dict]) -> None:
 	for row in all_rows:
 		counts[row.status] = counts.get(row.status, 0) + 1
 
+	named_static_count = sum(1 for r in all_rows if r.status == _STATIC and r.hostname)
+
 	summary = "".join(
 		_chip(f"{counts.get(s, 0)} {s}", s) + "&nbsp; "
 		for s in [_LEASED, _DECLINED, _RESERVED, _STATIC, _SCOPE, _FREE]
 		if counts.get(s, 0) > 0
 	)
+	if named_static_count > 0:
+		summary += _chip(f"{named_static_count} hostname", _STATIC) + "&nbsp; "
 	st.markdown(f'<div style="margin-bottom:12px">{summary}</div>', unsafe_allow_html=True)
 
 	# Filter controls

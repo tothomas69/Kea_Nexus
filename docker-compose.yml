@@ -11,9 +11,11 @@ services:
       - .env
     volumes:
       - ./app.py:/app/app.py
+      - ./auth.py:/app/auth.py
       - ./kea.py:/app/kea.py
       - ./helpers.py:/app/helpers.py
       - ./db.py:/app/db.py
+      - ./ui_login.py:/app/ui_login.py
       - ./ui_pool.py:/app/ui_pool.py
       - ./ui_leases.py:/app/ui_leases.py
       - ./ui_ipam.py:/app/ui_ipam.py
@@ -22,14 +24,12 @@ services:
       - ./style.css:/app/style.css
       - ./.streamlit:/app/.streamlit
       - ./static:/app/static
-      - keanexus_data:/app/data
+      - ./data:/app/data
     command: >
       streamlit run app.py
       --server.runOnSave=true
+      --server.fileWatcherType=poll
       --server.port=8501
       --server.address=0.0.0.0
       --server.headless=true
       --browser.gatherUsageStats=false
-
-volumes:
-  keanexus_data:

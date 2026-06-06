@@ -1,29 +1,57 @@
-/* --- Tab nav bar ---------------------------------------------------------- */
-.stTabs [data-baseweb="tab-list"] {
-	background: #eaecf0;
-	border: 1px solid #d0d7de;
-	border-radius: 6px;
-	padding: 4px;
-	gap: 4px;
+/* --- Hide Streamlit chrome ------------------------------------------------ */
+#MainMenu {
+	display: none !important;
+}
+[data-testid="stHeader"] {
+	display: none !important;
+}
+[data-testid="stDecoration"] {
+	display: none !important;
 }
 
-.stTabs [data-baseweb="tab"] {
-	border-radius: 4px;
-	padding: 6px 20px;
-	font-family: monospace;
-	font-size: 13px;
-	font-weight: 600;
-	color: #57606a;
+/* --- Top padding — only add room for fixed tab bar when tabs are present -- */
+.main .block-container {
+	padding-top: 0.25rem !important;
+}
+.main .block-container:has([data-testid="stTabs"]) {
+	padding-top: 2.8rem !important;
 }
 
-.stTabs [aria-selected="true"] {
+/* --- Tab nav bar — fixed at top of the main content area ------------------ */
+[data-baseweb="tab-list"] {
+	position: fixed !important;
+	top: 0 !important;
+	left: 210px !important;
+	right: 0 !important;
+	z-index: 999 !important;
+	background: #eaecf0 !important;
+	border: none !important;
+	border-bottom: 2px solid #d0d7de !important;
+	border-radius: 0 !important;
+	padding: 6px 1.5rem !important;
+	gap: 4px !important;
+}
+
+[data-baseweb="tab"] {
+	border-radius: 4px !important;
+	padding: 6px 20px !important;
+	font-family: monospace !important;
+	font-size: 13px !important;
+	font-weight: 800 !important;
+	color: #57606a !important;
+}
+
+[aria-selected="true"] {
 	background: #ffffff !important;
 	color: #0969da !important;
-	box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+	box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1) !important;
 }
 
 /* Suppress Streamlit's default tab underline indicator */
-.stTabs [data-baseweb="tab-highlight"] {
+[data-baseweb="tab-highlight"] {
+	display: none !important;
+}
+[data-baseweb="tab-border"] {
 	display: none !important;
 }
 
@@ -31,6 +59,7 @@
 [data-testid="stSidebar"] {
 	min-width: 210px !important;
 	max-width: 210px !important;
+	background-color: #b4bec8 !important;
 }
 
 [data-testid="stSidebar"] > div:first-child {
@@ -42,16 +71,26 @@
 	font-family: monospace !important;
 }
 
-/* --- IPAM table - compact rows --------------------------------------------- */
-/* Reduce button height so rows don't balloon */
-.stButton > button {
-	padding: 0.1rem 0.6rem !important;
-	min-height: 1.6rem !important;
-	font-size: 0.75rem !important;
+/* --- Edit buttons — target Streamlit's kind attribute used in 1.27+ ------- */
+button[kind="secondary"],
+button[kind="primary"],
+button[kind="tertiary"],
+button[kind="borderless"] {
+	padding: 1px 6px !important;
+	min-height: 0 !important;
+	height: auto !important;
+	font-size: 0.6rem !important;
 	line-height: 1.2 !important;
 }
 
-/* Tighten gap between IPAM column rows */
+button[kind] p {
+	font-size: 0.6rem !important;
+	margin: 0 !important;
+	padding: 0 !important;
+	line-height: 1.2 !important;
+}
+
+/* --- Tighten gap between IPAM column rows --------------------------------- */
 [data-testid="stHorizontalBlock"] {
 	gap: 0.4rem !important;
 	margin-bottom: -0.55rem !important;
@@ -61,4 +100,33 @@
 [data-testid="stHorizontalBlock"]:has([data-testid="stTextInput"]),
 [data-testid="stHorizontalBlock"]:has([data-testid="stSelectbox"]) {
 	margin-bottom: 0 !important;
+}
+
+/* --- CSS tooltip for status chip notes ------------------------------------ */
+[data-tooltip] {
+	position: relative !important;
+	cursor: help !important;
+}
+
+[data-tooltip]::after {
+	content: attr(data-tooltip);
+	position: absolute;
+	bottom: calc(100% + 6px);
+	left: 50%;
+	transform: translateX(-50%);
+	background: #24292f;
+	color: #ffffff;
+	font-size: 11px;
+	font-family: monospace;
+	padding: 4px 10px;
+	border-radius: 6px;
+	white-space: nowrap;
+	pointer-events: none;
+	opacity: 0;
+	transition: opacity 0.1s ease;
+	z-index: 9999;
+}
+
+[data-tooltip]:hover::after {
+	opacity: 1;
 }

@@ -34,9 +34,11 @@ Do NOT include:
 ```
 keanexus/
 ├── app.py              — Entry point: page config, CSS, sidebar, tab routing
+├── auth.py             — Authentication: env-var credential check, session state
 ├── kea.py              — Kea Control Agent HTTP client
 ├── helpers.py          — Cached data loaders, format utilities
 ├── db.py               — SQLite persistence layer (IPAM static records)
+├── ui_login.py         — Login page: logo, username/password form
 ├── ui_pool.py          — Pool tab: utilisation gauge, service health, lease summary
 ├── ui_leases.py        — Leases tab: HTML table with type classification
 ├── ui_ipam.py          — IPAM tab: full /24 subnet map + static entry management
@@ -51,6 +53,15 @@ keanexus/
 Data persisted in Docker named volume `keanexus_data` mounted at `/app/data/`.
 
 ## Systems
+
+### Authentication (`auth.py`)
+
+- Credentials read from `KEANEXUS_USERNAME` / `KEANEXUS_PASSWORD` env vars (set in `.env`)
+- `is_authenticated()` — checks `st.session_state["authenticated"]`
+- `attempt_login(username, password)` — constant-time compare via `hmac.compare_digest`; sets session state on success
+- `logout()` — clears session state
+- `app.py` guards `main()` with `is_authenticated()` — unauthenticated requests see only the login page
+- Session lasts for the browser session only (no persistent cookie)
 
 ### Kea Client (`kea.py`)
 

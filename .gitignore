@@ -41,5 +41,8 @@ build/
 *.log
 logs/
 
+# Persistent data directory — bind-mounted into Docker, backed up with the LXC
+data/
+
 # Claude Code local settings — machine-specific, not for version control
 .claude/settings.local.json

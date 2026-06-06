@@ -117,10 +117,10 @@ def render_pool(
 
 	with col_leases:
 		body = (
-			_metric_row("Active",      assigned)
-			+ _metric_row("Declined",  declined,  alert=declined > 0)
-			+ _metric_row("Available", avail)
-			+ _metric_row("Reserved",  len(res))
-			+ _metric_row("Fixed IPs", fixed_ips, last=True)
+			_metric_row("Active Leases",    assigned)
+			+ _metric_row("Available Leases", avail)
+			+ _metric_row("Declined Leases",  declined,  alert=declined > 0)
+			+ _metric_row("Reserved",         len(res))
+			+ _metric_row("Fixed IPs",        fixed_ips, last=True)
 		)
 		st.markdown(_card("Lease Summary", body), unsafe_allow_html=True)
