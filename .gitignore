@@ -1,0 +1,45 @@
+# Python virtual environment — never commit this
+.venv/
+venv/
+env/
+
+# Compiled Python files
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Environment variables — may contain secrets
+.env
+.env.*
+!.env.example
+
+# Secrets baseline is committed so it can be diffed, but not the audit log
+.secrets.audit
+
+# Test artifacts and coverage reports
+.pytest_cache/
+.coverage
+htmlcov/
+coverage.xml
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+
+# macOS system files
+.DS_Store
+.AppleDouble
+
+# Editor and IDE files
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Logs
+*.log
+logs/
+
+# Claude Code local settings — machine-specific, not for version control
+.claude/settings.local.json

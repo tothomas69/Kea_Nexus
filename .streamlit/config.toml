@@ -1,0 +1,19 @@
+[theme]
+base                   = "light"
+backgroundColor        = "#f4f6f9"
+secondaryBackgroundColor = "#e8ecf0"
+primaryColor           = "#0969da"
+textColor              = "#1f2328"
+font                   = "monospace"
+
+[server]
+headless               = true
+port                   = 8501
+enableCORS             = false
+enableXsrfProtection   = true
+
+[browser]
+gatherUsageStats       = false
+
+[logger]
+level                  = "warning"

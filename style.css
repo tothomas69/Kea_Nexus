@@ -1,0 +1,64 @@
+/* --- Tab nav bar ---------------------------------------------------------- */
+.stTabs [data-baseweb="tab-list"] {
+	background: #eaecf0;
+	border: 1px solid #d0d7de;
+	border-radius: 6px;
+	padding: 4px;
+	gap: 4px;
+}
+
+.stTabs [data-baseweb="tab"] {
+	border-radius: 4px;
+	padding: 6px 20px;
+	font-family: monospace;
+	font-size: 13px;
+	font-weight: 600;
+	color: #57606a;
+}
+
+.stTabs [aria-selected="true"] {
+	background: #ffffff !important;
+	color: #0969da !important;
+	box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+/* Suppress Streamlit's default tab underline indicator */
+.stTabs [data-baseweb="tab-highlight"] {
+	display: none !important;
+}
+
+/* --- Sidebar -------------------------------------------------------------- */
+[data-testid="stSidebar"] {
+	min-width: 210px !important;
+	max-width: 210px !important;
+}
+
+[data-testid="stSidebar"] > div:first-child {
+	padding: 0.1rem 0.75rem 1rem;
+}
+
+/* --- Shared metric/health row ---------------------------------------------- */
+[data-testid="stMetricValue"] {
+	font-family: monospace !important;
+}
+
+/* --- IPAM table - compact rows --------------------------------------------- */
+/* Reduce button height so rows don't balloon */
+.stButton > button {
+	padding: 0.1rem 0.6rem !important;
+	min-height: 1.6rem !important;
+	font-size: 0.75rem !important;
+	line-height: 1.2 !important;
+}
+
+/* Tighten gap between IPAM column rows */
+[data-testid="stHorizontalBlock"] {
+	gap: 0.4rem !important;
+	margin-bottom: -0.55rem !important;
+}
+
+/* Restore normal spacing for layout sections that are NOT table rows */
+[data-testid="stHorizontalBlock"]:has([data-testid="stTextInput"]),
+[data-testid="stHorizontalBlock"]:has([data-testid="stSelectbox"]) {
+	margin-bottom: 0 !important;
+}

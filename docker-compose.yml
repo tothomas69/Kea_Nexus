@@ -1,0 +1,35 @@
+name: keanexus
+
+services:
+  keanexus:
+    build: .
+    container_name: keanexus
+    restart: unless-stopped
+    ports:
+      - "8501:8501"
+    env_file:
+      - .env
+    volumes:
+      - ./app.py:/app/app.py
+      - ./kea.py:/app/kea.py
+      - ./helpers.py:/app/helpers.py
+      - ./db.py:/app/db.py
+      - ./ui_pool.py:/app/ui_pool.py
+      - ./ui_leases.py:/app/ui_leases.py
+      - ./ui_ipam.py:/app/ui_ipam.py
+      - ./ui_reservations.py:/app/ui_reservations.py
+      - ./ui_maintenance.py:/app/ui_maintenance.py
+      - ./style.css:/app/style.css
+      - ./.streamlit:/app/.streamlit
+      - ./static:/app/static
+      - keanexus_data:/app/data
+    command: >
+      streamlit run app.py
+      --server.runOnSave=true
+      --server.port=8501
+      --server.address=0.0.0.0
+      --server.headless=true
+      --browser.gatherUsageStats=false
+
+volumes:
+  keanexus_data:

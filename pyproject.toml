@@ -1,0 +1,45 @@
+[project]
+name = "keanexus"
+version = "0.1.0"
+description = ""
+requires-python = ">=3.13,<3.14"
+dependencies = [
+    "pandas",
+    "requests",
+    "python-dotenv",
+    "pydantic",
+    "pypdf",
+]
+
+[tool.ruff]
+# Use tabs for indentation — matches project coding standards
+indent-width = 4
+line-length  = 100
+
+[tool.ruff.format]
+# Enforce tabs, not spaces, as required by coding guidelines
+indent-style = "tab"
+
+[tool.ruff.lint]
+# E/W = pycodestyle, F = pyflakes, I = isort import sorting
+select = ["E", "F", "I", "W"]
+
+# Rules we deliberately ignore:
+#   E501 — line too long (we trust developers on long strings/comments)
+#   E303 — too many blank lines (occasionally useful for readability)
+ignore = ["E501", "E303", "W191", "E101"]
+
+[tool.pytest.ini_options]
+# Discover all tests/ directories recursively
+testpaths = ["tests"]
+# Enforce 80% minimum coverage on every run — matches Definition of Done
+addopts = "--cov=. --cov-report=term-missing --cov-fail-under=80"
+# AI NOTE: This coverage config is for the projects Spellforge creates, not for Spellforge itself.
+# Spellforge is a bootstrapper script — it has no application code to cover.
+
+
+[tool.bandit]
+# Skip test files - they intentionally use patterns bandit flags
+exclude_dirs = ["tests", ".venv"]
+# Only report medium severity and above - low is too noisy for most projects
+skips = ["B101"]  # B101 = assert used - fine in non-production code

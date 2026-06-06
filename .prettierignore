@@ -1,0 +1,9 @@
+# Prettier ignore - generated and non-source files
+.venv/
+node_modules/
+__pycache__/
+dist/
+build/
+*.egg-info/
+coverage/
+.coverage
