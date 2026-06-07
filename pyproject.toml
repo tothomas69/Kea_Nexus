@@ -38,6 +38,17 @@ addopts = "--cov=. --cov-report=term-missing --cov-fail-under=80"
 # Spellforge is a bootstrapper script — it has no application code to cover.
 
 
+[tool.coverage.run]
+# Streamlit UI entry point and page modules cannot be unit-tested without a
+# running Streamlit server; exclude them so they don't drag down total coverage.
+omit = [
+    "app.py",
+    "ui_*.py",
+    ".venv/*",
+    "tests/*",
+]
+
+
 [tool.bandit]
 # Skip test files - they intentionally use patterns bandit flags
 exclude_dirs = ["tests", ".venv"]
