@@ -132,6 +132,21 @@ Key Kea commands used:
 
 **All times UTC internally** — Kea lease expiry timestamps are Unix epoch. Display formatting converts to human-readable durations via `fmt_ttl()`.
 
+## Testing
+
+Unit tests live in `tests/`. Coverage is measured only over the four testable back-end modules (`auth.py`, `db.py`, `kea.py`, `helpers.py`). Streamlit UI files (`app.py`, `ui_*.py`) are excluded from coverage — they require a live Streamlit server and cannot be unit-tested.
+
+| File                    | What is tested                                                       |
+| ----------------------- | -------------------------------------------------------------------- |
+| `tests/test_auth.py`    | `is_authenticated`, `attempt_login` (all credential paths), `logout` |
+| `tests/test_db.py`      | Full CRUD on `ipam_static` via `temp_db` fixture (SQLite in tmp dir) |
+| `tests/test_kea.py`     | All `KeaClient` methods; `httpx` patched via `http_mock` fixture     |
+| `tests/test_helpers.py` | `fmt_ttl`, `chip`, `leases_to_df` (pure functions only)              |
+
+`conftest.py` provides two shared fixtures: `temp_db` (redirects `_DB_PATH` to a temp file) and `http_mock` (patches `kea.httpx.Client` so no real HTTP calls are made).
+
+**Streamlit cached loaders** (`load_leases`, `load_pool_stats`, `load_config`, `load_status` in `helpers.py`) are not tested — they require a `ScriptRunContext` that only exists inside a running Streamlit app.
+
 ## Validation and Error Handling Standards
 
 - UI components catch all errors and display via `st.error()`
