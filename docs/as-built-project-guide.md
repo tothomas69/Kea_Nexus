@@ -45,8 +45,10 @@ keanexus/
 ├── ui_reservations.py  — Reservations tab: Kea config CRUD
 ├── ui_maintenance.py   — Maintenance tab: DHCP enable/disable, wipe leases
 ├── style.css           — Global CSS overrides for Streamlit internals
+├── Makefile            — Developer setup (`make setup`) and test runner (`make test`)
 ├── static/             — Static assets (keanexus_logo.png)
 ├── docs/               — PRD and this guide
+├── .githooks/          — Committed git hooks; activated per-clone with `make setup`
 └── .streamlit/         — Streamlit config (theme)
 ```
 

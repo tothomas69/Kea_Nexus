@@ -25,13 +25,18 @@ Implementation is complete when:
 
 ### Quality Gate
 
-The quality gate runs as a **git pre-commit hook** (`.git/hooks/pre-commit`), not after every Claude edit:
+The quality gate runs as a **git pre-commit hook** (`.githooks/pre-commit`), not after every Claude edit:
 
 - Ruff formats and lints staged Python files (formatting fixes are auto-restaged)
+- pytest runs the full test suite and enforces 80% coverage
 - detect-secrets scans for new secrets against `.secrets.baseline`
-- Commit is blocked on lint errors or new secrets
+- Commit is blocked on lint errors, test failures, or new secrets
 
-Run `pytest tests/ -v` and the coverage report manually — they are intentionally not in the pre-commit hook (too slow to run on every commit). Treat them as the last check before opening a PR.
+The hook is committed to `.githooks/` and activated per-clone with:
+
+```
+make setup
+```
 
 ### As-Built Project Guide Maintenance
 

@@ -1,0 +1,170 @@
+#!/bin/bash
+# =============================================================================
+# .githooks/pre-commit — Quality + secret-scanning gate
+# =============================================================================
+# Runs before every git commit. Stages, in order:
+#   1. Ruff format + lint on staged .py files (auto-restages formatting fixes)
+#   2. ESLint --fix on staged JS/TS files (auto-restages fixes, blocks on errors)
+#   3. Prettier --write on staged frontend files (auto-restages)
+#   4. pytest with coverage (blocks on test failure or coverage < 80%)
+#   5. detect-secrets scan against the baseline
+# Inactive stages are omitted — only installed tools run.
+#
+# First-time setup (after cloning):
+#   make setup
+#
+# To update the secrets baseline after intentionally adding a known value:
+#   detect-secrets scan > .secrets.baseline
+#
+# Exit codes:
+#   0 — all checks passed, commit proceeds
+#   1 — a check failed, commit is blocked
+# =============================================================================
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+VENV_BIN="$REPO_ROOT/.venv/bin"
+
+RUFF="$VENV_BIN/ruff"
+PYTEST="$VENV_BIN/pytest"
+BASELINE="$REPO_ROOT/.secrets.baseline"
+
+# detect-secrets may live in the venv or be installed system-wide
+DETECT_SECRETS="$VENV_BIN/detect-secrets"
+if [ ! -x "$DETECT_SECRETS" ]; then
+  DETECT_SECRETS="$(command -v detect-secrets 2>/dev/null || true)"
+fi
+
+# -----------------------------------------------------------------------------
+# Stage — Ruff format + lint on staged Python files
+# -----------------------------------------------------------------------------
+
+staged_py=$(git diff --cached --name-only --diff-filter=ACM | grep -E '\.py$' || true)
+
+if [ -n "$staged_py" ]; then
+  if [ ! -x "$RUFF" ]; then
+    echo "⚠  Ruff not found at $RUFF — is the venv set up? Run: make setup" >&2
+  else
+    echo "🎨 Ruff format on staged files..."
+    # shellcheck disable=SC2086
+    "$RUFF" format $staged_py --quiet
+    # shellcheck disable=SC2086
+    git add $staged_py
+
+    echo "🔍 Ruff check on staged files..."
+    # shellcheck disable=SC2086
+    if ! "$RUFF" check $staged_py; then
+      echo "" >&2
+      echo "🚨 Ruff lint errors found. Commit blocked." >&2
+      echo "   Fix the issues above, then re-stage and re-commit." >&2
+      exit 1
+    fi
+  fi
+fi
+
+# -----------------------------------------------------------------------------
+# Stage — ESLint fix + lint on staged JS/TS files
+# -----------------------------------------------------------------------------
+
+staged_js=$(git diff --cached --name-only --diff-filter=ACM | grep -E '\.(js|ts|jsx|tsx|vue)$' || true)
+
+if [ -n "$staged_js" ]; then
+  if ! command -v eslint &>/dev/null; then
+    echo "⚠  eslint not found on PATH — skipping JS/TS lint." >&2
+  else
+    echo "🔧 ESLint --fix on staged files..."
+    # shellcheck disable=SC2086
+    eslint --fix $staged_js 2>/dev/null; eslint_exit=$?
+    # shellcheck disable=SC2086
+    git add $staged_js
+
+    if [ $eslint_exit -ne 0 ]; then
+      echo "" >&2
+      echo "🚨 ESLint errors remain after auto-fix. Commit blocked." >&2
+      echo "   Fix the issues above, then re-stage and re-commit." >&2
+      exit 1
+    fi
+  fi
+fi
+
+# -----------------------------------------------------------------------------
+# Stage — Prettier format on staged frontend files
+# -----------------------------------------------------------------------------
+
+staged_fmt=$(git diff --cached --name-only --diff-filter=ACM | grep -E '\.(js|ts|jsx|tsx|vue|css|scss|html|json|md)$' || true)
+
+if [ -n "$staged_fmt" ]; then
+  if ! command -v prettier &>/dev/null; then
+    echo "⚠  prettier not found on PATH — skipping format." >&2
+  else
+    echo "✨ Prettier --write on staged files..."
+    # shellcheck disable=SC2086
+    prettier --write $staged_fmt --log-level warn
+    # shellcheck disable=SC2086
+    git add $staged_fmt
+  fi
+fi
+
+# -----------------------------------------------------------------------------
+# Stage — pytest + coverage
+# -----------------------------------------------------------------------------
+
+if [ ! -x "$PYTEST" ]; then
+  echo "⚠  pytest not found at $PYTEST — is the venv set up? Run: make setup" >&2
+else
+  echo "🧪 Running tests..."
+  if ! "$PYTEST" tests/ -q --tb=short; then
+    echo "" >&2
+    echo "🚨 Tests failed. Commit blocked." >&2
+    echo "   Fix the failing tests, then re-stage and re-commit." >&2
+    exit 1
+  fi
+fi
+
+# -----------------------------------------------------------------------------
+# Stage — detect-secrets scan
+# -----------------------------------------------------------------------------
+
+if [ -z "$DETECT_SECRETS" ] || [ ! -x "$DETECT_SECRETS" ]; then
+  echo "⚠  detect-secrets not found — secret scanning skipped." >&2
+  echo "⚠  Install with: pip install detect-secrets" >&2
+  exit 0
+fi
+
+if [ ! -f "$BASELINE" ]; then
+  echo "⚠  No .secrets.baseline found." >&2
+  echo "⚠  Run: detect-secrets scan > .secrets.baseline" >&2
+  echo "⚠  Secret scanning skipped for this commit." >&2
+  exit 0
+fi
+
+echo "🔐 Scanning for secrets..."
+
+TMPFILE=$(mktemp)
+"$DETECT_SECRETS" scan --exclude-files '\.secrets\.baseline' > "$TMPFILE"
+scan_exit=$?
+
+if [ $scan_exit -ne 0 ]; then
+  echo "⚠  detect-secrets scan failed — skipping check." >&2
+  rm -f "$TMPFILE"
+  exit 0
+fi
+
+BASELINE_RESULTS=$(python3 -c \
+  "import json,sys; print(json.dumps(json.load(open(sys.argv[1])).get('results',{}), sort_keys=True))" \
+  "$BASELINE")
+SCAN_RESULTS=$(python3 -c \
+  "import json,sys; print(json.dumps(json.load(open(sys.argv[1])).get('results',{}), sort_keys=True))" \
+  "$TMPFILE")
+rm -f "$TMPFILE"
+
+if [ "$BASELINE_RESULTS" != "$SCAN_RESULTS" ]; then
+  echo "" >&2
+  echo "🚨 New secrets detected! Commit blocked." >&2
+  echo "   Review with: detect-secrets audit .secrets.baseline" >&2
+  echo "   To update baseline after confirming false positives:" >&2
+  echo "   detect-secrets scan > .secrets.baseline && git add .secrets.baseline" >&2
+  exit 1
+fi
+
+echo "✔  No new secrets detected."
+exit 0
