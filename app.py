@@ -2,23 +2,22 @@
 app.py - KeaNexus DHCP Management Dashboard
 Entry point. Page config, CSS injection, sidebar, and tab routing.
 """
+
 from pathlib import Path
 from typing import Optional
 
 import streamlit as st
 
+from auth import is_authenticated, logout
+from db import init_db
+from helpers import get_client, load_config, load_leases, load_pool_stats, load_status
 from kea import KeaError
-from helpers import (
-	get_client, load_leases, load_pool_stats, load_config, load_status
-)
-from auth            import is_authenticated, logout
-from db              import init_db
-from ui_login        import render_login
-from ui_pool         import render_pool
-from ui_leases       import render_leases
+from ui_ipam import render_ipam
+from ui_leases import render_leases
+from ui_login import render_login
+from ui_maintenance import render_maintenance
+from ui_pool import render_pool
 from ui_reservations import render_reservations
-from ui_maintenance  import render_maintenance
-from ui_ipam         import render_ipam
 
 # --- Page config (must be first Streamlit call) -------------------------------
 st.set_page_config(
@@ -26,8 +25,7 @@ st.set_page_config(
 	page_icon="*",
 	layout="wide",
 	initial_sidebar_state="expanded",
-	menu_items={"Get help": None, "Report a bug": None,
-	            "About": "KeaNexus . cyberwraith.net"},
+	menu_items={"Get help": None, "Report a bug": None, "About": "KeaNexus . cyberwraith.net"},
 )
 
 # --- CSS loaded from style.css ------------------------------------------------
@@ -39,13 +37,14 @@ init_db()
 
 # --- Sidebar ------------------------------------------------------------------
 
+
 def _sidebar_item(label: str, value: str) -> str:
 	return (
 		f'<div style="padding:8px 0;border-bottom:1px solid #e8ecf0;text-align:center">'
 		f'<div style="font-family:monospace;font-size:10px;font-weight:700;color:#57606a;'
 		f'text-transform:uppercase;letter-spacing:.06em;margin-bottom:3px">{label}</div>'
 		f'<div style="font-family:monospace;font-size:12px;color:#1f2328">{value}</div>'
-		f'</div>'
+		f"</div>"
 	)
 
 
@@ -89,36 +88,44 @@ def render_sidebar(stats: Optional[dict], config: Optional[dict]) -> None:
 
 # --- Main ---------------------------------------------------------------------
 
+
 def main() -> None:
 	if not is_authenticated():
 		render_login()
 		return
 
-	kea    = get_client()
+	kea = get_client()
 	leases = []
 	try:
 		leases = load_leases(kea)
 	except KeaError as e:
 		st.error(f"Could not load leases: {e}")
 
-	stats  = load_pool_stats(kea)
+	stats = load_pool_stats(kea)
 	config = load_config(kea)
 	status = load_status(kea)
 
 	render_sidebar(stats, config)
 
-	tab_pool, tab_leases, tab_ipam, tab_res, tab_maint = st.tabs([
-		"Pool",
-		"Leases",
-		"IPAM",
-		"Reservations",
-		"Maintenance",
-	])
-	with tab_pool:   render_pool(stats, config, status)
-	with tab_leases: render_leases(leases, config)
-	with tab_ipam:   render_ipam(leases, config)
-	with tab_res:    render_reservations(config)
-	with tab_maint:  render_maintenance(leases)
+	tab_pool, tab_leases, tab_ipam, tab_res, tab_maint = st.tabs(
+		[
+			"Pool",
+			"Leases",
+			"IPAM",
+			"Reservations",
+			"Maintenance",
+		]
+	)
+	with tab_pool:
+		render_pool(stats, config, status)
+	with tab_leases:
+		render_leases(leases, config)
+	with tab_ipam:
+		render_ipam(leases, config)
+	with tab_res:
+		render_reservations(config)
+	with tab_maint:
+		render_maintenance(leases)
 
 
 if __name__ == "__main__":

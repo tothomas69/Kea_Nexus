@@ -95,7 +95,7 @@ Data persisted in Docker named volume `keanexus_data` mounted at `/app/data/`.
 
 - `render_ipam(leases, config)` — full /24 subnet map (256 addresses)
 - `_classify_all(...)` — classifies each IP as: network, broadcast, gateway, leased, declined, reserved, static, scope (free in pool), or free
-- Status priority: network/broadcast > gateway > active lease > reservation > static DB entry > in-scope free > free
+- Status priority: network/broadcast > gateway > declined lease > active lease with fixed reservation (shows as reserved) > active lease > reservation > static DB entry > in-scope free > free
 - Static entries stored in SQLite; only permitted for out-of-scope addresses
 - Edit form in expander below table; `upsert_static_entry` / `delete_static_entry`
 

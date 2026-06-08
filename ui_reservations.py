@@ -5,10 +5,11 @@ Renders all DHCP reservations as a styled HTML-column table with
 per-row Edit dialogs. Each save writes directly to kea-dhcp4.conf
 via config-set + config-write.
 """
-import streamlit as st
-from kea import KeaClient, KeaError
-from helpers import get_client, load_config
 
+import streamlit as st
+
+from helpers import get_client, load_config
+from kea import KeaClient, KeaError
 
 _TH = (
 	"font-family:monospace;font-size:11px;font-weight:700;color:#1f2328;"
@@ -16,11 +17,12 @@ _TH = (
 )
 _TD = "font-family:monospace;font-size:13px;color:#1f2328"
 
-_COL_WIDTHS  = [0.5, 2.0, 2.5, 2.5, 1.5, 1.0]
+_COL_WIDTHS = [0.5, 2.0, 2.5, 2.5, 1.5, 1.0]
 _COL_HEADERS = ["#", "IP Address", "Hostname", "MAC", "Type", ""]
 
 
 # --- Helpers ------------------------------------------------------------------
+
 
 def _type_chip(ip: str) -> str:
 	"""Chip showing 'fixed' (has IP) or 'name-only'."""
@@ -28,12 +30,12 @@ def _type_chip(ip: str) -> str:
 		return (
 			'<span style="background:#ddf4ff;color:#0550ae;font-size:11px;font-weight:600;'
 			'padding:2px 9px;border-radius:10px;display:inline-block;white-space:nowrap">'
-			'fixed</span>'
+			"fixed</span>"
 		)
 	return (
 		'<span style="background:#f6f8fa;color:#57606a;font-size:11px;font-weight:600;'
 		'padding:2px 9px;border-radius:10px;display:inline-block;white-space:nowrap">'
-		'name-only</span>'
+		"name-only</span>"
 	)
 
 
@@ -56,12 +58,13 @@ def _save_config(config: dict) -> None:
 
 # --- Dialogs ------------------------------------------------------------------
 
+
 @st.dialog("Add Reservation")
 def add_reservation_dialog(config: dict) -> None:
 	"""Add a new DHCP reservation to the Kea config."""
 	st.caption("Saves to kea-dhcp4.conf via config-set + config-write.")
-	ip  = st.text_input("IP address", placeholder="172.16.17.x  (blank = name-only)")
-	hn  = st.text_input("Hostname *")
+	ip = st.text_input("IP address", placeholder="172.16.17.x  (blank = name-only)")
+	hn = st.text_input("Hostname *")
 	mac = st.text_input("MAC address *", placeholder="aa:bb:cc:dd:ee:ff")
 	c1, c2 = st.columns(2)
 	with c1:
@@ -87,11 +90,15 @@ def add_reservation_dialog(config: dict) -> None:
 @st.dialog("Edit Reservation")
 def _edit_dialog(reservation: dict, config: dict) -> None:
 	"""Edit or delete an existing DHCP reservation."""
-	ip  = st.text_input("IP address",   value=reservation.get("ip-address", ""),
-	                    placeholder="172.16.17.x  (blank = name-only)")
-	hn  = st.text_input("Hostname *",   value=reservation.get("hostname", ""))
-	mac = st.text_input("MAC address *", value=reservation.get("hw-address", ""),
-	                    placeholder="aa:bb:cc:dd:ee:ff")
+	ip = st.text_input(
+		"IP address",
+		value=reservation.get("ip-address", ""),
+		placeholder="172.16.17.x  (blank = name-only)",
+	)
+	hn = st.text_input("Hostname *", value=reservation.get("hostname", ""))
+	mac = st.text_input(
+		"MAC address *", value=reservation.get("hw-address", ""), placeholder="aa:bb:cc:dd:ee:ff"
+	)
 	c1, c2, c3 = st.columns(3)
 	with c1:
 		if st.button("Save", type="primary", use_container_width=True):
@@ -131,6 +138,7 @@ def _edit_dialog(reservation: dict, config: dict) -> None:
 
 # --- Table rendering ----------------------------------------------------------
 
+
 def _render_table(reservations: list[dict], config: dict) -> None:
 	"""Render reservations as CSS-grid header + st.columns data rows."""
 	col_template = " ".join(f"{w}fr" for w in _COL_WIDTHS)
@@ -138,19 +146,19 @@ def _render_table(reservations: list[dict], config: dict) -> None:
 	st.markdown(
 		f'<div style="display:grid;grid-template-columns:{col_template};gap:0.4rem;'
 		f'border-bottom:2px solid #d0d7de;padding:6px 0 8px;margin-top:12px;margin-bottom:6px">'
-		f'{header_cells}</div>',
+		f"{header_cells}</div>",
 		unsafe_allow_html=True,
 	)
 
 	for i, res in enumerate(_sorted_reservations(reservations), 1):
-		ip  = res.get("ip-address", "")
-		hn  = res.get("hostname", "")
+		ip = res.get("ip-address", "")
+		hn = res.get("hostname", "")
 		mac = res.get("hw-address", "")
 
 		cols = st.columns(_COL_WIDTHS)
-		cols[0].markdown(f'<span style="{_TD};font-weight:600">{i}</span>',  unsafe_allow_html=True)
-		cols[1].markdown(f'<span style="{_TD}">{ip  or "—"}</span>', unsafe_allow_html=True)
-		cols[2].markdown(f'<span style="{_TD}">{hn  or "—"}</span>', unsafe_allow_html=True)
+		cols[0].markdown(f'<span style="{_TD};font-weight:600">{i}</span>', unsafe_allow_html=True)
+		cols[1].markdown(f'<span style="{_TD}">{ip or "—"}</span>', unsafe_allow_html=True)
+		cols[2].markdown(f'<span style="{_TD}">{hn or "—"}</span>', unsafe_allow_html=True)
 		cols[3].markdown(f'<span style="{_TD}">{mac or "—"}</span>', unsafe_allow_html=True)
 		cols[4].markdown(_type_chip(ip), unsafe_allow_html=True)
 		if cols[5].button("Edit", key=f"res_edit_{i}", use_container_width=True):
@@ -158,6 +166,7 @@ def _render_table(reservations: list[dict], config: dict) -> None:
 
 
 # --- Main render --------------------------------------------------------------
+
 
 def render_reservations(config) -> None:
 	"""Render the Reservations tab: count, + Add button, and reservation table."""
