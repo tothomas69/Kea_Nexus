@@ -18,6 +18,7 @@ from ui_login import render_login
 from ui_maintenance import render_maintenance
 from ui_pool import render_pool
 from ui_reservations import render_reservations
+from ui_settings import render_settings
 
 # --- Page config (must be first Streamlit call) -------------------------------
 st.set_page_config(
@@ -107,13 +108,14 @@ def main() -> None:
 
 	render_sidebar(stats, config)
 
-	tab_pool, tab_leases, tab_ipam, tab_res, tab_maint = st.tabs(
+	tab_pool, tab_leases, tab_ipam, tab_res, tab_maint, tab_settings = st.tabs(
 		[
 			"Pool",
 			"Leases",
 			"IPAM",
 			"Reservations",
 			"Maintenance",
+			"Settings",
 		]
 	)
 	with tab_pool:
@@ -126,6 +128,8 @@ def main() -> None:
 		render_reservations(config)
 	with tab_maint:
 		render_maintenance(leases)
+	with tab_settings:
+		render_settings(config)
 
 
 if __name__ == "__main__":
