@@ -72,9 +72,7 @@
 }
 
 /* --- Table row edit buttons — small only inside horizontal column blocks -- */
-[data-testid="stHorizontalBlock"] button[kind="secondary"],
-[data-testid="stHorizontalBlock"] button[kind="tertiary"],
-[data-testid="stHorizontalBlock"] button[kind="borderless"] {
+[data-testid="stHorizontalBlock"] button[kind] {
 	padding: 1px 6px !important;
 	min-height: 0 !important;
 	height: auto !important;
@@ -87,23 +85,6 @@
 	padding: 0 !important;
 	line-height: 1.2 !important;
 }
-
-/* --- Action buttons — normal height and size ------------------------------ */
-button[kind="primary"],
-button[kind="secondary"]:not([data-testid="stHorizontalBlock"] button) {
-	height: 2.5rem !important;
-	padding: 0.25rem 1rem !important;
-	font-size: 0.875rem !important;
-	line-height: 1.5 !important;
-}
-
-button[kind] p {
-	font-size: 0.6rem !important;
-	margin: 0 !important;
-	padding: 0 !important;
-	line-height: 1.2 !important;
-}
-
 /* --- Tighten gap between IPAM column rows --------------------------------- */
 [data-testid="stHorizontalBlock"] {
 	gap: 0.4rem !important;
