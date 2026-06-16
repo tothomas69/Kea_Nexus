@@ -109,10 +109,10 @@ def _set_option_value(subnet: dict, option_name: str, data: str) -> None:
 def _set_pool_range(subnet: dict, start_ip: str, end_ip: str) -> None:
 	"""
 	Write the pool range back into the subnet config.
-	Kea expects the format: 'x.x.x.x - y.y.y.y'
+	Kea expects the format: 'x.x.x.x-y.y.y.y' (no spaces around the dash).
 	"""
 	pools = subnet.setdefault("pools", [{}])
-	pools[0]["pool"] = f"{start_ip.strip()} - {end_ip.strip()}"
+	pools[0]["pool"] = f"{start_ip.strip()}-{end_ip.strip()}"
 
 
 def _save_config(config: dict) -> None:
@@ -217,7 +217,12 @@ def render_settings(config: dict | None) -> None:
 	# --- Read current values from config ----------------------------------
 
 	current_subnet_cidr = subnet.get("subnet", "unknown")
-	current_valid_lft = subnet.get("valid-lft", SECONDS_PER_HOUR * 24)
+
+	# Kea uses min-valid-lifetime / max-valid-lifetime at the subnet level.
+	# Fall back to valid-lft for older Kea versions, then to 24h as a safe default.
+	current_valid_lft = (
+		subnet.get("min-valid-lifetime") or subnet.get("valid-lft") or SECONDS_PER_HOUR * 24
+	)
 	current_lease_hours = current_valid_lft // SECONDS_PER_HOUR
 
 	current_gateway = _get_option_value(subnet, OPTION_NAME_GATEWAY)
@@ -318,8 +323,17 @@ def render_settings(config: dict | None) -> None:
 				st.error(error)
 			return
 
-		# Apply all changes to the config dict in memory
-		subnet["valid-lft"] = int(new_lease_hours) * SECONDS_PER_HOUR
+		# Kea uses min-valid-lifetime and max-valid-lifetime at subnet level.
+		# Setting both to the same value gives a fixed lease time.
+		# renew-timer (50%) and rebind-timer (87.5%) are derived per RFC 2131.
+		lease_seconds = int(new_lease_hours) * SECONDS_PER_HOUR
+		subnet["min-valid-lifetime"] = lease_seconds
+		subnet["max-valid-lifetime"] = lease_seconds
+		subnet["renew-timer"] = int(lease_seconds * 0.5)
+		subnet["rebind-timer"] = int(lease_seconds * 0.875)
+
+		# Remove valid-lft if it somehow ended up in the config — Kea rejects it
+		subnet.pop("valid-lft", None)
 
 		_set_pool_range(subnet, new_pool_start, new_pool_end)
 		_set_option_value(subnet, OPTION_NAME_GATEWAY, new_gateway)
