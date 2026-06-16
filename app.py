@@ -28,25 +28,6 @@ st.set_page_config(
 	initial_sidebar_state="expanded",
 	menu_items={"Get help": None, "Report a bug": None, "About": "KeaNexus . cyberwraith.net"},
 )
-# Inject CSS to give all buttons consistent height and padding
-st.markdown(
-	"""
-	<style>
-	/* Make all buttons taller and more clickable */
-	div.stButton > button {
-		height: 2.5rem;
-		padding: 0.25rem 1rem;
-		font-size: 0.9rem;
-	}
-	/* Sidebar buttons match the same height */
-	section[data-testid="stSidebar"] div.stButton > button {
-		width: 100%;
-		height: 2.5rem;
-	}
-	</style>
-	""",
-	unsafe_allow_html=True,
-)
 # --- CSS loaded from style.css ------------------------------------------------
 _css = (Path(__file__).parent / "style.css").read_text()
 st.markdown(f"<style>{_css}</style>", unsafe_allow_html=True)
