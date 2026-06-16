@@ -343,7 +343,7 @@ def render_settings(config: dict | None) -> None:
 
 		try:
 			_save_config(config)
-			st.success("Settings saved — Kea config updated and written to disk.")
+			st.toast("Settings saved successfully!", icon="✅")
 			st.rerun()
 		except KeaError as error:
 			st.error(f"Failed to save: {error}")

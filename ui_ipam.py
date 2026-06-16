@@ -186,15 +186,15 @@ def _edit_dialog(
 
 	c1, c2, c3 = st.columns(3)
 	with c1:
-		if st.button("Save", type="primary", use_container_width=True):
+		if st.button("Save", type="primary", width="stretch"):
 			upsert_static_entry(ip, hostname.strip(), mac.strip(), desc.strip(), notes.strip())
 			st.rerun()
 	with c2:
-		if existing and st.button("Delete", use_container_width=True):
+		if existing and st.button("Delete", width="stretch"):
 			delete_static_entry(ip)
 			st.rerun()
 	with c3:
-		if st.button("Cancel", use_container_width=True):
+		if st.button("Cancel", width="stretch"):
 			st.rerun()
 
 
@@ -254,7 +254,7 @@ def _render_table(
 		c[4].markdown(f'<span style="{_CELL}">{row.info or ""}</span>', unsafe_allow_html=True)
 		# Network (.0) and broadcast (.255) have nothing to edit
 		if row.last_octet not in (0, 255):
-			if c[5].button("Edit", key=f"ipam_edit_{row.ip}", use_container_width=True):
+			if c[5].button("Edit", key=f"ipam_edit_{row.ip}", width="stretch"):
 				_edit_dialog(
 					row.ip,
 					prefix,

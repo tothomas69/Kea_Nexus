@@ -136,7 +136,7 @@ def add_lease_dialog() -> None:
 	)
 	c1, c2 = st.columns(2)
 	with c1:
-		if st.button("Add lease", type="primary", use_container_width=True):
+		if st.button("Add lease", type="primary", width="stretch"):
 			if not ip.strip() or not mac.strip():
 				st.error("IP and MAC are required.")
 				return
@@ -148,7 +148,7 @@ def add_lease_dialog() -> None:
 			except KeaError as e:
 				st.error(str(e))
 	with c2:
-		if st.button("Cancel", use_container_width=True):
+		if st.button("Cancel", width="stretch"):
 			st.rerun()
 
 
@@ -163,7 +163,7 @@ def edit_lease_dialog(lease: dict) -> None:
 	st.caption(f"Updating lease for {ip}. Sets a new expiry from now + duration.")
 	c1, c2 = st.columns(2)
 	with c1:
-		if st.button("Save", type="primary", use_container_width=True):
+		if st.button("Save", type="primary", width="stretch"):
 			try:
 				get_client().update_lease(ip, mac.strip(), hn.strip(), int(vlt))
 				load_leases.clear()
@@ -171,7 +171,7 @@ def edit_lease_dialog(lease: dict) -> None:
 			except KeaError as e:
 				st.error(str(e))
 	with c2:
-		if st.button("Cancel", use_container_width=True):
+		if st.button("Cancel", width="stretch"):
 			st.rerun()
 
 
@@ -230,7 +230,7 @@ def render_leases(leases: list[dict], config: Optional[dict] = None) -> None:
 				key="leases_lookup_val",
 			)
 		with lc3:
-			do_lookup = st.button("Search", use_container_width=True)
+			do_lookup = st.button("Search", width="stretch")
 
 		if do_lookup and lval.strip():
 			kea = get_client()
@@ -259,13 +259,13 @@ def render_leases(leases: list[dict], config: Optional[dict] = None) -> None:
 		st.divider()
 		ac1, ac2 = st.columns(2)
 		with ac1:
-			if st.button("+ Add lease manually", use_container_width=True):
+			if st.button("+ Add lease manually", width="stretch"):
 				add_lease_dialog()
 		with ac2:
 			eip = st.text_input(
 				"Edit lease by IP", placeholder="172.16.17.x", label_visibility="collapsed"
 			)
-			if st.button("Edit ->", use_container_width=True) and eip.strip():
+			if st.button("Edit ->", width="stretch") and eip.strip():
 				lease = get_client().get_lease_by_ip(eip.strip())
 				if lease:
 					edit_lease_dialog(lease)

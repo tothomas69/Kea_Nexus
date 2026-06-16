@@ -52,7 +52,7 @@ def _sidebar_item(label: str, value: str) -> str:
 def render_sidebar(stats: Optional[dict], config: Optional[dict]) -> None:
 	logo_path = Path(__file__).parent / "static" / "keanexus_logo.png"
 	if logo_path.exists():
-		st.sidebar.image(str(logo_path), use_container_width=True)
+		st.sidebar.image(str(logo_path), width="stretch")
 
 	if not (stats and config):
 		return
@@ -82,7 +82,7 @@ def render_sidebar(stats: Optional[dict], config: Optional[dict]) -> None:
 	)
 
 	st.sidebar.markdown('<div style="margin-top:16px"></div>', unsafe_allow_html=True)
-	if st.sidebar.button("Sign out", use_container_width=True):
+	if st.sidebar.button("Sign out", width="stretch"):
 		logout()
 		st.rerun()
 
