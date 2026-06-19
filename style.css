@@ -14,8 +14,13 @@
 [data-testid="stDecoration"] {
 	display: none !important;
 }
-/* Hide toolbar contents but NOT the toolbar itself — sidebar button lives inside it */
-[data-testid="stToolbar"] > *:not([data-testid="stExpandSidebarButton"]) {
+/* Hide toolbar contents but NOT the toolbar itself — sidebar button lives inside it.
+   Explicitly target each chrome element we want gone, leaving stExpandSidebarButton alone. */
+[data-testid="stIconMaterial"],
+[data-testid="stToolbarActions"],
+[data-testid="stMainMenu"],
+[data-testid="stMainMenuButton"],
+[data-testid="stDecoration"] {
 	display: none !important;
 }
 
