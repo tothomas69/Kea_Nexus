@@ -60,7 +60,7 @@ def _sidebar_version_block(status: dict) -> str:
 	kea_ver = dhcp4.version if dhcp4 and hasattr(dhcp4, "version") else "—"
 
 	return (
-		'<div style="margin-top:16px;padding-top:8px;border-top:2px solid #e8ecf0">'
+		'<div style="margin-top:16px;padding-top:8px">'
 		+ _sidebar_item("KeaNexus", f"v{APP_VERSION}")
 		+ _sidebar_item("Kea DHCP", kea_ver)
 		+ _sidebar_item("API Mode", "Direct API")

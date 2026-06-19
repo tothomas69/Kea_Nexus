@@ -9,6 +9,12 @@
 	display: none !important;
 }
 
+/* --- Restore sidebar collapse/expand button hidden by stHeader rule ------- */
+[data-testid="collapsedControl"],
+[data-testid="baseButton-headerNoPadding"] {
+	display: flex !important;
+}
+
 /* --- Top padding — only add room for fixed tab bar when tabs are present -- */
 .main .block-container {
 	padding-top: 0.25rem !important;
@@ -71,20 +77,30 @@
 	font-family: monospace !important;
 }
 
-/* --- Table row edit buttons — small only inside horizontal column blocks -- */
-[data-testid="stHorizontalBlock"] button[kind] {
+/* --- Table row edit buttons — small only inside horizontal column blocks
+     that do NOT contain form inputs (text fields, selects, checkboxes).
+     This prevents the login form and dialog buttons from being shrunk.    -- */
+[data-testid="stHorizontalBlock"]:not(:has([data-testid="stTextInput"])):not(
+		:has([data-testid="stSelectbox"])
+	):not(:has([data-testid="stCheckbox"]))
+	button[kind] {
 	padding: 1px 6px !important;
 	min-height: 0 !important;
 	height: auto !important;
 	font-size: 0.6rem !important;
 	line-height: 1.2 !important;
 }
-[data-testid="stHorizontalBlock"] button[kind] p {
+[data-testid="stHorizontalBlock"]:not(:has([data-testid="stTextInput"])):not(
+		:has([data-testid="stSelectbox"])
+	):not(:has([data-testid="stCheckbox"]))
+	button[kind]
+	p {
 	font-size: 0.6rem !important;
 	margin: 0 !important;
 	padding: 0 !important;
 	line-height: 1.2 !important;
 }
+
 /* --- Tighten gap between IPAM column rows --------------------------------- */
 [data-testid="stHorizontalBlock"] {
 	gap: 0.4rem !important;
