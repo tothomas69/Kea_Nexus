@@ -17,3 +17,6 @@ gatherUsageStats       = false
 
 [logger]
 level                  = "warning"
+
+[ui]
+sidebarLeftCollapsed   = false
