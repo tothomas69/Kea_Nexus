@@ -2,34 +2,11 @@
 #MainMenu {
 	display: none !important;
 }
-/* Collapse stHeader but leave enough room for the sidebar toggle button (28px).
-   The button is position:absolute inside the header, so height:0 clips it off-screen. */
 [data-testid="stHeader"] {
-	height: 28px !important;
-	min-height: 0 !important;
-	padding: 0 !important;
-	background: transparent !important;
-	overflow: visible !important;
+	display: none !important;
 }
 [data-testid="stDecoration"] {
 	display: none !important;
-}
-/* Hide toolbar contents but NOT the toolbar itself — sidebar button lives inside it.
-   Explicitly target each chrome element we want gone, leaving stExpandSidebarButton alone. */
-[data-testid="stIconMaterial"],
-[data-testid="stToolbarActions"],
-[data-testid="stMainMenu"],
-[data-testid="stMainMenuButton"],
-[data-testid="stDecoration"] {
-	display: none !important;
-}
-
-/* --- Restore sidebar collapse/expand button hidden by stHeader rule ------- */
-/* stExpandSidebarButton is the actual testid Streamlit renders for the toggle */
-[data-testid="stExpandSidebarButton"] {
-	display: flex !important;
-	visibility: visible !important;
-	opacity: 1 !important;
 }
 
 /* --- Top padding — only add room for fixed tab bar when tabs are present -- */
