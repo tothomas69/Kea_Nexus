@@ -2,10 +2,19 @@
 #MainMenu {
 	display: none !important;
 }
+/* Don't hide stHeader entirely — stExpandSidebarButton lives inside it.
+   Instead collapse it to zero height and hide only the inner chrome. */
 [data-testid="stHeader"] {
-	display: none !important;
+	height: 0 !important;
+	min-height: 0 !important;
+	padding: 0 !important;
+	background: transparent !important;
+	overflow: visible !important;
 }
 [data-testid="stDecoration"] {
+	display: none !important;
+}
+[data-testid="stToolbar"] {
 	display: none !important;
 }
 
