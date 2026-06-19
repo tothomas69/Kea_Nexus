@@ -54,11 +54,8 @@ def _sidebar_version_block(status: dict) -> str:
 	Build the version info block for the sidebar.
 	Shows KeaNexus app version, Kea daemon version, and connection mode.
 	Always rendered regardless of Kea connectivity — useful for diagnostics.
+	KeaNexus only supports the Kea 3.0+ direct API — there is no mode toggle.
 	"""
-	from kea import MODE_DIRECT
-
-	kea = get_client()
-	mode_label = "Direct API" if kea.mode == MODE_DIRECT else "Control Agent"
 	dhcp4 = status.get("dhcp4")
 	kea_ver = dhcp4.version if dhcp4 and hasattr(dhcp4, "version") else "—"
 
@@ -66,7 +63,7 @@ def _sidebar_version_block(status: dict) -> str:
 		'<div style="margin-top:16px;padding-top:8px;border-top:2px solid #e8ecf0">'
 		+ _sidebar_item("KeaNexus", f"v{APP_VERSION}")
 		+ _sidebar_item("Kea DHCP", kea_ver)
-		+ _sidebar_item("API Mode", mode_label)
+		+ _sidebar_item("API Mode", "Direct API")
 		+ "</div>"
 	)
 
@@ -74,7 +71,7 @@ def _sidebar_version_block(status: dict) -> str:
 def render_sidebar(stats: Optional[dict], config: Optional[dict], status: dict) -> None:
 	logo_path = Path(__file__).parent / "static" / "keanexus_logo.png"
 	if logo_path.exists():
-		st.sidebar.image(str(logo_path), width="stretch")
+		st.sidebar.image(str(logo_path), use_container_width=True)
 
 	if stats and config:
 		kea = get_client()
@@ -109,7 +106,7 @@ def render_sidebar(stats: Optional[dict], config: Optional[dict], status: dict) 
 	)
 
 	st.sidebar.markdown('<div style="margin-top:16px"></div>', unsafe_allow_html=True)
-	if st.sidebar.button("Sign out", width="stretch"):
+	if st.sidebar.button("Sign out", use_container_width=True):
 		logout()
 		st.rerun()
 

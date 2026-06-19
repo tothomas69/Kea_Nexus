@@ -68,7 +68,7 @@ def add_reservation_dialog(config: dict) -> None:
 	mac = st.text_input("MAC address *", placeholder="aa:bb:cc:dd:ee:ff")
 	c1, c2 = st.columns(2)
 	with c1:
-		if st.button("Save", type="primary", width="stretch"):
+		if st.button("Save", type="primary", use_container_width=True):
 			if not mac.strip() or not hn.strip():
 				st.error("MAC and hostname are required.")
 				return
@@ -83,7 +83,7 @@ def add_reservation_dialog(config: dict) -> None:
 				config["subnet4"][0]["reservations"].pop()
 				st.error(str(e))
 	with c2:
-		if st.button("Cancel", width="stretch"):
+		if st.button("Cancel", use_container_width=True):
 			st.rerun()
 
 
@@ -101,7 +101,7 @@ def _edit_dialog(reservation: dict, config: dict) -> None:
 	)
 	c1, c2, c3 = st.columns(3)
 	with c1:
-		if st.button("Save", type="primary", width="stretch"):
+		if st.button("Save", type="primary", use_container_width=True):
 			if not mac.strip() or not hn.strip():
 				st.error("MAC and hostname are required.")
 				return
@@ -120,7 +120,7 @@ def _edit_dialog(reservation: dict, config: dict) -> None:
 			except KeaError as e:
 				st.error(str(e))
 	with c2:
-		if st.button("Delete", width="stretch"):
+		if st.button("Delete", use_container_width=True):
 			res_list = config["subnet4"][0]["reservations"]
 			try:
 				res_list.remove(reservation)
@@ -132,7 +132,7 @@ def _edit_dialog(reservation: dict, config: dict) -> None:
 			except KeaError as e:
 				st.error(str(e))
 	with c3:
-		if st.button("Cancel", width="stretch"):
+		if st.button("Cancel", use_container_width=True):
 			st.rerun()
 
 
@@ -161,7 +161,7 @@ def _render_table(reservations: list[dict], config: dict) -> None:
 		cols[2].markdown(f'<span style="{_TD}">{hn or "—"}</span>', unsafe_allow_html=True)
 		cols[3].markdown(f'<span style="{_TD}">{mac or "—"}</span>', unsafe_allow_html=True)
 		cols[4].markdown(_type_chip(ip), unsafe_allow_html=True)
-		if cols[5].button("Edit", key=f"res_edit_{i}", width="stretch"):
+		if cols[5].button("Edit", key=f"res_edit_{i}", use_container_width=True):
 			_edit_dialog(res, config)
 
 
@@ -180,7 +180,7 @@ def render_reservations(config) -> None:
 	with header_col:
 		st.caption(f"{len(reservations)} reservations")
 	with btn_col:
-		if st.button("+ Add", width="stretch"):
+		if st.button("+ Add", use_container_width=True):
 			add_reservation_dialog(config)
 
 	_render_table(reservations, config)

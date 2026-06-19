@@ -37,7 +37,7 @@ def confirm_disable_dialog() -> None:
 	)
 	c1, c2 = st.columns(2)
 	with c1:
-		if st.button("Confirm - Disable DHCP", type="primary", width="stretch"):
+		if st.button("Confirm - Disable DHCP", type="primary", use_container_width=True):
 			try:
 				get_client().disable_dhcp(max_period=int(max_p))
 				st.session_state.dhcp_enabled = False
@@ -45,7 +45,7 @@ def confirm_disable_dialog() -> None:
 			except KeaError as e:
 				st.error(str(e))
 	with c2:
-		if st.button("Cancel", width="stretch"):
+		if st.button("Cancel", use_container_width=True):
 			st.rerun()
 
 
@@ -60,7 +60,9 @@ def confirm_wipe_dialog(lease_count: int) -> None:
 	can_wipe = confirm.strip() == "WIPE"
 	c1, c2 = st.columns(2)
 	with c1:
-		if st.button("Wipe all leases", type="primary", width="stretch", disabled=not can_wipe):
+		if st.button(
+			"Wipe all leases", type="primary", use_container_width=True, disabled=not can_wipe
+		):
 			try:
 				count = get_client().wipe_leases(subnet_id=1)
 				load_leases.clear()
@@ -70,7 +72,7 @@ def confirm_wipe_dialog(lease_count: int) -> None:
 			except KeaError as e:
 				st.error(str(e))
 	with c2:
-		if st.button("Cancel", width="stretch"):
+		if st.button("Cancel", use_container_width=True):
 			st.rerun()
 
 
@@ -78,7 +80,7 @@ def render_maintenance(leases: list[dict]) -> None:
 	# --- Refresh --------------------------------------------------------------
 	rc1, rc2 = st.columns([8, 1])
 	with rc2:
-		if st.button("Refresh", width="stretch"):
+		if st.button("Refresh", use_container_width=True):
 			load_leases.clear()
 			load_pool_stats.clear()
 			load_config.clear()
@@ -96,10 +98,10 @@ def render_maintenance(leases: list[dict]) -> None:
 			st.error("[!!] DHCP is DISABLED - clients cannot obtain or renew leases")
 	with sc2:
 		if dhcp_on:
-			if st.button("Disable DHCP", width="stretch"):
+			if st.button("Disable DHCP", use_container_width=True):
 				confirm_disable_dialog()
 		else:
-			if st.button("Enable DHCP", type="primary", width="stretch"):
+			if st.button("Enable DHCP", type="primary", use_container_width=True):
 				try:
 					get_client().enable_dhcp()
 					st.session_state.dhcp_enabled = True
@@ -168,7 +170,7 @@ def render_maintenance(leases: list[dict]) -> None:
 			key="maint_search_val",
 		)
 	with ls3:
-		do_search = st.button("Search", width="stretch", key="maint_search")
+		do_search = st.button("Search", use_container_width=True, key="maint_search")
 
 	if do_search and sval.strip():
 		try:
@@ -181,7 +183,9 @@ def render_maintenance(leases: list[dict]) -> None:
 			if not found:
 				st.info("No leases found.")
 			else:
-				st.dataframe(leases_to_df(found)[DISPLAY_COLS], width="stretch", hide_index=True)
+				st.dataframe(
+					leases_to_df(found)[DISPLAY_COLS], use_container_width=True, hide_index=True
+				)
 		except KeaError as e:
 			st.error(str(e))
 
@@ -199,5 +203,5 @@ def render_maintenance(leases: list[dict]) -> None:
 			"Fixed reservations in kea-dhcp4.conf are unaffected."
 		)
 	with wc2:
-		if st.button("Wipe all leases", width="stretch"):
+		if st.button("Wipe all leases", use_container_width=True):
 			confirm_wipe_dialog(len(leases))

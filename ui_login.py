@@ -16,7 +16,7 @@ def render_login() -> None:
 	with col:
 		logo_path = Path(__file__).parent / "static" / "keanexus_logo.png"
 		if logo_path.exists():
-			st.image(str(logo_path), width="stretch")
+			st.image(str(logo_path), use_container_width=True)
 
 		st.markdown(
 			'<div style="margin:18px 0 10px;border-top:1px solid #d0d7de"></div>',
@@ -26,7 +26,7 @@ def render_login() -> None:
 		username = st.text_input("Username", autocomplete="username")
 		password = st.text_input("Password", type="password", autocomplete="current-password")
 
-		if st.button("Sign in", type="primary", width="stretch"):
+		if st.button("Sign in", type="primary", use_container_width=True):
 			if attempt_login(username.strip(), password):
 				st.rerun()
 			else:

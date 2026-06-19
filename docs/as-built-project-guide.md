@@ -34,8 +34,9 @@ Do NOT include:
 ```
 keanexus/
 ├── app.py              — Entry point: page config, CSS, sidebar, tab routing
+├── version.py          — APP_VERSION constant (single source of truth)
 ├── auth.py             — Authentication: env-var credential check, session state
-├── kea.py              — Kea Control Agent HTTP client
+├── kea.py              — Kea direct HTTP API client (Kea 3.0+)
 ├── helpers.py          — Cached data loaders, format utilities
 ├── db.py               — SQLite persistence layer (IPAM static records)
 ├── ui_login.py         — Login page: logo, username/password form
@@ -44,6 +45,7 @@ keanexus/
 ├── ui_ipam.py          — IPAM tab: full /24 subnet map + static entry management
 ├── ui_reservations.py  — Reservations tab: Kea config CRUD
 ├── ui_maintenance.py   — Maintenance tab: DHCP enable/disable, wipe leases
+├── ui_settings.py      — Settings tab
 ├── style.css           — Global CSS overrides for Streamlit internals
 ├── Makefile            — Developer setup (`make setup`) and test runner (`make test`)
 ├── static/             — Static assets (keanexus_logo.png)
@@ -67,9 +69,22 @@ Data persisted in Docker named volume `keanexus_data` mounted at `/app/data/`.
 
 ### Kea Client (`kea.py`)
 
-- `KeaClient` — synchronous HTTP client to Kea Control Agent
+- `KeaClient` — synchronous HTTP client talking directly to the `kea-dhcp4` HTTP listener (Kea 3.0+)
+- Connection configured via `KEA_API_URL`, `KEA_API_USER`, `KEA_API_PASSWORD` env vars
+- The `"service"` key is never sent — direct listeners don't support forwarding and reject it
 - Key methods: `get_leases()`, `get_pool_stats()`, `get_config()`, `save_config()`, `get_status()`, `get_pool_range(config)`
-- All commands proxied through CA at `KEA_CA_URL` (env var)
+- `get_status()` returns both `"ca"` and `"dhcp4"` keys for UI compatibility; `"ca"` is a static placeholder (`up=True`, `version="n/a"`) since the Control Agent no longer exists in Kea 3.0+
+
+### Version (`version.py`)
+
+- `APP_VERSION` — single string constant, imported by `app.py` for sidebar display
+- Bump on every release; no other source of truth for the app version
+
+### Sidebar Version Block (`app.py`)
+
+- `_sidebar_version_block(status)` — renders three info rows at the bottom of the sidebar
+- Displays: KeaNexus version (from `APP_VERSION`), Kea DHCP daemon version (from `get_status()`), API Mode (always "Direct API")
+- Always rendered regardless of Kea connectivity — aids diagnosis when Kea is unreachable
 
 ### Helpers (`helpers.py`)
 
@@ -114,17 +129,19 @@ Data persisted in Docker named volume `keanexus_data` mounted at `/app/data/`.
 
 ## API Endpoints
 
-All data flows through the Kea Control Agent REST API (no direct endpoints exposed by KeaNexus itself).
+All data flows through the Kea `kea-dhcp4` direct HTTP listener (port 8004). No Control Agent.
 
 Key Kea commands used:
 
 - `lease4-get-all` → all active leases
 - `stat-lease4-summary` → pool utilisation counters
 - `config-get` / `config-set` / `config-write` → full DHCPv4 config
-- `version-get` → service health check
+- `version-get` → service health check and daemon version
 - `dhcp-enable` / `dhcp-disable` → DHCP service control
 
 ## Architecture Decisions
+
+**Direct Kea HTTP listener (not Control Agent)** — Kea 3.0 deprecated and removed the Control Agent. `kea-dhcp4` now exposes its own HTTP listener on port 8004. KeaNexus talks directly to it; the `"service"` forwarding key is never sent.
 
 **CSS conic-gradient gauge (not SVG)** — Pool utilisation shown as a donut ring using `conic-gradient`. Simpler than SVG with equivalent visual quality; no JS required.
 
