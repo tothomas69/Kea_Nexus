@@ -10,13 +10,8 @@
 }
 
 /* --- Restore sidebar collapse/expand button hidden by stHeader rule ------- */
-/* Target the toggle button broadly inside stAppViewContainer since Streamlit
-   changes the exact data-testid across versions. We cast a wide net here:    */
-[data-testid="collapsedControl"],
-[data-testid="baseButton-headerNoPadding"],
-[data-testid="stAppViewContainer"] > section > div > button,
-[data-testid="stAppViewContainer"] button[aria-label="Close sidebar"],
-[data-testid="stAppViewContainer"] button[aria-label="Open sidebar"] {
+/* stExpandSidebarButton is the actual testid Streamlit renders for the toggle */
+[data-testid="stExpandSidebarButton"] {
 	display: flex !important;
 	visibility: visible !important;
 	opacity: 1 !important;
