@@ -2,10 +2,10 @@
 #MainMenu {
 	display: none !important;
 }
-/* Don't hide stHeader entirely — stExpandSidebarButton lives inside it.
-   Instead collapse it to zero height and hide only the inner chrome. */
+/* Collapse stHeader but leave enough room for the sidebar toggle button (28px).
+   The button is position:absolute inside the header, so height:0 clips it off-screen. */
 [data-testid="stHeader"] {
-	height: 0 !important;
+	height: 28px !important;
 	min-height: 0 !important;
 	padding: 0 !important;
 	background: transparent !important;
