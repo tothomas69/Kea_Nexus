@@ -14,7 +14,8 @@
 [data-testid="stDecoration"] {
 	display: none !important;
 }
-[data-testid="stToolbar"] {
+/* Hide toolbar contents but NOT the toolbar itself — sidebar button lives inside it */
+[data-testid="stToolbar"] > *:not([data-testid="stExpandSidebarButton"]) {
 	display: none !important;
 }
 
