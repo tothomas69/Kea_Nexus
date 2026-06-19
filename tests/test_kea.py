@@ -1,5 +1,5 @@
 """
-test_kea.py — Tests for kea.py Kea Control Agent client.
+test_kea.py — Tests for kea.py Kea direct HTTP API client.
 All network calls are intercepted via the http_mock fixture (conftest.py).
 """
 
@@ -38,11 +38,12 @@ class TestCall:
 		result = client.call("version-get")
 		assert result == {"result": 0}
 
-	def test_includes_service_in_body(self, client, http_mock):
+	def test_never_includes_service_in_body(self, client, http_mock):
+		# Direct listener does not accept the "service" key — verify it is never sent.
 		http_mock.post.return_value = make_kea_response([{"result": 0}])
-		client.call("version-get", service="dhcp4")
+		client.call("version-get")
 		_, kwargs = http_mock.post.call_args
-		assert kwargs["json"]["service"] == ["dhcp4"]
+		assert "service" not in kwargs["json"]
 
 	def test_includes_arguments_in_body(self, client, http_mock):
 		http_mock.post.return_value = make_kea_response([{"result": 0}])
@@ -52,7 +53,7 @@ class TestCall:
 
 	def test_raises_kea_error_on_connect_failure(self, client, http_mock):
 		http_mock.post.side_effect = httpx.ConnectError("refused")
-		with pytest.raises(KeaError, match="Cannot reach Kea CA"):
+		with pytest.raises(KeaError, match="Cannot reach Kea"):
 			client.call("version-get")
 
 	def test_raises_kea_error_on_401(self, client, http_mock):
@@ -341,23 +342,32 @@ class TestDhcpControl:
 
 
 class TestGetStatus:
-	def test_returns_both_services(self, client):
-		ok_resp = {"result": 0, "arguments": {"extended": "2.4.0\nsome detail"}}
+	def test_returns_both_keys(self, client):
+		# Both "ca" and "dhcp4" keys are always returned for UI compatibility.
+		ok_resp = {"result": 0, "arguments": {"extended": "3.0.3\nsome detail"}}
 		with patch.object(client, "call", return_value=ok_resp):
 			status = client.get_status()
 		assert "ca" in status
 		assert "dhcp4" in status
 
-	def test_marks_service_up_on_result_zero(self, client):
-		ok_resp = {"result": 0, "arguments": {"extended": "2.4.0"}}
+	def test_dhcp4_marked_up_on_result_zero(self, client):
+		ok_resp = {"result": 0, "arguments": {"extended": "3.0.3"}}
 		with patch.object(client, "call", return_value=ok_resp):
+			assert client.get_status()["dhcp4"].up is True
+
+	def test_dhcp4_marked_down_on_kea_error(self, client):
+		with patch.object(client, "call", side_effect=KeaError("unreachable")):
+			assert client.get_status()["dhcp4"].up is False
+
+	def test_ca_always_up_in_direct_mode(self, client):
+		# "ca" is a static placeholder in direct mode — always up, never queried.
+		with patch.object(client, "call", side_effect=KeaError("unreachable")):
 			assert client.get_status()["ca"].up is True
 
-	def test_marks_service_down_on_kea_error(self, client):
-		with patch.object(client, "call", side_effect=KeaError("unreachable")):
-			status = client.get_status()
-		assert status["ca"].up is False
-		assert status["dhcp4"].up is False
+	def test_ca_version_is_not_applicable(self, client):
+		ok_resp = {"result": 0, "arguments": {"extended": "3.0.3"}}
+		with patch.object(client, "call", return_value=ok_resp):
+			assert client.get_status()["ca"].version == "n/a"
 
 
 # ─── KeaClient.get_leases_by_mac ──────────────────────────────────────────────
