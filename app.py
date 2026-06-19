@@ -19,6 +19,7 @@ from ui_maintenance import render_maintenance
 from ui_pool import render_pool
 from ui_reservations import render_reservations
 from ui_settings import render_settings
+from version import APP_VERSION
 
 # --- Page config (must be first Streamlit call) -------------------------------
 st.set_page_config(
@@ -48,35 +49,62 @@ def _sidebar_item(label: str, value: str) -> str:
 	)
 
 
-def render_sidebar(stats: Optional[dict], config: Optional[dict]) -> None:
+def _sidebar_version_block(status: dict) -> str:
+	"""
+	Build the version info block for the sidebar.
+	Shows KeaNexus app version, Kea daemon version, and connection mode.
+	Always rendered regardless of Kea connectivity — useful for diagnostics.
+	"""
+	from kea import MODE_DIRECT
+
+	kea = get_client()
+	mode_label = "Direct API" if kea.mode == MODE_DIRECT else "Control Agent"
+	dhcp4 = status.get("dhcp4")
+	kea_ver = dhcp4.version if dhcp4 and hasattr(dhcp4, "version") else "—"
+
+	return (
+		'<div style="margin-top:16px;padding-top:8px;border-top:2px solid #e8ecf0">'
+		+ _sidebar_item("KeaNexus", f"v{APP_VERSION}")
+		+ _sidebar_item("Kea DHCP", kea_ver)
+		+ _sidebar_item("API Mode", mode_label)
+		+ "</div>"
+	)
+
+
+def render_sidebar(stats: Optional[dict], config: Optional[dict], status: dict) -> None:
 	logo_path = Path(__file__).parent / "static" / "keanexus_logo.png"
 	if logo_path.exists():
 		st.sidebar.image(str(logo_path), width="stretch")
 
-	if not (stats and config):
-		return
+	if stats and config:
+		kea = get_client()
+		start, end, _ = kea.get_pool_range(config)
+		subnet = (config.get("subnet4") or [{}])[0].get("subnet", "?")
+		router = "-"
+		for opt in (config.get("subnet4") or [{}])[0].get("option-data", []):
+			if opt.get("name") == "routers":
+				router = opt.get("data", "-")
 
-	kea = get_client()
-	start, end, _ = kea.get_pool_range(config)
-	subnet = (config.get("subnet4") or [{}])[0].get("subnet", "?")
-	router = "-"
-	for opt in (config.get("subnet4") or [{}])[0].get("option-data", []):
-		if opt.get("name") == "routers":
-			router = opt.get("data", "-")
+		total = stats["total"]
+		cumul = stats.get("cumulative", 0)
 
-	total = stats["total"]
-	cumul = stats.get("cumulative", 0)
+		rows = (
+			_sidebar_item("Pool Range", f"{start} – {end}")
+			+ _sidebar_item("Subnet", subnet)
+			+ _sidebar_item("Router", router)
+			+ _sidebar_item("Address Pool", str(total))
+			+ _sidebar_item("Lease Time", "24h")
+			+ _sidebar_item("Stats Source", "API" if cumul > 0 else "lease list")
+		)
+		st.sidebar.markdown(
+			f'<div style="margin-top:12px">{rows}</div>',
+			unsafe_allow_html=True,
+		)
 
-	rows = (
-		_sidebar_item("Pool Range", f"{start} – {end}")
-		+ _sidebar_item("Subnet", subnet)
-		+ _sidebar_item("Router", router)
-		+ _sidebar_item("Address Pool", str(total))
-		+ _sidebar_item("Lease Time", "24h")
-		+ _sidebar_item("Stats Source", "API" if cumul > 0 else "lease list")
-	)
+	# Version block always renders regardless of whether stats/config loaded —
+	# useful for diagnosing connection problems when Kea is unreachable.
 	st.sidebar.markdown(
-		f'<div style="margin-top:12px">{rows}</div>',
+		_sidebar_version_block(status),
 		unsafe_allow_html=True,
 	)
 
@@ -105,7 +133,7 @@ def main() -> None:
 	config = load_config(kea)
 	status = load_status(kea)
 
-	render_sidebar(stats, config)
+	render_sidebar(stats, config, status)
 
 	tab_pool, tab_leases, tab_ipam, tab_res, tab_maint, tab_settings = st.tabs(
 		[

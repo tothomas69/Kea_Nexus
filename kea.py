@@ -1,6 +1,15 @@
 """
-kea.py — Kea Control Agent HTTP client for KeaNexus.
+kea.py — Kea HTTP client for KeaNexus.
+
+Talks directly to the kea-dhcp4 HTTP listener introduced in Kea 3.0.
+No "service" wrapper is sent — the daemon already knows what it is.
+
+Connection is configured via environment variables:
+  KEA_API_URL      — URL to the kea-dhcp4 HTTP listener (default http://172.16.17.215:8004)
+  KEA_API_USER     — basic-auth username (leave blank if listener has no auth)
+  KEA_API_PASSWORD — basic-auth password
 """
+
 import os
 import time
 from dataclasses import dataclass
@@ -13,273 +22,281 @@ load_dotenv()
 
 
 class KeaError(Exception):
-    """Raised when a Kea command returns non-zero result or CA is unreachable."""
+	"""Raised when a Kea command returns a non-zero result or the server is unreachable."""
 
 
 @dataclass
 class ServiceStatus:
-    up: bool
-    version: str
-    name: str
+	up: bool
+	version: str
+	name: str
 
 
 class KeaClient:
-    """
-    Synchronous Kea Control Agent client.
-    Reads KEA_CA_URL, KEA_CA_USER, KEA_CA_PASSWORD from environment / .env.
-    """
+	"""
+	Synchronous Kea API client for the kea-dhcp4 direct HTTP listener (Kea 3.0+).
 
-    def __init__(self) -> None:
-        base      = os.getenv("KEA_CA_URL", "http://172.16.17.215:8000").rstrip("/")
-        self.url  = base + "/"
-        self.user = os.getenv("KEA_CA_USER", "stork")
-        self.pwd  = os.getenv("KEA_CA_PASSWORD", "")
-        self._timeout = 8.0
+	Environment variables:
+	  KEA_API_URL      — URL to kea-dhcp4 listener (default http://172.16.17.215:8004)
+	  KEA_API_USER     — basic-auth username (optional)
+	  KEA_API_PASSWORD — basic-auth password (optional)
+	"""
 
-    # ─── Core ─────────────────────────────────────────────────────────────────
+	def __init__(self) -> None:
+		base = os.getenv("KEA_API_URL", "http://172.16.17.215:8004").rstrip("/")
+		self.url = base + "/"
+		self.user = os.getenv("KEA_API_USER", "")
+		self.pwd = os.getenv("KEA_API_PASSWORD", "")
+		self._timeout = 8.0
 
-    def call(self, command: str, service: Optional[str] = None,
-             arguments: Optional[dict] = None) -> dict:
-        """Issue a Kea command and return the first (unwrapped) response dict."""
-        body: dict = {"command": command}
-        if service:
-            body["service"] = [service]
-        if arguments is not None:
-            body["arguments"] = arguments
+	# ─── Core ─────────────────────────────────────────────────────────────────
 
-        try:
-            with httpx.Client(timeout=self._timeout) as client:
-                resp = client.post(self.url, json=body, auth=(self.user, self.pwd))
-            resp.raise_for_status()
-        except httpx.ConnectError as exc:
-            raise KeaError(f"Cannot reach Kea CA at {self.url}") from exc
-        except httpx.HTTPStatusError as exc:
-            code = exc.response.status_code
-            if code == 401:
-                raise KeaError("Kea CA rejected credentials (401)") from exc
-            raise KeaError(f"Kea CA returned HTTP {code}") from exc
+	def call(self, command: str, arguments: Optional[dict] = None) -> dict:
+		"""
+		Issue a Kea API command and return the first (unwrapped) response dict.
 
-        data = resp.json()
-        return data[0] if isinstance(data, list) else data
+		The "service" key is intentionally omitted — sending it to a direct
+		listener causes a "forwarding not supported" error in Kea 3.0+.
+		"""
+		body: dict = {"command": command}
+		if arguments is not None:
+			body["arguments"] = arguments
 
-    # ─── Status ───────────────────────────────────────────────────────────────
+		auth = (self.user, self.pwd) if self.user else None
 
-    def get_status(self) -> dict[str, ServiceStatus]:
-        """Check health + version for CA and DHCPv4 daemon."""
-        def parse(resp: dict, name: str) -> ServiceStatus:
-            up  = resp.get("result") == 0
-            ext = (resp.get("arguments") or {}).get("extended", "")
-            ver = ext.split("\n")[0].split(" ")[0].strip() if ext else ("ok" if up else "—")
-            return ServiceStatus(up=up, version=ver, name=name)
+		try:
+			with httpx.Client(timeout=self._timeout) as client:
+				resp = client.post(self.url, json=body, auth=auth)
+			resp.raise_for_status()
+		except httpx.ConnectError as exc:
+			raise KeaError(f"Cannot reach Kea at {self.url}") from exc
+		except httpx.HTTPStatusError as exc:
+			code = exc.response.status_code
+			if code == 401:
+				raise KeaError("Kea rejected credentials (401)") from exc
+			raise KeaError(f"Kea returned HTTP {code}") from exc
 
-        try:
-            ca_r = self.call("version-get")
-        except KeaError as e:
-            ca_r = {"result": -1, "text": str(e)}
+		data = resp.json()
+		return data[0] if isinstance(data, list) else data
 
-        try:
-            d4_r = self.call("version-get", service="dhcp4")
-        except KeaError as e:
-            d4_r = {"result": -1, "text": str(e)}
+	# ─── Status ───────────────────────────────────────────────────────────────
 
-        return {"ca": parse(ca_r, "Kea API Control"), "dhcp4": parse(d4_r, "DHCP Operational")}
+	def get_status(self) -> dict[str, ServiceStatus]:
+		"""
+		Check health and version for the kea-dhcp4 daemon.
+		Returns a dict with a "dhcp4" key for compatibility with ui_pool.py.
+		The "ca" key is returned as a placeholder since there is no CA in Kea 3.0+.
+		"""
 
-    # ─── DHCP service control ─────────────────────────────────────────────────
+		def parse(resp: dict, name: str) -> ServiceStatus:
+			up = resp.get("result") == 0
+			ext = (resp.get("arguments") or {}).get("extended", "")
+			# Extract just the version number from the first line of extended info.
+			ver = ext.split("\n")[0].split(" ")[0].strip() if ext else ("ok" if up else "—")
+			return ServiceStatus(up=up, version=ver, name=name)
 
-    def enable_dhcp(self) -> None:
-        """Re-enable DHCP after it was disabled."""
-        r = self.call("dhcp-enable", service="dhcp4")
-        if r.get("result") != 0:
-            raise KeaError(r.get("text", "dhcp-enable failed"))
+		try:
+			d4_r = self.call("version-get")
+		except KeaError as e:
+			d4_r = {"result": -1, "text": str(e)}
 
-    def disable_dhcp(self, max_period: int = 0) -> None:
-        """
-        Suspend DHCP — Kea stops responding to DISCOVER/REQUEST.
-        max_period > 0 auto-re-enables after that many seconds (Kea-side timer).
-        max_period = 0 means disabled until explicitly re-enabled.
-        Existing leases are NOT revoked; clients just cannot renew or get new ones.
-        """
-        args = {"max-period": max_period} if max_period > 0 else {}
-        r = self.call("dhcp-disable", service="dhcp4",
-                      arguments=args if args else None)
-        if r.get("result") != 0:
-            raise KeaError(r.get("text", "dhcp-disable failed"))
+		return {
+			# No CA in Kea 3.0+ — placeholder keeps ui_pool.py health card working.
+			"ca": ServiceStatus(up=True, version="n/a", name="Kea API"),
+			"dhcp4": parse(d4_r, "DHCP Operational"),
+		}
 
-    # ─── Pool stats ───────────────────────────────────────────────────────────
+	# ─── DHCP service control ─────────────────────────────────────────────────
 
-    def get_pool_stats(self) -> dict:
-        """
-        Return pool utilization from stat-lease4-summary.
-        More accurate than counting leases manually — Kea maintains its own counters.
-        Returns: total, assigned (active), declined, available, cumulative.
-        """
-        r = self.call("stat-lease4-summary", service="dhcp4")
-        if r.get("result") != 0:
-            raise KeaError(r.get("text", "stat-lease4-summary failed"))
+	def enable_dhcp(self) -> None:
+		"""Re-enable DHCP after it was disabled."""
+		r = self.call("dhcp-enable")
+		if r.get("result") != 0:
+			raise KeaError(r.get("text", "dhcp-enable failed"))
 
-        rs   = r.get("arguments", {}).get("result-set", {})
-        cols = rs.get("columns", [])
-        rows = rs.get("rows", [])
+	def disable_dhcp(self, max_period: int = 0) -> None:
+		"""
+		Suspend DHCP — Kea stops responding to DISCOVER/REQUEST packets.
+		max_period > 0 auto-re-enables after that many seconds (Kea-side timer).
+		max_period = 0 means disabled until explicitly re-enabled via enable_dhcp().
+		Existing leases are NOT revoked; clients keep their IPs until expiry.
+		"""
+		args = {"max-period": max_period} if max_period > 0 else {}
+		r = self.call("dhcp-disable", arguments=args if args else None)
+		if r.get("result") != 0:
+			raise KeaError(r.get("text", "dhcp-disable failed"))
 
-        if not rows:
-            return {"total": 0, "assigned": 0, "declined": 0,
-                    "available": 0, "cumulative": 0}
+	# ─── Pool stats ───────────────────────────────────────────────────────────
 
-        row  = dict(zip(cols, rows[0]))
-        total    = row.get("total-addresses", 0)
-        assigned = row.get("assigned-addresses", 0)
-        declined = row.get("declined-addresses", 0)
+	def get_pool_stats(self) -> dict:
+		"""
+		Return pool utilization from stat-lease4-summary.
+		More accurate than counting leases manually — Kea maintains its own counters.
+		Requires the stat_cmds hook to be loaded in kea-dhcp4.conf.
+		Returns: total, assigned (active), declined, available, cumulative.
+		"""
+		r = self.call("stat-lease4-summary")
+		if r.get("result") != 0:
+			raise KeaError(r.get("text", "stat-lease4-summary failed"))
 
-        return {
-            "total":      total,
-            "assigned":   assigned,
-            "declined":   declined,
-            "available":  max(total - assigned - declined, 0),
-            "cumulative": row.get("cumulative-assigned-addresses", 0),
-        }
+		rs = r.get("arguments", {}).get("result-set", {})
+		cols = rs.get("columns", [])
+		rows = rs.get("rows", [])
 
-    # ─── Lease operations ─────────────────────────────────────────────────────
+		if not rows:
+			return {"total": 0, "assigned": 0, "declined": 0, "available": 0, "cumulative": 0}
 
-    def get_leases(self) -> list[dict]:
-        """Return all DHCPv4 leases (active + declined) from Kea memory."""
-        r = self.call("lease4-get-all", service="dhcp4")
-        if r.get("result") != 0:
-            raise KeaError(r.get("text", "lease4-get-all failed"))
-        return r.get("arguments", {}).get("leases", [])
+		row = dict(zip(cols, rows[0]))
+		total = row.get("total-addresses", 0)
+		assigned = row.get("assigned-addresses", 0)
+		declined = row.get("declined-addresses", 0)
 
-    def get_lease_by_ip(self, ip: str) -> Optional[dict]:
-        """
-        Look up a single lease by IP address.
-        Returns the lease dict or None if not found (result=3).
-        """
-        r = self.call("lease4-get", service="dhcp4",
-                      arguments={"ip-address": ip})
-        if r.get("result") != 0:
-            return None
-        return r.get("arguments")
+		return {
+			"total": total,
+			"assigned": assigned,
+			"declined": declined,
+			"available": max(total - assigned - declined, 0),
+			"cumulative": row.get("cumulative-assigned-addresses", 0),
+		}
 
-    def get_leases_by_mac(self, mac: str) -> list[dict]:
-        """
-        Find all leases (current and historical) for a hardware address.
-        Useful for tracing which IP a device has held.
-        """
-        r = self.call("lease4-get-by-hw-address", service="dhcp4",
-                      arguments={"hwaddr": mac})
-        if r.get("result") not in (0, 3):
-            raise KeaError(r.get("text", "lease4-get-by-hw-address failed"))
-        return r.get("arguments", {}).get("leases", [])
+	# ─── Lease operations ─────────────────────────────────────────────────────
 
-    def get_leases_by_hostname(self, hostname: str) -> list[dict]:
-        """Find all leases matching a hostname string."""
-        r = self.call("lease4-get-by-hostname", service="dhcp4",
-                      arguments={"hostname": hostname})
-        if r.get("result") not in (0, 3):
-            raise KeaError(r.get("text", "lease4-get-by-hostname failed"))
-        return r.get("arguments", {}).get("leases", [])
+	def get_leases(self) -> list[dict]:
+		"""Return all DHCPv4 leases (active + declined) from Kea memory."""
+		r = self.call("lease4-get-all")
+		if r.get("result") != 0:
+			raise KeaError(r.get("text", "lease4-get-all failed"))
+		return r.get("arguments", {}).get("leases", [])
 
-    def add_lease(self, ip: str, mac: str, hostname: str = "",
-                  valid_lft: int = 86400, subnet_id: int = 1) -> None:
-        """
-        Manually inject a lease into Kea's database.
-        Useful for pre-registering a device before it first connects,
-        or for administrative overrides. Kea will honour this like any lease.
-        """
-        args: dict = {
-            "ip-address": ip,
-            "hw-address": mac,
-            "subnet-id":  subnet_id,
-            "valid-lft":  valid_lft,
-            "expire":     int(time.time()) + valid_lft,
-            "fqdn-fwd":   False,
-            "fqdn-rev":   False,
-        }
-        if hostname:
-            args["hostname"] = hostname
-        r = self.call("lease4-add", service="dhcp4", arguments=args)
-        if r.get("result") != 0:
-            raise KeaError(r.get("text", "lease4-add failed"))
+	def get_lease_by_ip(self, ip: str) -> Optional[dict]:
+		"""
+		Look up a single lease by IP address.
+		Returns the lease dict or None if not found (result=3 means not-found in Kea).
+		"""
+		r = self.call("lease4-get", arguments={"ip-address": ip})
+		if r.get("result") != 0:
+			return None
+		return r.get("arguments")
 
-    def update_lease(self, ip: str, mac: str, hostname: str = "",
-                     valid_lft: int = 86400, subnet_id: int = 1) -> None:
-        """
-        Update an existing lease in place.
-        The IP address is the primary key — all other fields are replaced.
-        Useful for correcting a hostname or extending a lease manually.
-        """
-        args: dict = {
-            "ip-address": ip,
-            "hw-address": mac,
-            "subnet-id":  subnet_id,
-            "valid-lft":  valid_lft,
-            "expire":     int(time.time()) + valid_lft,
-            "fqdn-fwd":   False,
-            "fqdn-rev":   False,
-        }
-        if hostname:
-            args["hostname"] = hostname
-        r = self.call("lease4-update", service="dhcp4", arguments=args)
-        if r.get("result") != 0:
-            raise KeaError(r.get("text", "lease4-update failed"))
+	def get_leases_by_mac(self, mac: str) -> list[dict]:
+		"""
+		Find all leases (current and historical) for a hardware address.
+		Useful for tracing which IP a device has held over time.
+		"""
+		r = self.call("lease4-get-by-hw-address", arguments={"hwaddr": mac})
+		if r.get("result") not in (0, 3):
+			raise KeaError(r.get("text", "lease4-get-by-hw-address failed"))
+		return r.get("arguments", {}).get("leases", [])
 
-    def delete_lease(self, ip: str) -> None:
-        """Delete a lease by IP. result=3 (not found) is treated as success."""
-        r = self.call("lease4-del", service="dhcp4",
-                      arguments={"ip-address": ip})
-        if r.get("result") not in (0, 3):
-            raise KeaError(r.get("text", f"Failed to delete lease {ip}"))
+	def get_leases_by_hostname(self, hostname: str) -> list[dict]:
+		"""Find all leases matching a hostname string."""
+		r = self.call("lease4-get-by-hostname", arguments={"hostname": hostname})
+		if r.get("result") not in (0, 3):
+			raise KeaError(r.get("text", "lease4-get-by-hostname failed"))
+		return r.get("arguments", {}).get("leases", [])
 
-    def wipe_leases(self, subnet_id: int = 1) -> int:
-        """
-        Delete ALL leases in a subnet from Kea's database.
-        Returns the count of deleted leases.
-        ⚠️ Irreversible — all devices will lose their IPs on next renewal.
-        """
-        r = self.call("lease4-wipe", service="dhcp4",
-                      arguments={"subnet-id": subnet_id})
-        if r.get("result") != 0:
-            raise KeaError(r.get("text", "lease4-wipe failed"))
-        return r.get("arguments", {}).get("count", 0)
+	def add_lease(
+		self, ip: str, mac: str, hostname: str = "", valid_lft: int = 86400, subnet_id: int = 1
+	) -> None:
+		"""
+		Manually inject a lease into Kea's database.
+		Useful for pre-registering a device before it first connects,
+		or for administrative overrides. Kea honours this like any regular lease.
+		"""
+		args: dict = {
+			"ip-address": ip,
+			"hw-address": mac,
+			"subnet-id": subnet_id,
+			"valid-lft": valid_lft,
+			"expire": int(time.time()) + valid_lft,
+			"fqdn-fwd": False,
+			"fqdn-rev": False,
+		}
+		if hostname:
+			args["hostname"] = hostname
+		r = self.call("lease4-add", arguments=args)
+		if r.get("result") != 0:
+			raise KeaError(r.get("text", "lease4-add failed"))
 
-    # ─── Config ───────────────────────────────────────────────────────────────
+	def update_lease(
+		self, ip: str, mac: str, hostname: str = "", valid_lft: int = 86400, subnet_id: int = 1
+	) -> None:
+		"""
+		Update an existing lease in place.
+		The IP address is the primary key — all other fields are replaced.
+		Useful for correcting a hostname or extending a lease administratively.
+		"""
+		args: dict = {
+			"ip-address": ip,
+			"hw-address": mac,
+			"subnet-id": subnet_id,
+			"valid-lft": valid_lft,
+			"expire": int(time.time()) + valid_lft,
+			"fqdn-fwd": False,
+			"fqdn-rev": False,
+		}
+		if hostname:
+			args["hostname"] = hostname
+		r = self.call("lease4-update", arguments=args)
+		if r.get("result") != 0:
+			raise KeaError(r.get("text", "lease4-update failed"))
 
-    def get_config(self) -> dict:
-        """Return the full Dhcp4 running config dict."""
-        r = self.call("config-get", service="dhcp4")
-        if r.get("result") != 0:
-            raise KeaError(r.get("text", "config-get failed"))
-        cfg = r.get("arguments", {}).get("Dhcp4")
-        if cfg is None:
-            raise KeaError("config-get: no Dhcp4 key in response")
-        return cfg
+	def delete_lease(self, ip: str) -> None:
+		"""Delete a lease by IP. result=3 (not found) is treated as success."""
+		r = self.call("lease4-del", arguments={"ip-address": ip})
+		if r.get("result") not in (0, 3):
+			raise KeaError(r.get("text", f"Failed to delete lease {ip}"))
 
-    def save_config(self, dhcp4_config: dict) -> None:
-        """
-        Push a modified Dhcp4 config into Kea (memory + disk).
-        config-set  → takes effect immediately, no service interruption.
-        config-write → persists to kea-dhcp4.conf so it survives restarts.
-        """
-        set_r = self.call("config-set", service="dhcp4",
-                          arguments={"Dhcp4": dhcp4_config})
-        if set_r.get("result") != 0:
-            raise KeaError(f"config-set: {set_r.get('text', 'no detail')}")
+	def wipe_leases(self, subnet_id: int = 1) -> int:
+		"""
+		Delete ALL leases in a subnet from Kea's database.
+		Returns the count of deleted leases.
+		⚠️  Irreversible — all devices will lose their IPs on next renewal.
+		"""
+		r = self.call("lease4-wipe", arguments={"subnet-id": subnet_id})
+		if r.get("result") != 0:
+			raise KeaError(r.get("text", "lease4-wipe failed"))
+		return r.get("arguments", {}).get("count", 0)
 
-        wr_r = self.call("config-write", service="dhcp4")
-        if wr_r.get("result") != 0:
-            raise KeaError(f"config-write: {wr_r.get('text', 'no detail')}")
+	# ─── Config ───────────────────────────────────────────────────────────────
 
-    # ─── Pool helpers ─────────────────────────────────────────────────────────
+	def get_config(self) -> dict:
+		"""Return the full Dhcp4 running config dict."""
+		r = self.call("config-get")
+		if r.get("result") != 0:
+			raise KeaError(r.get("text", "config-get failed"))
+		cfg = r.get("arguments", {}).get("Dhcp4")
+		if cfg is None:
+			raise KeaError("config-get: no Dhcp4 key in response")
+		return cfg
 
-    def get_pool_range(self, config: Optional[dict] = None) -> tuple[str, str, int]:
-        """Extract pool start, end and size from config. Falls back to known defaults."""
-        try:
-            pool_str = config["subnet4"][0]["pools"][0]["pool"]   # type: ignore
-            start, end = [p.strip() for p in pool_str.split("-", 1)]
-            size = self.ip_to_int(end) - self.ip_to_int(start) + 1
-            return start, end, size
-        except (TypeError, KeyError, IndexError, ValueError):
-            return "172.16.17.125", "172.16.17.209", 85
+	def save_config(self, dhcp4_config: dict) -> None:
+		"""
+		Push a modified Dhcp4 config into Kea (memory + disk).
+		config-set  → takes effect immediately, no service interruption.
+		config-write → persists to kea-dhcp4.conf so it survives restarts.
+		"""
+		set_r = self.call("config-set", arguments={"Dhcp4": dhcp4_config})
+		if set_r.get("result") != 0:
+			raise KeaError(f"config-set: {set_r.get('text', 'no detail')}")
 
-    @staticmethod
-    def ip_to_int(ip: str) -> int:
-        parts = ip.strip().split(".")
-        return sum(int(p) << (8 * (3 - i)) for i, p in enumerate(parts))
+		wr_r = self.call("config-write")
+		if wr_r.get("result") != 0:
+			raise KeaError(f"config-write: {wr_r.get('text', 'no detail')}")
+
+	# ─── Pool helpers ─────────────────────────────────────────────────────────
+
+	def get_pool_range(self, config: Optional[dict] = None) -> tuple[str, str, int]:
+		"""Extract pool start, end and size from config. Falls back to known defaults."""
+		try:
+			pool_str = config["subnet4"][0]["pools"][0]["pool"]  # type: ignore
+			start, end = [p.strip() for p in pool_str.split("-", 1)]
+			size = self.ip_to_int(end) - self.ip_to_int(start) + 1
+			return start, end, size
+		except (TypeError, KeyError, IndexError, ValueError):
+			return "172.16.17.125", "172.16.17.209", 85
+
+	@staticmethod
+	def ip_to_int(ip: str) -> int:
+		parts = ip.strip().split(".")
+		return sum(int(p) << (8 * (3 - i)) for i, p in enumerate(parts))
