@@ -62,6 +62,15 @@
 	background-color: #b4bec8 !important;
 }
 
+/* Force sidebar open even when Streamlit marks it collapsed */
+[data-testid="stSidebar"][aria-expanded="false"] {
+	transform: none !important;
+	display: block !important;
+	visibility: visible !important;
+	width: 210px !important;
+	min-width: 210px !important;
+}
+
 [data-testid="stSidebar"] > div:first-child {
 	padding: 0.1rem 0.75rem 1rem;
 }
