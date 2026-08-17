@@ -229,3 +229,114 @@ class TestStatusEndpoint:
 		response = client.get("/status/nobody", headers=_auth_header())
 		assert response.status_code == 200
 		assert response.json()["log"] == []
+
+
+class TestStartupSchemaCreation:
+	def test_init_db_runs_on_startup(self, temp_db):
+		"""Regression test for a real deployment bug: keanexus-quarantine must
+		create its own schema on boot rather than relying on KeaNexus's
+		Streamlit script having run first. Streamlit defers executing app.py
+		until a browser session connects — it does not run eagerly just
+		because the container started — so a fresh deploy where nobody has
+		opened the dashboard yet left quarantine_log/device_registry missing
+		entirely on first real deployment. TestClient only triggers FastAPI's
+		startup event when used as a context manager, unlike the plain
+		`client` fixture used elsewhere in this file.
+		"""
+		with patch("quarantine_service.main.init_db") as mock_init_db:
+			with TestClient(app):
+				pass
+		mock_init_db.assert_called_once()
+
+
+class TestSecondaryPihole:
+	def test_only_primary_written_when_secondary_not_configured(
+		self, client, stub_kea_client, monkeypatch
+	):
+		monkeypatch.delenv("PIHOLE_SECONDARY_API_URL", raising=False)
+		db.upsert_device("tommy_laptop", hostname="tommy-kubuntu")
+		stub = stub_kea_client(
+			leases_by_hostname={
+				"tommy-kubuntu": [{"hw-address": "aa:bb:cc:dd:ee:ff", "ip-address": "172.16.17.50"}]
+			},
+			dhcp4_config={"subnet4": [{"reservations": [], "option-data": []}]},
+		)
+		with (
+			patch("quarantine_service.main._get_kea_client", return_value=stub),
+			patch("quarantine_service.main.start_arp_disruption"),
+			patch("quarantine_service.main.block_via_pihole") as mock_block_pihole,
+			patch("quarantine_service.main.refresh_os_fingerprint", return_value=""),
+		):
+			response = client.post(
+				"/quarantine", json={"target": "tommy_laptop"}, headers=_auth_header()
+			)
+		assert response.status_code == 200
+		mock_block_pihole.assert_called_once()
+		# Only one "pihole_primary" row — no "pihole_secondary" row exists at all
+		steps = {entry["step"] for entry in db.get_quarantine_log("tommy_laptop")}
+		assert "pihole_primary" in steps
+		assert "pihole_secondary" not in steps
+
+	def test_both_instances_written_when_secondary_configured(
+		self, client, stub_kea_client, monkeypatch
+	):
+		monkeypatch.setenv("PIHOLE_SECONDARY_API_URL", "https://pihole-secondary.example")
+		monkeypatch.setenv("PIHOLE_SECONDARY_API_PASSWORD", "secondary-pw")
+		db.upsert_device("tommy_laptop", hostname="tommy-kubuntu")
+		stub = stub_kea_client(
+			leases_by_hostname={
+				"tommy-kubuntu": [{"hw-address": "aa:bb:cc:dd:ee:ff", "ip-address": "172.16.17.50"}]
+			},
+			dhcp4_config={"subnet4": [{"reservations": [], "option-data": []}]},
+		)
+		with (
+			patch("quarantine_service.main._get_kea_client", return_value=stub),
+			patch("quarantine_service.main.start_arp_disruption"),
+			patch("quarantine_service.main.block_via_pihole") as mock_block_pihole,
+			patch("quarantine_service.main.refresh_os_fingerprint", return_value=""),
+		):
+			response = client.post(
+				"/quarantine", json={"target": "tommy_laptop"}, headers=_auth_header()
+			)
+		assert response.status_code == 200
+		# Called once per Pi-hole instance, both against the same device IP
+		assert mock_block_pihole.call_count == 2
+		called_ips = {call.args[1] for call in mock_block_pihole.call_args_list}
+		assert called_ips == {"172.16.17.50"}
+		# Both instances got their own distinct, independently-retried log row
+		steps = {entry["step"] for entry in db.get_quarantine_log("tommy_laptop")}
+		assert "pihole_primary" in steps
+		assert "pihole_secondary" in steps
+
+	def test_pihole_step_succeeded_false_if_only_secondary_fails(
+		self, client, stub_kea_client, monkeypatch
+	):
+		monkeypatch.setenv("PIHOLE_SECONDARY_API_URL", "https://pihole-secondary.example")
+		db.upsert_device("tommy_laptop", hostname="tommy-kubuntu")
+		stub = stub_kea_client(
+			leases_by_hostname={
+				"tommy-kubuntu": [{"hw-address": "aa:bb:cc:dd:ee:ff", "ip-address": "172.16.17.50"}]
+			},
+			dhcp4_config={"subnet4": [{"reservations": [], "option-data": []}]},
+		)
+		# Primary succeeds, secondary always raises
+		call_count = {"n": 0}
+
+		def flaky_block(pihole, ip):
+			call_count["n"] += 1
+			if call_count["n"] > 1:
+				raise RuntimeError("secondary unreachable")
+
+		with (
+			patch("quarantine_service.main._get_kea_client", return_value=stub),
+			patch("quarantine_service.main.start_arp_disruption"),
+			patch("quarantine_service.main.block_via_pihole", side_effect=flaky_block),
+			patch("quarantine_service.main.refresh_os_fingerprint", return_value=""),
+			patch("quarantine_service.retry.time.sleep"),  # skip real backoff delay
+		):
+			response = client.post(
+				"/quarantine", json={"target": "tommy_laptop"}, headers=_auth_header()
+			)
+		assert response.status_code == 200
+		# Partial success (primary OK, secondary failed) must not read as a full success
+		assert response.json()["step_results"][0]["pihole_step_succeeded"] is False

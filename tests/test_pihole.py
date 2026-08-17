@@ -30,6 +30,26 @@ def _auth_response(sid: str = "sid-123", csrf: str = "csrf-456", validity: int =
 	)
 
 
+class TestConstructorOverrides:
+	def test_uses_env_vars_by_default(self, monkeypatch):
+		monkeypatch.setenv("PIHOLE_API_URL", "http://172.16.17.212")
+		monkeypatch.setenv("PIHOLE_API_PASSWORD", "env-password")
+		client = PiholeClient()
+		assert client.base_url == "http://172.16.17.212/api"
+		assert client.password == "env-password"
+
+	def test_explicit_base_url_and_password_override_env(self, monkeypatch):
+		monkeypatch.setenv("PIHOLE_API_URL", "http://172.16.17.212")
+		monkeypatch.setenv("PIHOLE_API_PASSWORD", "env-password")
+		client = PiholeClient(base_url="https://pihole-secondary.example", password="secondary-pw")
+		assert client.base_url == "https://pihole-secondary.example/api"
+		assert client.password == "secondary-pw"
+
+	def test_strips_trailing_slash_from_base_url(self):
+		client = PiholeClient(base_url="https://pihole-secondary.example/", password="pw")
+		assert client.base_url == "https://pihole-secondary.example/api"
+
+
 class TestAuthenticate:
 	def test_caches_sid_and_csrf_after_first_call(self, pihole_http_mock, monkeypatch):
 		monkeypatch.setenv("PIHOLE_API_PASSWORD", "test-password")
