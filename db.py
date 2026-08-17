@@ -4,18 +4,31 @@ Manages the local database for IPAM static address records.
 """
 
 import sqlite3
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
+from typing import Iterator, Optional
 
 _DB_PATH = Path("/app/data/keanexus.db")
 
 
-def _connect() -> sqlite3.Connection:
+@contextmanager
+def _connect() -> Iterator[sqlite3.Connection]:
+	"""Yield a connection, committing/rolling back and always closing it.
+
+	sqlite3.Connection's own context manager only commits or rolls back on
+	exit — it never closes the connection, which leaked one handle per call
+	across the whole module. Wrapping it here keeps every `with _connect()
+	as conn:` call site unchanged while guaranteeing the close.
+	"""
 	_DB_PATH.parent.mkdir(parents=True, exist_ok=True)
 	conn = sqlite3.connect(str(_DB_PATH))
 	conn.row_factory = sqlite3.Row
-	return conn
+	try:
+		with conn:
+			yield conn
+	finally:
+		conn.close()
 
 
 def init_db() -> None:
