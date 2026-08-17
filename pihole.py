@@ -48,10 +48,12 @@ class PiholeClient:
 	# request that starts just before expiry doesn't get cut off mid-flight.
 	_EXPIRY_SAFETY_MARGIN_SECONDS = 30
 
-	def __init__(self) -> None:
-		base = os.getenv("PIHOLE_API_URL", "http://172.16.17.212").rstrip("/")
-		self.base_url = base + "/api"
-		self.password = os.getenv("PIHOLE_API_PASSWORD", "")
+	def __init__(self, base_url: Optional[str] = None, password: Optional[str] = None) -> None:
+		resolved_base = (base_url or os.getenv("PIHOLE_API_URL", "http://172.16.17.212")).rstrip(
+			"/"
+		)
+		self.base_url = resolved_base + "/api"
+		self.password = password if password is not None else os.getenv("PIHOLE_API_PASSWORD", "")
 		self._timeout = 8.0
 		self._sid: Optional[str] = None
 		self._csrf: Optional[str] = None

@@ -12,10 +12,12 @@ docs/quarantine-feature-design.md — remaining work is Siri Shortcut setup,
 which is configuration rather than code (see docs/siri-shortcut-setup.md).
 """
 
+import os
+
 from fastapi import Depends, FastAPI, HTTPException
 from pydantic import BaseModel
 
-from db import get_quarantine_log, insert_quarantine_log_entry
+from db import get_quarantine_log, init_db, insert_quarantine_log_entry
 from kea import KeaClient, KeaError
 from pihole import PiholeClient
 from quarantine_service.arp_disrupt import start_arp_disruption, stop_arp_disruption
@@ -35,6 +37,21 @@ from quarantine_service.retry import run_with_retries
 app = FastAPI(title="keanexus-quarantine")
 
 
+@app.on_event("startup")
+def _create_schema_on_startup() -> None:
+	"""Ensure device_registry/quarantine_log exist before the first request.
+
+	KeaNexus's own Streamlit script also calls init_db(), but Streamlit
+	defers running app.py until a browser session actually connects — it
+	doesn't execute eagerly just because the container started. FastAPI
+	does run this eagerly on process start, so calling it here makes this
+	service self-sufficient regardless of whether anyone's opened the
+	KeaNexus dashboard yet. init_db() is idempotent (CREATE TABLE IF NOT
+	EXISTS), so this is safe to run alongside KeaNexus's own call to it.
+	"""
+	init_db()
+
+
 class QuarantineRequest(BaseModel):
 	target: str
 	is_group: bool = False
@@ -45,9 +62,23 @@ def _get_kea_client() -> KeaClient:
 	return KeaClient()
 
 
-def _get_pihole_client() -> PiholeClient:
-	"""Factory, not a module-level singleton, so tests can patch it per-call."""
-	return PiholeClient()
+def _get_pihole_clients() -> list[PiholeClient]:
+	"""Factory returning every Pi-hole instance to write the block/unblock to.
+
+	Primary is always included. Secondary is included only when
+	PIHOLE_SECONDARY_API_URL is set — the two Pi-hole instances on this
+	network are fully independent, no Nebula/Gravity/Orbital Sync between
+	them, so a device blocked only on the primary could still resolve DNS
+	through the secondary if it's ever used as a fallback resolver. Not a
+	module-level singleton, same reasoning as _get_kea_client: tests need
+	to patch this per-call.
+	"""
+	clients = [PiholeClient()]
+	secondary_url = os.environ.get("PIHOLE_SECONDARY_API_URL", "")
+	if secondary_url:
+		secondary_password = os.environ.get("PIHOLE_SECONDARY_API_PASSWORD", "")
+		clients.append(PiholeClient(base_url=secondary_url, password=secondary_password))
+	return clients
 
 
 def _resolved_device_to_dict(device: ResolvedDevice) -> dict:
@@ -103,15 +134,31 @@ def _apply_arp_step(kea: KeaClient, device: ResolvedDevice, action: str) -> bool
 	)
 
 
-def _apply_pihole_step(pihole: PiholeClient, device: ResolvedDevice, action: str) -> bool:
-	"""Apply (quarantine) or remove (release) the Pi-hole DNS block, with retries."""
+def _apply_pihole_step(
+	pihole_clients: list[PiholeClient], device: ResolvedDevice, action: str
+) -> bool:
+	"""Apply (quarantine) or remove (release) the Pi-hole DNS block on every
+	configured Pi-hole instance, each with its own retries and its own
+	audit log row (step name includes which instance) — so a partial
+	failure (e.g. secondary unreachable) is visible per-instance rather
+	than collapsed into one ambiguous result. Returns True only if every
+	configured instance succeeded; a partial success still leaves a real
+	gap, so callers shouldn't treat it as fully blocked.
+	"""
 	pihole_action_fn = block_via_pihole if action == "quarantine" else unblock_via_pihole
-	return run_with_retries(
-		step="pihole",
-		friendly_name=device.friendly_name,
-		action=action,
-		attempt_fn=lambda ip=device.ip_address: pihole_action_fn(pihole, ip),
-	)
+	step_names = ["pihole_primary", "pihole_secondary"]
+
+	all_succeeded = True
+	for pihole, step_name in zip(pihole_clients, step_names):
+		succeeded = run_with_retries(
+			step=step_name,
+			friendly_name=device.friendly_name,
+			action=action,
+			attempt_fn=lambda ip=device.ip_address, p=pihole: pihole_action_fn(p, ip),
+		)
+		all_succeeded = all_succeeded and succeeded
+
+	return all_succeeded
 
 
 def _refresh_fingerprint_step(device: ResolvedDevice, action: str) -> bool:
@@ -147,7 +194,7 @@ def _skipped_step_result(friendly_name: str) -> dict:
 
 
 def _enforce_device(
-	kea: KeaClient, pihole: PiholeClient, device: ResolvedDevice, action: str
+	kea: KeaClient, pihole_clients: list[PiholeClient], device: ResolvedDevice, action: str
 ) -> dict:
 	"""Run the full enforcement sequence for one already-verified-current device."""
 	insert_quarantine_log_entry(
@@ -162,7 +209,7 @@ def _enforce_device(
 		"friendly_name": device.friendly_name,
 		"kea_step_succeeded": _apply_kea_step(kea, device, action),
 		"arp_step_succeeded": _apply_arp_step(kea, device, action),
-		"pihole_step_succeeded": _apply_pihole_step(pihole, device, action),
+		"pihole_step_succeeded": _apply_pihole_step(pihole_clients, device, action),
 		"fingerprint_refreshed": _refresh_fingerprint_step(device, action),
 		"skipped_due_to_identity_drift": False,
 	}
@@ -170,7 +217,7 @@ def _enforce_device(
 
 def _resolve_and_log(request: QuarantineRequest, action: str) -> dict:
 	kea = _get_kea_client()
-	pihole = _get_pihole_client()
+	pihole_clients = _get_pihole_clients()
 	try:
 		resolved_devices = resolve_target(kea, request.target, request.is_group)
 	except DeviceNotRegisteredError as exc:
@@ -195,7 +242,7 @@ def _resolve_and_log(request: QuarantineRequest, action: str) -> dict:
 			step_results.append(_skipped_step_result(device.friendly_name))
 			continue
 
-		step_results.append(_enforce_device(kea, pihole, device, action))
+		step_results.append(_enforce_device(kea, pihole_clients, device, action))
 
 	return {
 		"target": request.target,

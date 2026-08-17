@@ -122,8 +122,8 @@ Data persisted in Docker named volume `keanexus_data` mounted at `/app/data/`.
   `docs/quarantine-feature-design.md` for the full rationale.
 - Table: `quarantine_log` — append-only audit trail (log_id PK autoincrement,
   friendly_name, action, step, succeeded, attempt_count, detail, occurred_at).
-  Currently only read/written from KeaNexus itself for testing; the (not yet
-  built) `keanexus-quarantine` service will be the real writer once it exists.
+  Written by the `keanexus-quarantine` service (see below) on every enforcement
+  step attempt.
 - `init_db()` — idempotent schema creation, called at app startup
 - `get_static_entries()`, `get_static_entry(ip)`, `upsert_static_entry(...)`, `delete_static_entry(ip)`
 - `get_devices()`, `get_device(name)`, `upsert_device(...)`, `delete_device(name)`
@@ -196,7 +196,7 @@ than code — see `docs/siri-shortcut-setup.md`.
       of applying/starting them (fingerprint refresh still runs either way)
     - `GET /status/{friendly_name}` — returns recent `quarantine_log` rows for one device
     - All three require `Authorization: Bearer <token>` via `require_bearer_token`
-    - `_get_kea_client()` / `_get_pihole_client()` are factories (not module-level
+    - `_get_kea_client()` / `_get_pihole_clients()` are factories (not module-level
       singletons) specifically so tests can patch them per-call with a stub
     - `_get_gateway_ip(kea)` extracts the subnet's router IP from the live Kea config
       (same `option-data` lookup pattern as `ui_ipam.py`) — needed by the ARP step to
@@ -260,7 +260,21 @@ ip)`. Blocking works by assigning the device's current IP to a dedicated
   rather than leaving an empty override behind. **Built against Pi-hole's documented
   v6 REST API and community references, not verified against a live instance** —
   check the `/clients` and `/groups` request/response shapes against this Pi-hole's
-  own self-hosted docs at `http://pi.hole/api/docs` before relying on it
+  own self-hosted docs at `http://pi.hole/api/docs` before relying on it.
+
+        **Writes to both primary and secondary Pi-hole instances.** Discovered during
+        deployment that the two Pi-hole instances on this network (172.16.17.212 primary,
+        172.16.17.252 secondary on the TerraMaster NAS) are fully independent — no
+        Nebula/Gravity/Orbital Sync between them — so blocking only the primary would
+        leave a real gap if a device's DNS ever gets served by the secondary. `main.py`'s
+        `_get_pihole_clients()` always includes the primary and adds the secondary only
+        when `PIHOLE_SECONDARY_API_URL` is set; `_apply_pihole_step` writes to each with
+        its own independent retry and its own audit log row (`pihole_primary` /
+        `pihole_secondary` steps), so a partial failure on one instance is visible rather
+        than collapsed into one ambiguous result. `PiholeClient.__init__` accepts optional
+        `base_url`/`password` overrides (falling back to env vars) specifically to support
+        constructing a second client pointed at the secondary instance.
+
 - `nmap_fingerprint.py` — `refresh_os_fingerprint(friendly_name, target_ip)` shells
   out to `nmap -O --osscan-guess` (no meaningful pure-Python equivalent exists for
   real OS detection) and parses the XML output for the highest-accuracy `osmatch`.
@@ -282,7 +296,7 @@ ip)`. Blocking works by assigning the device's current IP to a dedicated
   unprivileged. Configured via `quarantine_service/.env` (see `.env.example` for
   required vars: `KEA_API_URL`, `KEA_API_USER`, `KEA_API_PASSWORD`,
   `PIHOLE_API_URL`, `PIHOLE_API_PASSWORD`, `QUARANTINE_API_TOKEN`; optional
-  `ARP_INTERFACE`)
+  `ARP_INTERFACE`, `PIHOLE_SECONDARY_API_URL`, `PIHOLE_SECONDARY_API_PASSWORD`)
 
 ## API Endpoints
 
