@@ -22,6 +22,7 @@ services:
       - ./ui_ipam.py:/app/ui_ipam.py
       - ./ui_reservations.py:/app/ui_reservations.py
       - ./ui_maintenance.py:/app/ui_maintenance.py
+      - ./ui_quarantine.py:/app/ui_quarantine.py
       - ./ui_settings.py:/app/ui_settings.py
       - ./style.css:/app/style.css
       - ./.streamlit:/app/.streamlit
@@ -35,3 +36,26 @@ services:
       --server.address=0.0.0.0
       --server.headless=true
       --browser.gatherUsageStats=false
+
+  keanexus-quarantine:
+    build:
+      context: .
+      dockerfile: quarantine_service/Dockerfile
+    container_name: keanexus-quarantine
+    restart: unless-stopped
+    # Host networking, not a bridge — ARP disruption and Kea's own DHCP
+    # broadcast handling both need real L2 access. NET_RAW/NET_ADMIN are
+    # scoped to this container only; KeaNexus and Kea itself stay unprivileged.
+    # See docs/quarantine-feature-design.md, open decisions #1 and #4.
+    network_mode: host
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
+    env_file:
+      - quarantine_service/.env
+    volumes:
+      - ./data:/app/data
+    # Opt-in only — never builds or starts unless explicitly requested:
+    #   docker compose --profile quarantine up
+    profiles:
+      - quarantine

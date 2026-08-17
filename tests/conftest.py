@@ -1,4 +1,5 @@
 # conftest.py - shared pytest fixtures
+from typing import Optional
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -23,3 +24,85 @@ def http_mock():
 		mock_cls.return_value.__enter__ = MagicMock(return_value=mock_instance)
 		mock_cls.return_value.__exit__ = MagicMock(return_value=False)
 		yield mock_instance
+
+
+class StubKeaClient:
+	"""Duck-typed stand-in for KeaClient for quarantine_service tests.
+
+	Only implements what quarantine_service actually calls — lease lookup by
+	hostname for identity resolution, and config get/save for the Kea deny
+	action. Avoids mocking httpx for tests that don't care about the HTTP
+	transport itself. saved_configs records every save_config call so tests
+	can assert on what was actually pushed to Kea.
+	"""
+
+	def __init__(
+		self,
+		leases_by_hostname: Optional[dict[str, list[dict]]] = None,
+		dhcp4_config: Optional[dict] = None,
+	):
+		self._leases_by_hostname = leases_by_hostname or {}
+		self._dhcp4_config = (
+			dhcp4_config if dhcp4_config is not None else {"subnet4": [{"reservations": []}]}
+		)
+		self.saved_configs: list[dict] = []
+
+	def get_leases_by_hostname(self, hostname: str) -> list[dict]:
+		return self._leases_by_hostname.get(hostname, [])
+
+	def get_config(self) -> dict:
+		return self._dhcp4_config
+
+	def save_config(self, dhcp4_config: dict) -> None:
+		self._dhcp4_config = dhcp4_config
+		self.saved_configs.append(dhcp4_config)
+
+
+@pytest.fixture
+def stub_kea_client():
+	"""Factory fixture returning the StubKeaClient class itself.
+
+	Tests construct their own instance with whatever leases/config they
+	need, e.g. stub_kea_client(leases_by_hostname={...}). Exposed as a
+	fixture rather than a plain class import because tests/ has __init__.py
+	(making it a package), so pytest registers this module as
+	tests.conftest — a bare 'from conftest import StubKeaClient' in other
+	test files won't resolve, but fixtures always will.
+	"""
+	return StubKeaClient
+
+
+@pytest.fixture
+def pihole_http_mock():
+	"""Patch pihole.httpx.Client and yield the mock request target."""
+	with patch("pihole.httpx.Client") as mock_cls:
+		mock_instance = MagicMock()
+		mock_cls.return_value.__enter__ = MagicMock(return_value=mock_instance)
+		mock_cls.return_value.__exit__ = MagicMock(return_value=False)
+		yield mock_instance
+
+
+class StubPiholeClient:
+	"""Duck-typed stand-in for PiholeClient for quarantine_service tests.
+
+	Programmed with canned (method, path) -> response JSON via the
+	responses dict; unmatched calls return {}. Records every call made
+	(including its body) so tests can assert on the exact sequence sent to
+	Pi-hole, same spirit as StubKeaClient.saved_configs.
+	"""
+
+	def __init__(self, responses: Optional[dict[tuple[str, str], dict]] = None):
+		self._responses = responses or {}
+		self.calls: list[tuple[str, str, Optional[dict]]] = []
+
+	def request(self, method: str, path: str, json_body: Optional[dict] = None) -> dict:
+		self.calls.append((method, path, json_body))
+		return self._responses.get((method, path), {})
+
+
+@pytest.fixture
+def stub_pihole_client():
+	"""Factory fixture returning the StubPiholeClient class itself. See
+	stub_kea_client's docstring for why this is a fixture, not a plain import.
+	"""
+	return StubPiholeClient
