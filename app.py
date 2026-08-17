@@ -17,6 +17,7 @@ from ui_leases import render_leases
 from ui_login import render_login
 from ui_maintenance import render_maintenance
 from ui_pool import render_pool
+from ui_quarantine import render_quarantine
 from ui_reservations import render_reservations
 from ui_settings import render_settings
 from version import APP_VERSION
@@ -132,13 +133,14 @@ def main() -> None:
 
 	render_sidebar(stats, config, status)
 
-	tab_pool, tab_leases, tab_ipam, tab_res, tab_maint, tab_settings = st.tabs(
+	tab_pool, tab_leases, tab_ipam, tab_res, tab_maint, tab_quarantine, tab_settings = st.tabs(
 		[
 			"Pool",
 			"Leases",
 			"IPAM",
 			"Reservations",
 			"Maintenance",
+			"Quarantine",
 			"Settings",
 		]
 	)
@@ -152,6 +154,8 @@ def main() -> None:
 		render_reservations(config)
 	with tab_maint:
 		render_maintenance(leases)
+	with tab_quarantine:
+		render_quarantine()
 	with tab_settings:
 		render_settings(config)
 
