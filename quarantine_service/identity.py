@@ -37,16 +37,24 @@ class ResolvedDevice:
 def resolve_target(kea: KeaClient, target: str, is_group: bool) -> list[ResolvedDevice]:
 	"""Resolve a friendly_name or group_tag to live network identity.
 
-	Raises DeviceNotRegisteredError if the target matches no registry entry,
-	and DeviceNotOnNetworkError if a registered device has no current lease
-	— there's nothing to act on if the device isn't currently on the network.
+	Raises DeviceNotRegisteredError if the target matches no registry entry.
+	For a single-device target, raises DeviceNotOnNetworkError if it has no
+	current lease. For a group target, a device with no current lease is
+	skipped rather than aborting the whole group — an offline sibling
+	shouldn't block enforcement on the devices that are actually online.
+	DeviceNotOnNetworkError is only raised for a group if none of its
+	devices are currently on the network.
 	"""
 	registry_entries = _matching_registry_entries(target, is_group)
 
 	resolved_devices = []
+	offline_hostnames = []
 	for entry in registry_entries:
 		leases = kea.get_leases_by_hostname(entry["hostname"])
 		if not leases:
+			if is_group:
+				offline_hostnames.append(entry["hostname"])
+				continue
 			raise DeviceNotOnNetworkError(
 				f"No current lease found for hostname '{entry['hostname']}' "
 				f"(friendly_name '{entry['friendly_name']}')"
@@ -61,6 +69,12 @@ def resolve_target(kea: KeaClient, target: str, is_group: bool) -> list[Resolved
 				mac_address=mac_address,
 				ip_address=ip_address,
 			)
+		)
+
+	if is_group and not resolved_devices:
+		raise DeviceNotOnNetworkError(
+			f"None of the devices in group '{target}' are currently on the network "
+			f"(checked: {', '.join(offline_hostnames)})"
 		)
 
 	return resolved_devices

@@ -250,9 +250,13 @@ folded into the descriptions below rather than tracked as separate PR numbers.
 - `identity.py` — `resolve_target(kea, target, is_group)` resolves a `friendly_name`
   or `group_tag` against `device_registry`, then queries Kea's current leases by
   hostname (`KeaClient.get_leases_by_hostname`) to get the live MAC/IP. Raises
-  `DeviceNotRegisteredError` (mapped to HTTP 404) or `DeviceNotOnNetworkError`
-  (mapped to HTTP 409). Refreshes `last_seen_mac_address` / `last_seen_ip_address`
-  in `device_registry` on every successful resolution via `upsert_device`.
+  `DeviceNotRegisteredError` (mapped to HTTP 404). For a single-device target,
+  raises `DeviceNotOnNetworkError` (mapped to HTTP 409) if it has no current
+  lease. For a group target, a device with no current lease is skipped rather
+  than aborting the whole group — `DeviceNotOnNetworkError` is only raised if
+  none of the group's devices are currently on the network. Refreshes
+  `last_seen_mac_address` / `last_seen_ip_address` in `device_registry` on every
+  successful resolution via `upsert_device`.
   `verify_identity_unchanged(kea, device)` is the pre-fire safety check — called from
   `main.py` immediately before enforcing (not at resolution time), it re-queries the
   hostname's current lease and returns False if the IP or MAC has drifted since
@@ -304,18 +308,18 @@ ip)`. Blocking works by assigning the device's current IP to a dedicated
   check the `/clients` and `/groups` request/response shapes against this Pi-hole's
   own self-hosted docs at `http://pi.hole/api/docs` before relying on it.
 
-            **Writes to both primary and secondary Pi-hole instances.** Discovered during
-            deployment that the two Pi-hole instances on this network (172.16.17.212 primary,
-            172.16.17.252 secondary on the TerraMaster NAS) are fully independent — no
-            Nebula/Gravity/Orbital Sync between them — so blocking only the primary would
-            leave a real gap if a device's DNS ever gets served by the secondary. `main.py`'s
-            `_get_pihole_clients()` always includes the primary and adds the secondary only
-            when `PIHOLE_SECONDARY_API_URL` is set; `_apply_pihole_step` writes to each with
-            its own independent retry and its own audit log row (`pihole_primary` /
-            `pihole_secondary` steps), so a partial failure on one instance is visible rather
-            than collapsed into one ambiguous result. `PiholeClient.__init__` accepts optional
-            `base_url`/`password` overrides (falling back to env vars) specifically to support
-            constructing a second client pointed at the secondary instance.
+                    **Writes to both primary and secondary Pi-hole instances.** Discovered during
+                    deployment that the two Pi-hole instances on this network (172.16.17.212 primary,
+                    172.16.17.252 secondary on the TerraMaster NAS) are fully independent — no
+                    Nebula/Gravity/Orbital Sync between them — so blocking only the primary would
+                    leave a real gap if a device's DNS ever gets served by the secondary. `main.py`'s
+                    `_get_pihole_clients()` always includes the primary and adds the secondary only
+                    when `PIHOLE_SECONDARY_API_URL` is set; `_apply_pihole_step` writes to each with
+                    its own independent retry and its own audit log row (`pihole_primary` /
+                    `pihole_secondary` steps), so a partial failure on one instance is visible rather
+                    than collapsed into one ambiguous result. `PiholeClient.__init__` accepts optional
+                    `base_url`/`password` overrides (falling back to env vars) specifically to support
+                    constructing a second client pointed at the secondary instance.
 
 - `nmap_fingerprint.py` — `refresh_os_fingerprint(friendly_name, target_ip)` shells
   out to `nmap -O --osscan-guess` (no meaningful pure-Python equivalent exists for

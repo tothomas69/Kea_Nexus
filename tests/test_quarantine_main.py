@@ -177,6 +177,47 @@ class TestQuarantineEndpoint:
 		}
 		assert dropped_macs == {"aa:aa:aa:aa:aa:aa", "bb:bb:bb:bb:bb:bb"}
 
+	def test_group_target_enforces_online_devices_despite_one_offline(
+		self, client, stub_kea_client
+	):
+		db.upsert_device("tommy_laptop", hostname="tommy-kubuntu", group_tag="kids")
+		db.upsert_device("lilly_laptop", hostname="lilly-kubuntu", group_tag="kids")
+		stub = stub_kea_client(
+			leases_by_hostname={
+				"tommy-kubuntu": [{"hw-address": "aa:aa:aa:aa:aa:aa", "ip-address": "172.16.17.50"}]
+				# lilly-kubuntu has no current lease (offline)
+			},
+			dhcp4_config={"subnet4": [{"reservations": [], "option-data": []}]},
+		)
+		with (
+			patch("quarantine_service.main._get_kea_client", return_value=stub),
+			patch("quarantine_service.main.start_arp_disruption"),
+			patch("quarantine_service.main.block_via_pihole"),
+			patch("quarantine_service.main.refresh_os_fingerprint", return_value="Linux 5.X"),
+		):
+			response = client.post(
+				"/quarantine",
+				json={"target": "kids", "is_group": True},
+				headers=_auth_header(),
+			)
+		assert response.status_code == 200
+		body = response.json()
+		assert len(body["resolved_devices"]) == 1
+		assert body["resolved_devices"][0]["friendly_name"] == "tommy_laptop"
+		assert body["step_results"][0]["kea_step_succeeded"] is True
+
+	def test_group_target_returns_409_when_all_devices_offline(self, client, stub_kea_client):
+		db.upsert_device("tommy_laptop", hostname="tommy-kubuntu", group_tag="kids")
+		db.upsert_device("lilly_laptop", hostname="lilly-kubuntu", group_tag="kids")
+		stub = stub_kea_client()  # no leases for anyone
+		with patch("quarantine_service.main._get_kea_client", return_value=stub):
+			response = client.post(
+				"/quarantine",
+				json={"target": "kids", "is_group": True},
+				headers=_auth_header(),
+			)
+		assert response.status_code == 409
+
 
 class TestReleaseEndpoint:
 	def test_removes_all_four_enforcement_steps(self, client, stub_kea_client):
