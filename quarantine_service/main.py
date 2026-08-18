@@ -12,6 +12,7 @@ docs/quarantine-feature-design.md — remaining work is Siri Shortcut setup,
 which is configuration rather than code (see docs/siri-shortcut-setup.md).
 """
 
+import logging
 import os
 from datetime import datetime, timezone
 
@@ -35,6 +36,13 @@ from quarantine_service.nmap_fingerprint import refresh_os_fingerprint
 from quarantine_service.pihole_block import block_via_pihole, unblock_via_pihole
 from quarantine_service.presence_check import start_presence_check_loop
 from quarantine_service.retry import run_with_retries
+
+# Without this, Python's root logger sits at its default WARNING level and
+# every logger.info(...) call anywhere in this service (presence_check.py's
+# startup confirmation, and anything added later) is silently dropped before
+# it ever reaches `docker logs` — uvicorn configures its own request-logging
+# loggers, not the application's.
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
 app = FastAPI(title="keanexus-quarantine")
 

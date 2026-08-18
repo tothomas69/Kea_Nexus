@@ -12,6 +12,9 @@ manual-override convenience — they call keanexus-quarantine's own API via
 quarantine_client.py, the same API a Siri Shortcut would call.
 """
 
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
 import streamlit as st
 
 from db import (
@@ -24,10 +27,37 @@ from db import (
 from quarantine_client import QuarantineServiceError, trigger_quarantine, trigger_release
 
 _CELL = "font-family:monospace;font-size:13px;color:#1f2328"
+# Timestamps are long even after shortening ("08/18 04:11 PM EDT") — a
+# smaller, muted style keeps them from dominating the row the way the raw
+# ISO string (32+ characters) did.
+_CELL_META = "font-family:monospace;font-size:11px;color:#6e7681"
 _HEADER_CELL = (
 	"font-family:monospace;font-size:12px;font-weight:700;color:#1f2328;"
 	"text-transform:uppercase;letter-spacing:.05em;overflow:hidden"
 )
+
+_LOCAL_TZ = ZoneInfo("America/New_York")
+
+
+def _format_local_time(iso_utc: str) -> str:
+	"""Render a UTC ISO-8601 timestamp (db.py always stores UTC) as a short
+	local-time string for display, e.g. "08/18 04:11 PM EDT".
+
+	Storage stays UTC/ISO so log ordering and any other consumer of these
+	columns keep working normally — this is purely a render-time concern.
+	Uses zoneinfo (stdlib, no new dependency) so DST is handled correctly —
+	a fixed UTC-5 offset would be wrong for roughly half the year.
+	"""
+	if not iso_utc:
+		return "—"
+	try:
+		dt = datetime.fromisoformat(iso_utc)
+	except ValueError:
+		# Malformed/unexpected value — show it raw rather than crash the
+		# whole table over one bad cell.
+		return iso_utc
+	return dt.astimezone(_LOCAL_TZ).strftime("%m/%d %I:%M %p %Z")
+
 
 _DEVICE_COL_WIDTHS = [1.3, 1.2, 0.8, 1.2, 1.0, 1.2, 1.2, 0.9, 0.8, 0.7]
 _DEVICE_COL_HEADERS = [
@@ -95,16 +125,14 @@ def _edit_dialog(friendly_name: str = "") -> None:
 		st.markdown(
 			f'<div style="{_CELL};margin-top:4px">'
 			f"OS fingerprint: {existing.get('os_fingerprint', '') or '—'}<br>"
-			f"Last seen MAC: {existing.get('last_seen_mac_address', '') or '—'}<br>"
-			f"Last seen IP: {existing.get('last_seen_ip_address', '') or '—'}<br>"
-			f"Last seen at: {existing.get('last_seen_at', '') or '—'}<br>"
 			f"Last quarantined: {existing.get('last_quarantined_at', '') or '—'}"
 			f"</div>",
 			unsafe_allow_html=True,
 		)
 		st.caption(
-			"Fingerprint and last-seen fields are written by the quarantine "
-			"service and cannot be edited here."
+			"Fingerprint and last-quarantined time are written by the quarantine "
+			"service and cannot be edited here. MAC/IP/last-seen breadcrumbs are "
+			"shown in the main table only."
 		)
 
 	c1, c2, c3 = st.columns(3)
@@ -235,11 +263,11 @@ def _render_device_table(devices: list[dict]) -> None:
 			unsafe_allow_html=True,
 		)
 		cols[5].markdown(
-			f'<span style="{_CELL}">{device["last_seen_at"] or "—"}</span>',
+			f'<span style="{_CELL_META}">{_format_local_time(device["last_seen_at"])}</span>',
 			unsafe_allow_html=True,
 		)
 		cols[6].markdown(
-			f'<span style="{_CELL}">{device["last_quarantined_at"] or "—"}</span>',
+			f'<span style="{_CELL_META}">{_format_local_time(device["last_quarantined_at"])}</span>',
 			unsafe_allow_html=True,
 		)
 		if cols[7].button(
@@ -335,7 +363,7 @@ def render_quarantine() -> None:
 	devices = get_devices()
 	if devices:
 		_render_device_table(devices)
-		st.markdown("<div style='margin-top:10px'></div>", unsafe_allow_html=True)
+		st.markdown("---")
 		_render_group_actions(devices)
 	else:
 		st.info("No devices registered yet.")
