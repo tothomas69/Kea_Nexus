@@ -54,7 +54,11 @@ class TestRefreshOsFingerprint:
 
 	def test_preserves_other_registry_fields(self, temp_db):
 		db.upsert_device(
-			"tommy_laptop", hostname="tommy-kubuntu", group_tag="kids", notes="school laptop"
+			"tommy_laptop",
+			hostname="tommy-kubuntu",
+			group_tag="kids",
+			notes="school laptop",
+			last_seen_at="2026-08-18T12:00:00+00:00",
 		)
 		with patch(
 			"quarantine_service.nmap_fingerprint.subprocess.run",
@@ -65,6 +69,7 @@ class TestRefreshOsFingerprint:
 		device = db.get_device("tommy_laptop")
 		assert device["group_tag"] == "kids"
 		assert device["notes"] == "school laptop"
+		assert device["last_seen_at"] == "2026-08-18T12:00:00+00:00"
 
 	def test_missing_os_element_returns_empty_and_does_not_overwrite(self, temp_db):
 		db.upsert_device("tommy_laptop", hostname="tommy-kubuntu", os_fingerprint="Linux 5.X")
