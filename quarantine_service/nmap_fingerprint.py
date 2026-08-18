@@ -105,6 +105,7 @@ def _persist_fingerprint(friendly_name: str, fingerprint: str) -> None:
 		os_fingerprint=fingerprint,
 		last_seen_mac_address=device["last_seen_mac_address"],
 		last_seen_ip_address=device["last_seen_ip_address"],
+		last_seen_at=device["last_seen_at"],
 		last_quarantined_at=device["last_quarantined_at"],
 		notes=device["notes"],
 	)
