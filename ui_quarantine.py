@@ -27,9 +27,12 @@ from db import (
 from quarantine_client import QuarantineServiceError, trigger_quarantine, trigger_release
 
 _CELL = "font-family:monospace;font-size:13px;color:#1f2328"
-# Timestamps are long even after shortening ("08/18 04:11 PM EDT") — a
-# smaller, muted style keeps them from dominating the row the way the raw
-# ISO string (32+ characters) did.
+# MAC/IP columns are narrow enough that the default cell style can wrap them
+# mid-address across two lines — nowrap keeps each address on one line.
+_CELL_NOWRAP = _CELL + ";white-space:nowrap"
+# Timestamps are long even after shortening ("08/18 16:11 EDT") — a smaller,
+# muted style keeps them from dominating the row the way the raw ISO string
+# (32+ characters) did.
 _CELL_META = "font-family:monospace;font-size:11px;color:#6e7681"
 _HEADER_CELL = (
 	"font-family:monospace;font-size:12px;font-weight:700;color:#1f2328;"
@@ -41,12 +44,14 @@ _LOCAL_TZ = ZoneInfo("America/New_York")
 
 def _format_local_time(iso_utc: str) -> str:
 	"""Render a UTC ISO-8601 timestamp (db.py always stores UTC) as a short
-	local-time string for display, e.g. "08/18 04:11 PM EDT".
+	local-time string for display, e.g. "08/18 16:11 EDT".
 
 	Storage stays UTC/ISO so log ordering and any other consumer of these
 	columns keep working normally — this is purely a render-time concern.
 	Uses zoneinfo (stdlib, no new dependency) so DST is handled correctly —
-	a fixed UTC-5 offset would be wrong for roughly half the year.
+	a fixed UTC-5 offset would be wrong for roughly half the year. 24-hour
+	clock, matching this project's "always UTC/military internally, convert
+	for display" time handling convention.
 	"""
 	if not iso_utc:
 		return "—"
@@ -56,10 +61,10 @@ def _format_local_time(iso_utc: str) -> str:
 		# Malformed/unexpected value — show it raw rather than crash the
 		# whole table over one bad cell.
 		return iso_utc
-	return dt.astimezone(_LOCAL_TZ).strftime("%m/%d %I:%M %p %Z")
+	return dt.astimezone(_LOCAL_TZ).strftime("%m/%d %H:%M %Z")
 
 
-_DEVICE_COL_WIDTHS = [1.3, 1.2, 0.8, 1.2, 1.0, 1.2, 1.2, 0.9, 0.8, 0.7]
+_DEVICE_COL_WIDTHS = [1.3, 1.1, 0.5, 1.5, 1.3, 1.1, 1.1, 0.9, 0.8, 0.7]
 _DEVICE_COL_HEADERS = [
 	"Friendly Name",
 	"Hostname",
@@ -255,11 +260,11 @@ def _render_device_table(devices: list[dict]) -> None:
 			f'<span style="{_CELL}">{device["group_tag"] or "—"}</span>', unsafe_allow_html=True
 		)
 		cols[3].markdown(
-			f'<span style="{_CELL}">{device["last_seen_mac_address"] or "—"}</span>',
+			f'<span style="{_CELL_NOWRAP}">{device["last_seen_mac_address"] or "—"}</span>',
 			unsafe_allow_html=True,
 		)
 		cols[4].markdown(
-			f'<span style="{_CELL}">{device["last_seen_ip_address"] or "—"}</span>',
+			f'<span style="{_CELL_NOWRAP}">{device["last_seen_ip_address"] or "—"}</span>',
 			unsafe_allow_html=True,
 		)
 		cols[5].markdown(
