@@ -106,3 +106,13 @@ def stub_pihole_client():
 	stub_kea_client's docstring for why this is a fixture, not a plain import.
 	"""
 	return StubPiholeClient
+
+
+@pytest.fixture
+def quarantine_client_http_mock():
+	"""Patch quarantine_client.httpx.Client and yield the mock POST target."""
+	with patch("quarantine_client.httpx.Client") as mock_cls:
+		mock_instance = MagicMock()
+		mock_cls.return_value.__enter__ = MagicMock(return_value=mock_instance)
+		mock_cls.return_value.__exit__ = MagicMock(return_value=False)
+		yield mock_instance

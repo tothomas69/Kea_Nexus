@@ -13,6 +13,7 @@ services:
       - ./app.py:/app/app.py
       - ./auth.py:/app/auth.py
       - ./kea.py:/app/kea.py
+      - ./quarantine_client.py:/app/quarantine_client.py
       - ./version.py:/app/version.py
       - ./helpers.py:/app/helpers.py
       - ./db.py:/app/db.py

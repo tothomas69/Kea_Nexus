@@ -6,9 +6,10 @@ this device" used by the keanexus-quarantine service. Identity here is
 keyed on friendly_name, not MAC address, since MAC can be changed by the
 device itself — see docs/quarantine-feature-design.md.
 
-This tab is read-only with respect to enforcement: it cannot trigger a
-quarantine or release action. It only manages registry entries and displays
-the audit log that the quarantine service writes to.
+Registry CRUD and enforcement are otherwise separate concerns, but this tab
+also offers direct Quarantine/Release buttons per device as a testing and
+manual-override convenience — they call keanexus-quarantine's own API via
+quarantine_client.py, the same API a Siri Shortcut would call.
 """
 
 import streamlit as st
@@ -20,6 +21,7 @@ from db import (
 	get_quarantine_log,
 	upsert_device,
 )
+from quarantine_client import QuarantineServiceError, trigger_quarantine, trigger_release
 
 _CELL = "font-family:monospace;font-size:11px;color:#1f2328"
 _HEADER_CELL = (
@@ -27,7 +29,7 @@ _HEADER_CELL = (
 	"text-transform:uppercase;letter-spacing:.05em;overflow:hidden"
 )
 
-_DEVICE_COL_WIDTHS = [1.6, 1.6, 1.1, 1.6, 1.4, 1.6, 1.0]
+_DEVICE_COL_WIDTHS = [1.3, 1.2, 0.8, 1.2, 1.0, 1.2, 0.9, 0.8, 0.7]
 _DEVICE_COL_HEADERS = [
 	"Friendly Name",
 	"Hostname",
@@ -35,6 +37,8 @@ _DEVICE_COL_HEADERS = [
 	"Last MAC",
 	"Last IP",
 	"Last Quarantined",
+	"Quarantine",
+	"Release",
 	"",
 ]
 
@@ -48,6 +52,8 @@ _LOG_COL_HEADERS = [
 	"Occurred At",
 	"Detail",
 ]
+
+_ACTION_RESULT_KEY = "quarantine_last_action_result"
 
 
 def _render_grid_header(widths: list[float], headers: list[str]) -> None:
@@ -129,12 +135,80 @@ def _edit_dialog(friendly_name: str = "") -> None:
 			st.rerun()
 
 
+def _summarize_step_results(action_label: str, result: dict) -> tuple[bool, str]:
+	"""Turn keanexus-quarantine's response into a short pass/fail summary.
+
+	Returns (all_ok, message) — all_ok is False if any device was skipped
+	for identity drift or any step failed, so the caller can decide
+	between st.success and st.warning.
+	"""
+	all_ok = True
+	lines = []
+	for step in result.get("step_results", []):
+		if step.get("skipped_due_to_identity_drift"):
+			all_ok = False
+			lines.append(f"{step['friendly_name']}: skipped — identity drifted, retry")
+			continue
+
+		checks = {
+			"kea": step.get("kea_step_succeeded"),
+			"arp": step.get("arp_step_succeeded"),
+			"pihole": step.get("pihole_step_succeeded"),
+			"fingerprint": step.get("fingerprint_refreshed"),
+		}
+		if not all(checks.values()):
+			all_ok = False
+		parts = [f"{name} {'✓' if ok else '✗'}" for name, ok in checks.items()]
+		lines.append(f"{step['friendly_name']}: {', '.join(parts)}")
+
+	summary = (
+		f"{action_label} — " + " | ".join(lines)
+		if lines
+		else f"{action_label}: no devices resolved"
+	)
+	return all_ok, summary
+
+
+def _trigger_action(friendly_name: str, action: str) -> None:
+	"""Call keanexus-quarantine and stash a result to show after rerun.
+
+	Stashing in session_state (rather than displaying inline immediately)
+	is necessary because st.rerun() wipes whatever was on screen this run
+	— the stashed result gets displayed at the top of render_quarantine()
+	on the next run, then cleared so it doesn't linger indefinitely.
+	"""
+	action_label = "Quarantine" if action == "quarantine" else "Release"
+	trigger_fn = trigger_quarantine if action == "quarantine" else trigger_release
+	with st.spinner(f"{action_label} in progress for {friendly_name}\u2026 this can take a while."):
+		try:
+			result = trigger_fn(friendly_name)
+			all_ok, message = _summarize_step_results(action_label, result)
+			st.session_state[_ACTION_RESULT_KEY] = {"ok": all_ok, "message": message}
+		except QuarantineServiceError as exc:
+			st.session_state[_ACTION_RESULT_KEY] = {
+				"ok": False,
+				"message": f"{action_label} failed for {friendly_name}: {exc}",
+			}
+	st.rerun()
+
+
+def _render_pending_action_result() -> None:
+	pending = st.session_state.pop(_ACTION_RESULT_KEY, None)
+	if pending is None:
+		return
+	if pending["ok"]:
+		st.success(pending["message"])
+	else:
+		st.warning(pending["message"])
+
+
 def _render_device_table(devices: list[dict]) -> None:
 	_render_grid_header(_DEVICE_COL_WIDTHS, _DEVICE_COL_HEADERS)
 	for device in devices:
+		friendly_name = device["friendly_name"]
 		cols = st.columns(_DEVICE_COL_WIDTHS)
 		cols[0].markdown(
-			f'<span style="{_CELL};font-weight:600">{device["friendly_name"]}</span>',
+			f'<span style="{_CELL};font-weight:600">{friendly_name}</span>',
 			unsafe_allow_html=True,
 		)
 		cols[1].markdown(
@@ -156,9 +230,15 @@ def _render_device_table(devices: list[dict]) -> None:
 			unsafe_allow_html=True,
 		)
 		if cols[6].button(
-			"Edit", key=f"quarantine_edit_{device['friendly_name']}", use_container_width=True
+			"Quarantine", key=f"quarantine_go_{friendly_name}", use_container_width=True
 		):
-			_edit_dialog(device["friendly_name"])
+			_trigger_action(friendly_name, "quarantine")
+		if cols[7].button(
+			"Release", key=f"quarantine_release_{friendly_name}", use_container_width=True
+		):
+			_trigger_action(friendly_name, "release")
+		if cols[8].button("Edit", key=f"quarantine_edit_{friendly_name}", use_container_width=True):
+			_edit_dialog(friendly_name)
 
 
 def _render_log_table(entries: list[dict]) -> None:
@@ -184,13 +264,17 @@ def _render_log_table(entries: list[dict]) -> None:
 
 
 def render_quarantine() -> None:
-	"""Render the Quarantine tab: device registry CRUD + read-only audit log."""
+	"""Render the Quarantine tab: device registry CRUD, Quarantine/Release
+	buttons, and a read-only audit log.
+	"""
 	st.caption(
 		"Identity registry for the network quarantine feature. Devices are "
 		"identified by hostname, not MAC address, since MAC can be changed. "
-		"This tab does not trigger quarantine or release actions directly — "
+		"Quarantine/Release call keanexus-quarantine's own API directly — "
 		"see docs/quarantine-feature-design.md."
 	)
+
+	_render_pending_action_result()
 
 	if st.button("Add Device"):
 		_edit_dialog()

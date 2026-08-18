@@ -38,6 +38,7 @@ keanexus/
 ├── auth.py             — Authentication: env-var credential check, session state
 ├── kea.py              — Kea direct HTTP API client (Kea 3.0+)
 ├── pihole.py           — Pi-hole v6 REST API client (session auth); used by quarantine_service
+├── quarantine_client.py — Thin client KeaNexus uses to call keanexus-quarantine's own API
 ├── helpers.py          — Cached data loaders, format utilities
 ├── db.py               — SQLite persistence layer (IPAM static records)
 ├── ui_login.py         — Login page: logo, username/password form
@@ -93,6 +94,25 @@ Data persisted in Docker named volume `keanexus_data` mounted at `/app/data/`.
 - Connection configured via `PIHOLE_API_URL`, `PIHOLE_API_PASSWORD` env vars
 - Built against Pi-hole's documented v6 API and community references, not verified
   against a live instance — see the caveat under `pihole_block.py` below
+
+### Quarantine Client (`quarantine_client.py`)
+
+- `trigger_quarantine(target, is_group=False)` / `trigger_release(target, is_group=False)` —
+  called by the Quarantine tab's Quarantine/Release buttons. Same API a Siri Shortcut
+  calls, just from inside KeaNexus itself
+- Configured via `QUARANTINE_SERVICE_URL`, `QUARANTINE_SERVICE_TOKEN` (must match
+  `QUARANTINE_API_TOKEN` in `quarantine_service/.env`)
+- `QUARANTINE_SERVICE_URL` **must be the Docker host's real LAN IP, not
+  localhost** — `keanexus-quarantine` runs with `network_mode: host` while
+  KeaNexus itself is on the default bridge network, so `localhost` from inside the
+  KeaNexus container resolves to its own network namespace, not the Docker host
+- 180s request timeout, deliberately generous: each of the four enforcement steps on
+  the far end retries up to 3 times with a 2s backoff, and the nmap step alone can
+  take up to ~45s per attempt — a slow-but-working retry sequence shouldn't look
+  like a client timeout from KeaNexus's side
+- Raises `QuarantineServiceError` uniformly for unreachable service, missing token
+  config, or a non-2xx response (parses the FastAPI `detail` field out of the error
+  body when present)
 
 ### Version (`version.py`)
 
@@ -159,16 +179,24 @@ Data persisted in Docker named volume `keanexus_data` mounted at `/app/data/`.
 
 ### Quarantine Tab (`ui_quarantine.py`)
 
-- `render_quarantine()` — device registry table + read-only quarantine audit log
-- Manages `device_registry` only — this tab itself cannot trigger a quarantine or
-  release action directly; that happens via the `keanexus-quarantine` service's API
-  (see below), triggered externally (e.g. a Siri Shortcut, planned for PR 6)
+- `render_quarantine()` — device registry table with per-device Quarantine/Release
+  buttons, plus a read-only quarantine audit log
+- Manages `device_registry` directly (add/edit/delete via `_edit_dialog`), and
+  triggers enforcement via `quarantine_client.py`, which calls the
+  `keanexus-quarantine` service's own API — same endpoint a Siri Shortcut would call
 - `_edit_dialog(friendly_name)` — add/edit/delete a registry entry; friendly_name is
   immutable once created (delete and re-add instead of renaming)
 - Fingerprint and last-seen fields are displayed read-only in the dialog — they're
   written by the quarantine service, not editable from this tab
-- `_render_log_table(entries)` — renders the 50 most recent `quarantine_log` rows;
-  empty until the quarantine service exists and starts writing to it
+- `_trigger_action(friendly_name, action)` — calls `trigger_quarantine`/
+  `trigger_release`, stashes a pass/fail summary in `st.session_state`, then calls
+  `st.rerun()`. The stash-then-rerun pattern is necessary because `st.rerun()` wipes
+  whatever was drawn this run — `_render_pending_action_result()` displays and clears
+  the stashed result at the top of the next run
+- `_summarize_step_results(action_label, result)` — turns the API's `step_results`
+  into a one-line-per-device pass/fail summary; flags `skipped_due_to_identity_drift`
+  distinctly from a step actually failing
+- `_render_log_table(entries)` — renders the 50 most recent `quarantine_log` rows
 
 ### keanexus-quarantine Service (`quarantine_service/`)
 
@@ -177,10 +205,10 @@ Compose profile so it never builds or starts unless explicitly enabled. Full
 rationale for every architecture choice below is in
 `docs/quarantine-feature-design.md` — this section is discovery only.
 
-**PR 6 scope (current):** the pre-fire safety check. Every enforcement PR
-from 3–5 is otherwise unchanged; PR 6 adds one guard in front of all of
-them. Remaining work is Siri Shortcut setup, which is configuration rather
-than code — see `docs/siri-shortcut-setup.md`.
+Full orchestration is implemented: identity resolution, the pre-fire safety check,
+and all four enforcement steps (Kea deny, ARP disruption, Pi-hole block, nmap
+fingerprint refresh). Deployment fixes discovered during first real rollout are
+folded into the descriptions below rather than tracked as separate PR numbers.
 
 - `main.py` — FastAPI app (`app`). Routes:
     - `POST /quarantine` `{"target": str, "is_group": bool}` — resolves identity, then
@@ -189,13 +217,27 @@ than code — see `docs/siri-shortcut-setup.md`.
       device entirely (`_skipped_step_result`) rather than acting on a possibly-stale
       IP. Otherwise runs `_enforce_device`: applies the Kea DROP-class deny, starts ARP
       disruption, applies the Pi-hole DNS block, and refreshes the OS fingerprint via
-      nmap (all four through `retry.run_with_retries`). Returns resolved devices plus
-      per-device `step_results`, each including `skipped_due_to_identity_drift`
+      nmap (all four through `retry.run_with_retries`), then calls
+      `_stamp_last_quarantined` to record the current UTC timestamp in
+      `device_registry.last_quarantined_at` — the field the Quarantine tab displays.
+      Returns resolved devices plus per-device `step_results`, each including
+      `skipped_due_to_identity_drift`
     - `POST /release` — same request/response shape and safety check as `/quarantine`;
       removes the Kea deny, stops ARP disruption, and removes the Pi-hole block instead
-      of applying/starting them (fingerprint refresh still runs either way)
+      of applying/starting them (fingerprint refresh still runs either way, but
+      `last_quarantined_at` is deliberately **not** touched on release — it means
+      exactly "last quarantined," not "last touched")
     - `GET /status/{friendly_name}` — returns recent `quarantine_log` rows for one device
     - All three require `Authorization: Bearer <token>` via `require_bearer_token`
+    - `@app.on_event("startup")` calls `init_db()` eagerly. Discovered on first real
+      deployment: KeaNexus's own Streamlit script also calls `init_db()`, but Streamlit
+      defers running `app.py` until a browser session connects — it doesn't execute
+      just because the container started. A fresh deploy where nobody had opened the
+      KeaNexus dashboard yet left `quarantine_log`/`device_registry` missing entirely,
+      which this service hit before anyone ever loaded the dashboard. FastAPI runs
+      startup handlers eagerly on process start, making this service self-sufficient
+      regardless of dashboard usage. `init_db()` is idempotent, so this is safe
+      alongside KeaNexus's own call to it
     - `_get_kea_client()` / `_get_pihole_clients()` are factories (not module-level
       singletons) specifically so tests can patch them per-call with a stub
     - `_get_gateway_ip(kea)` extracts the subnet's router IP from the live Kea config
@@ -262,18 +304,18 @@ ip)`. Blocking works by assigning the device's current IP to a dedicated
   check the `/clients` and `/groups` request/response shapes against this Pi-hole's
   own self-hosted docs at `http://pi.hole/api/docs` before relying on it.
 
-        **Writes to both primary and secondary Pi-hole instances.** Discovered during
-        deployment that the two Pi-hole instances on this network (172.16.17.212 primary,
-        172.16.17.252 secondary on the TerraMaster NAS) are fully independent — no
-        Nebula/Gravity/Orbital Sync between them — so blocking only the primary would
-        leave a real gap if a device's DNS ever gets served by the secondary. `main.py`'s
-        `_get_pihole_clients()` always includes the primary and adds the secondary only
-        when `PIHOLE_SECONDARY_API_URL` is set; `_apply_pihole_step` writes to each with
-        its own independent retry and its own audit log row (`pihole_primary` /
-        `pihole_secondary` steps), so a partial failure on one instance is visible rather
-        than collapsed into one ambiguous result. `PiholeClient.__init__` accepts optional
-        `base_url`/`password` overrides (falling back to env vars) specifically to support
-        constructing a second client pointed at the secondary instance.
+            **Writes to both primary and secondary Pi-hole instances.** Discovered during
+            deployment that the two Pi-hole instances on this network (172.16.17.212 primary,
+            172.16.17.252 secondary on the TerraMaster NAS) are fully independent — no
+            Nebula/Gravity/Orbital Sync between them — so blocking only the primary would
+            leave a real gap if a device's DNS ever gets served by the secondary. `main.py`'s
+            `_get_pihole_clients()` always includes the primary and adds the secondary only
+            when `PIHOLE_SECONDARY_API_URL` is set; `_apply_pihole_step` writes to each with
+            its own independent retry and its own audit log row (`pihole_primary` /
+            `pihole_secondary` steps), so a partial failure on one instance is visible rather
+            than collapsed into one ambiguous result. `PiholeClient.__init__` accepts optional
+            `base_url`/`password` overrides (falling back to env vars) specifically to support
+            constructing a second client pointed at the secondary instance.
 
 - `nmap_fingerprint.py` — `refresh_os_fingerprint(friendly_name, target_ip)` shells
   out to `nmap -O --osscan-guess` (no meaningful pure-Python equivalent exists for
@@ -365,7 +407,8 @@ since they require a live Streamlit server and can't be unit-tested). That inclu
 | `tests/test_db.py`                          | Full CRUD on `ipam_static`, `device_registry`, and `quarantine_log` via `temp_db` fixture (SQLite in tmp dir)                                                                                                                         |
 | `tests/test_kea.py`                         | All `KeaClient` methods; `httpx` patched via `http_mock` fixture                                                                                                                                                                      |
 | `tests/test_helpers.py`                     | `fmt_ttl`, `chip`, `leases_to_df` (pure functions only)                                                                                                                                                                               |
-| `tests/test_pihole.py`                      | `PiholeClient` session auth (caching, reuse, re-auth on expiry), CSRF header logic, error mapping; `httpx` patched via `pihole_http_mock` fixture                                                                                     |
+| `tests/test_pihole.py`                      | `PiholeClient` session auth (caching, reuse, re-auth on expiry), CSRF header logic, error mapping, constructor overrides (base_url/password); `httpx` patched via `pihole_http_mock` fixture                                          |
+| `tests/test_quarantine_client.py`           | `trigger_quarantine`/`trigger_release` — request shape, auth header, is_group passthrough, missing-token error, connect error, HTTP error detail parsing; `httpx` patched via `quarantine_client_http_mock` fixture                   |
 | `tests/test_quarantine_auth.py`             | `require_bearer_token` — missing config, missing/malformed header, wrong token, success                                                                                                                                               |
 | `tests/test_quarantine_identity.py`         | `resolve_target` — single device and group resolution, unregistered target, no-lease case, last-seen refresh; `verify_identity_unchanged` — match, IP drift, MAC drift, lease gone — using `StubKeaClient`                            |
 | `tests/test_quarantine_kea_deny.py`         | `apply_drop_class` / `remove_drop_class` (pure config mutation), `deny_via_kea` / `undo_deny_via_kea` (via `StubKeaClient`)                                                                                                           |
@@ -377,8 +420,9 @@ since they require a live Streamlit server and can't be unit-tested). That inclu
 
 `conftest.py` provides `temp_db` (redirects `_DB_PATH` to a temp file), `http_mock`
 (patches `kea.httpx.Client`), `pihole_http_mock` (patches `pihole.httpx.Client`,
-same pattern), `stub_kea_client` (factory fixture for `StubKeaClient`, fakes lease
-lookups and Kea config get/save), and `stub_pihole_client` (factory fixture for
+same pattern), `quarantine_client_http_mock` (patches `quarantine_client.httpx.Client`,
+same pattern again), `stub_kea_client` (factory fixture for `StubKeaClient`, fakes
+lease lookups and Kea config get/save), and `stub_pihole_client` (factory fixture for
 `StubPiholeClient`, fakes Pi-hole's `request()` with canned `(method, path)` ->
 response JSON). The two Stub classes are exposed as fixtures rather than plain class
 imports because `tests/__init__.py` makes `tests` a package, so pytest registers this

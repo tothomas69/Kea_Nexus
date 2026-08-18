@@ -13,11 +13,12 @@ which is configuration rather than code (see docs/siri-shortcut-setup.md).
 """
 
 import os
+from datetime import datetime, timezone
 
 from fastapi import Depends, FastAPI, HTTPException
 from pydantic import BaseModel
 
-from db import get_quarantine_log, init_db, insert_quarantine_log_entry
+from db import get_device, get_quarantine_log, init_db, insert_quarantine_log_entry, upsert_device
 from kea import KeaClient, KeaError
 from pihole import PiholeClient
 from quarantine_service.arp_disrupt import start_arp_disruption, stop_arp_disruption
@@ -193,6 +194,27 @@ def _skipped_step_result(friendly_name: str) -> dict:
 	}
 
 
+def _stamp_last_quarantined(device: ResolvedDevice) -> None:
+	"""Record when this device was last quarantined, for the registry UI.
+
+	Only called on a successful quarantine action, never on release —
+	"last quarantined" means exactly that, not "last touched."
+	"""
+	current = get_device(device.friendly_name)
+	if current is None:
+		return
+	upsert_device(
+		current["friendly_name"],
+		current["hostname"],
+		group_tag=current["group_tag"],
+		os_fingerprint=current["os_fingerprint"],
+		last_seen_mac_address=current["last_seen_mac_address"],
+		last_seen_ip_address=current["last_seen_ip_address"],
+		last_quarantined_at=datetime.now(timezone.utc).isoformat(),
+		notes=current["notes"],
+	)
+
+
 def _enforce_device(
 	kea: KeaClient, pihole_clients: list[PiholeClient], device: ResolvedDevice, action: str
 ) -> dict:
@@ -205,7 +227,7 @@ def _enforce_device(
 		attempt_count=1,
 		detail=f"mac={device.mac_address} ip={device.ip_address}",
 	)
-	return {
+	result = {
 		"friendly_name": device.friendly_name,
 		"kea_step_succeeded": _apply_kea_step(kea, device, action),
 		"arp_step_succeeded": _apply_arp_step(kea, device, action),
@@ -213,6 +235,9 @@ def _enforce_device(
 		"fingerprint_refreshed": _refresh_fingerprint_step(device, action),
 		"skipped_due_to_identity_drift": False,
 	}
+	if action == "quarantine":
+		_stamp_last_quarantined(device)
+	return result
 
 
 def _resolve_and_log(request: QuarantineRequest, action: str) -> dict:

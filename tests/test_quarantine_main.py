@@ -340,3 +340,67 @@ class TestSecondaryPihole:
 		assert response.status_code == 200
 		# Partial success (primary OK, secondary failed) must not read as a full success
 		assert response.json()["step_results"][0]["pihole_step_succeeded"] is False
+
+
+class TestLastQuarantinedStamp:
+	def test_quarantine_stamps_last_quarantined_at(self, client, stub_kea_client):
+		db.upsert_device("tommy_laptop", hostname="tommy-kubuntu")
+		assert db.get_device("tommy_laptop")["last_quarantined_at"] == ""
+		stub = stub_kea_client(
+			leases_by_hostname={
+				"tommy-kubuntu": [{"hw-address": "aa:bb:cc:dd:ee:ff", "ip-address": "172.16.17.50"}]
+			},
+			dhcp4_config={"subnet4": [{"reservations": [], "option-data": []}]},
+		)
+		with (
+			patch("quarantine_service.main._get_kea_client", return_value=stub),
+			patch("quarantine_service.main.start_arp_disruption"),
+			patch("quarantine_service.main.block_via_pihole"),
+			patch("quarantine_service.main.refresh_os_fingerprint", return_value=""),
+		):
+			response = client.post(
+				"/quarantine", json={"target": "tommy_laptop"}, headers=_auth_header()
+			)
+		assert response.status_code == 200
+		assert db.get_device("tommy_laptop")["last_quarantined_at"] != ""
+
+	def test_release_does_not_stamp_last_quarantined_at(self, client, stub_kea_client):
+		db.upsert_device("tommy_laptop", hostname="tommy-kubuntu")
+		stub = stub_kea_client(
+			leases_by_hostname={
+				"tommy-kubuntu": [{"hw-address": "aa:bb:cc:dd:ee:ff", "ip-address": "172.16.17.50"}]
+			},
+			dhcp4_config={"subnet4": [{"reservations": [], "option-data": []}]},
+		)
+		with (
+			patch("quarantine_service.main._get_kea_client", return_value=stub),
+			patch("quarantine_service.main.stop_arp_disruption"),
+			patch("quarantine_service.main.unblock_via_pihole"),
+			patch("quarantine_service.main.refresh_os_fingerprint", return_value=""),
+		):
+			response = client.post(
+				"/release", json={"target": "tommy_laptop"}, headers=_auth_header()
+			)
+		assert response.status_code == 200
+		assert db.get_device("tommy_laptop")["last_quarantined_at"] == ""
+
+	def test_preserves_other_fields_when_stamping(self, client, stub_kea_client):
+		db.upsert_device(
+			"tommy_laptop", hostname="tommy-kubuntu", group_tag="kids", notes="school laptop"
+		)
+		stub = stub_kea_client(
+			leases_by_hostname={
+				"tommy-kubuntu": [{"hw-address": "aa:bb:cc:dd:ee:ff", "ip-address": "172.16.17.50"}]
+			},
+			dhcp4_config={"subnet4": [{"reservations": [], "option-data": []}]},
+		)
+		with (
+			patch("quarantine_service.main._get_kea_client", return_value=stub),
+			patch("quarantine_service.main.start_arp_disruption"),
+			patch("quarantine_service.main.block_via_pihole"),
+			patch("quarantine_service.main.refresh_os_fingerprint", return_value=""),
+		):
+			client.post("/quarantine", json={"target": "tommy_laptop"}, headers=_auth_header())
+		device = db.get_device("tommy_laptop")
+		assert device["group_tag"] == "kids"
+		assert device["notes"] == "school laptop"
