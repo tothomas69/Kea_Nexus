@@ -31,6 +31,21 @@ def _connect() -> Iterator[sqlite3.Connection]:
 		conn.close()
 
 
+def _ensure_column(conn: sqlite3.Connection, table: str, column: str, ddl: str) -> None:
+	"""Add `column` to `table` if it doesn't already exist.
+
+	CREATE TABLE IF NOT EXISTS only helps brand-new databases — an
+	already-deployed table (like device_registry on netstack) predates any
+	column added after its first deploy, and a plain CREATE TABLE won't
+	retrofit it. PRAGMA table_info is the standard SQLite way to check a
+	column's existence before ALTERing, so this is safe to call on every
+	startup regardless of whether the column is already there.
+	"""
+	existing_cols = {row[1] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+	if column not in existing_cols:
+		conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}")
+
+
 def init_db() -> None:
 	"""Create the database schema. Safe to call on every startup."""
 	with _connect() as conn:
@@ -51,10 +66,15 @@ def init_db() -> None:
 				os_fingerprint         TEXT NOT NULL DEFAULT '',
 				last_seen_mac_address  TEXT NOT NULL DEFAULT '',
 				last_seen_ip_address   TEXT NOT NULL DEFAULT '',
+				last_seen_at           TEXT NOT NULL DEFAULT '',
 				last_quarantined_at    TEXT NOT NULL DEFAULT '',
 				notes                  TEXT NOT NULL DEFAULT ''
 			)
 		""")
+		# device_registry may already exist from before last_seen_at existed —
+		# CREATE TABLE IF NOT EXISTS above is a no-op in that case, so the
+		# column has to be retrofitted explicitly.
+		_ensure_column(conn, "device_registry", "last_seen_at", "TEXT NOT NULL DEFAULT ''")
 		conn.execute("""
 			CREATE TABLE IF NOT EXISTS quarantine_log (
 				log_id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -147,6 +167,7 @@ def upsert_device(
 	os_fingerprint: str = "",
 	last_seen_mac_address: str = "",
 	last_seen_ip_address: str = "",
+	last_seen_at: str = "",
 	last_quarantined_at: str = "",
 	notes: str = "",
 ) -> None:
@@ -158,16 +179,17 @@ def upsert_device(
 			"""
 			INSERT INTO device_registry (
 				friendly_name, hostname, group_tag, os_fingerprint,
-				last_seen_mac_address, last_seen_ip_address,
+				last_seen_mac_address, last_seen_ip_address, last_seen_at,
 				last_quarantined_at, notes
 			)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT(friendly_name) DO UPDATE SET
 				hostname               = excluded.hostname,
 				group_tag              = excluded.group_tag,
 				os_fingerprint         = excluded.os_fingerprint,
 				last_seen_mac_address  = excluded.last_seen_mac_address,
 				last_seen_ip_address   = excluded.last_seen_ip_address,
+				last_seen_at           = excluded.last_seen_at,
 				last_quarantined_at    = excluded.last_quarantined_at,
 				notes                  = excluded.notes
 			""",
@@ -178,11 +200,38 @@ def upsert_device(
 				os_fingerprint,
 				last_seen_mac_address,
 				last_seen_ip_address,
+				last_seen_at,
 				last_quarantined_at,
 				notes,
 			),
 		)
 		conn.commit()
+
+
+def touch_last_seen(friendly_name: str, mac_address: str = "", ip_address: str = "") -> None:
+	"""Stamp last_seen_at = now for a device, confirmed alive right now.
+
+	Called by the quarantine service's periodic ARP presence probe
+	(presence_check.py) whenever a device answers an ARP request —
+	independent of whether it's ever been quarantined. mac_address/
+	ip_address are optional breadcrumbs; pass empty to leave the existing
+	values untouched (e.g. if the caller only confirmed presence, not a
+	fresh MAC/IP pair). No-ops if the device isn't registered.
+	"""
+	existing = get_device(friendly_name)
+	if existing is None:
+		return
+	upsert_device(
+		existing["friendly_name"],
+		existing["hostname"],
+		group_tag=existing["group_tag"],
+		os_fingerprint=existing["os_fingerprint"],
+		last_seen_mac_address=mac_address or existing["last_seen_mac_address"],
+		last_seen_ip_address=ip_address or existing["last_seen_ip_address"],
+		last_seen_at=datetime.now(timezone.utc).isoformat(),
+		last_quarantined_at=existing["last_quarantined_at"],
+		notes=existing["notes"],
+	)
 
 
 def delete_device(friendly_name: str) -> None:

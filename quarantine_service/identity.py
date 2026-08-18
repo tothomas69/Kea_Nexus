@@ -89,6 +89,7 @@ def _refresh_last_seen(device: dict, mac_address: str, ip_address: str) -> None:
 		os_fingerprint=device["os_fingerprint"],
 		last_seen_mac_address=mac_address,
 		last_seen_ip_address=ip_address,
+		last_seen_at=device["last_seen_at"],
 		last_quarantined_at=device["last_quarantined_at"],
 		notes=device["notes"],
 	)

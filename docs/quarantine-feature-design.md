@@ -248,6 +248,45 @@ behavior.
       since PRs 3–5 already wired both directions of every step as they
       landed — see `docs/siri-shortcut-setup.md` for the Shortcut config
 
+## Presence Tracking ("Last Seen")
+
+Added after the original PRs 1–6. `last_seen_mac_address`/`last_seen_ip_address`
+were already being refreshed by `identity.py`, but only as a side effect of an
+actual `/quarantine` or `/release` call — for a device that's never been
+enforced against, those fields (and the new `last_seen_at` timestamp) would
+stay empty forever, which isn't useful as a general "is this device alive"
+signal in the registry UI.
+
+**Decided: a background thread in `keanexus-quarantine`, ARP-probing every
+registered device on a timer** (`presence_check.py`, default every 5 min,
+`PRESENCE_CHECK_INTERVAL_SECONDS`). Reasoning:
+
+- Can't live in KeaNexus's own Streamlit process — same reasoning as the
+  original service-split decision above: Streamlit only executes when a
+  browser session is actively connected, there's no timer/cron primitive.
+  `keanexus-quarantine` is already a persistent process with network access.
+- **ARP request/reply, not a Kea lease check alone.** A device can hold a
+  valid, unexpired lease while being powered off or off the LAN — DHCP
+  lease time reflects the allocation, not current presence. The probe first
+  resolves the device's current IP via a live Kea lease lookup (skipping
+  devices with no lease at all, same as `identity.resolve_target`), then
+  sends a real ARP who-has to that IP and only stamps `last_seen_at` if
+  something answers.
+- Uses `scapy.srp` (send **and receive**), the opposite operation from
+  `arp_disrupt.py`'s `sendp` (fire spoofed replies, never listen). Same
+  library, opposite job — worth noting since it's easy to conflate the two
+  at a glance.
+- Deliberately **not** run through `retry.py`'s `run_with_retries` — that
+  wrapper writes one `quarantine_log` row per call, which is the right audit
+  granularity for a user-triggered enforcement action but would spam the log
+  every probe interval for every device. A missed probe just gets retried
+  naturally on the next timer tick.
+- Schema note: `device_registry` already existed in deployed environments
+  before `last_seen_at` was added, so `init_db()` now runs a
+  `PRAGMA table_info` check and `ALTER TABLE ADD COLUMN` if it's missing —
+  plain `CREATE TABLE IF NOT EXISTS` doesn't retrofit columns onto an
+  existing table.
+
 ## Out of Scope (for now)
 
 - Alexa integration — dropped in favor of Siri Shortcuts only

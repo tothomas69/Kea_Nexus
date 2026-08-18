@@ -33,6 +33,7 @@ from quarantine_service.identity import (
 from quarantine_service.kea_deny import deny_via_kea, undo_deny_via_kea
 from quarantine_service.nmap_fingerprint import refresh_os_fingerprint
 from quarantine_service.pihole_block import block_via_pihole, unblock_via_pihole
+from quarantine_service.presence_check import start_presence_check_loop
 from quarantine_service.retry import run_with_retries
 
 app = FastAPI(title="keanexus-quarantine")
@@ -51,6 +52,19 @@ def _create_schema_on_startup() -> None:
 	EXISTS), so this is safe to run alongside KeaNexus's own call to it.
 	"""
 	init_db()
+
+
+@app.on_event("startup")
+def _start_presence_check_on_startup() -> None:
+	"""Kick off the periodic ARP presence probe (see presence_check.py).
+
+	Separate startup handler from schema creation above — keeps "make sure
+	the DB is ready" and "start a long-running background loop" as two
+	distinct, independently-reasoned-about steps rather than one function
+	doing two unrelated things. FastAPI runs all @app.on_event("startup")
+	handlers in registration order, so schema creation still happens first.
+	"""
+	start_presence_check_loop()
 
 
 class QuarantineRequest(BaseModel):
@@ -210,6 +224,7 @@ def _stamp_last_quarantined(device: ResolvedDevice) -> None:
 		os_fingerprint=current["os_fingerprint"],
 		last_seen_mac_address=current["last_seen_mac_address"],
 		last_seen_ip_address=current["last_seen_ip_address"],
+		last_seen_at=current["last_seen_at"],
 		last_quarantined_at=datetime.now(timezone.utc).isoformat(),
 		notes=current["notes"],
 	)
