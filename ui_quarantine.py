@@ -23,19 +23,20 @@ from db import (
 )
 from quarantine_client import QuarantineServiceError, trigger_quarantine, trigger_release
 
-_CELL = "font-family:monospace;font-size:11px;color:#1f2328"
+_CELL = "font-family:monospace;font-size:13px;color:#1f2328"
 _HEADER_CELL = (
-	"font-family:monospace;font-size:11px;font-weight:700;color:#1f2328;"
+	"font-family:monospace;font-size:12px;font-weight:700;color:#1f2328;"
 	"text-transform:uppercase;letter-spacing:.05em;overflow:hidden"
 )
 
-_DEVICE_COL_WIDTHS = [1.3, 1.2, 0.8, 1.2, 1.0, 1.2, 0.9, 0.8, 0.7]
+_DEVICE_COL_WIDTHS = [1.3, 1.2, 0.8, 1.2, 1.0, 1.2, 1.2, 0.9, 0.8, 0.7]
 _DEVICE_COL_HEADERS = [
 	"Friendly Name",
 	"Hostname",
 	"Group",
 	"Last MAC",
 	"Last IP",
+	"Last Seen",
 	"Last Quarantined",
 	"Quarantine",
 	"Release",
@@ -96,6 +97,7 @@ def _edit_dialog(friendly_name: str = "") -> None:
 			f"OS fingerprint: {existing.get('os_fingerprint', '') or '—'}<br>"
 			f"Last seen MAC: {existing.get('last_seen_mac_address', '') or '—'}<br>"
 			f"Last seen IP: {existing.get('last_seen_ip_address', '') or '—'}<br>"
+			f"Last seen at: {existing.get('last_seen_at', '') or '—'}<br>"
 			f"Last quarantined: {existing.get('last_quarantined_at', '') or '—'}"
 			f"</div>",
 			unsafe_allow_html=True,
@@ -122,6 +124,7 @@ def _edit_dialog(friendly_name: str = "") -> None:
 					last_seen_ip_address=existing.get("last_seen_ip_address", "")
 					if existing
 					else "",
+					last_seen_at=existing.get("last_seen_at", "") if existing else "",
 					last_quarantined_at=existing.get("last_quarantined_at", "") if existing else "",
 					notes=notes.strip(),
 				)
@@ -169,8 +172,13 @@ def _summarize_step_results(action_label: str, result: dict) -> tuple[bool, str]
 	return all_ok, summary
 
 
-def _trigger_action(friendly_name: str, action: str) -> None:
+def _trigger_action(target: str, action: str, is_group: bool = False) -> None:
 	"""Call keanexus-quarantine and stash a result to show after rerun.
+
+	target is a friendly_name when is_group is False, a group_tag when True
+	— quarantine_client.py and the service already accept either, this is
+	just the one function both the per-device buttons and the group-action
+	buttons route through.
 
 	Stashing in session_state (rather than displaying inline immediately)
 	is necessary because st.rerun() wipes whatever was on screen this run
@@ -179,15 +187,16 @@ def _trigger_action(friendly_name: str, action: str) -> None:
 	"""
 	action_label = "Quarantine" if action == "quarantine" else "Release"
 	trigger_fn = trigger_quarantine if action == "quarantine" else trigger_release
-	with st.spinner(f"{action_label} in progress for {friendly_name}\u2026 this can take a while."):
+	display_name = f"group '{target}'" if is_group else target
+	with st.spinner(f"{action_label} in progress for {display_name}\u2026 this can take a while."):
 		try:
-			result = trigger_fn(friendly_name)
+			result = trigger_fn(target, is_group=is_group)
 			all_ok, message = _summarize_step_results(action_label, result)
 			st.session_state[_ACTION_RESULT_KEY] = {"ok": all_ok, "message": message}
 		except QuarantineServiceError as exc:
 			st.session_state[_ACTION_RESULT_KEY] = {
 				"ok": False,
-				"message": f"{action_label} failed for {friendly_name}: {exc}",
+				"message": f"{action_label} failed for {display_name}: {exc}",
 			}
 	st.rerun()
 
@@ -226,18 +235,22 @@ def _render_device_table(devices: list[dict]) -> None:
 			unsafe_allow_html=True,
 		)
 		cols[5].markdown(
+			f'<span style="{_CELL}">{device["last_seen_at"] or "—"}</span>',
+			unsafe_allow_html=True,
+		)
+		cols[6].markdown(
 			f'<span style="{_CELL}">{device["last_quarantined_at"] or "—"}</span>',
 			unsafe_allow_html=True,
 		)
-		if cols[6].button(
+		if cols[7].button(
 			"Quarantine", key=f"quarantine_go_{friendly_name}", use_container_width=True
 		):
 			_trigger_action(friendly_name, "quarantine")
-		if cols[7].button(
+		if cols[8].button(
 			"Release", key=f"quarantine_release_{friendly_name}", use_container_width=True
 		):
 			_trigger_action(friendly_name, "release")
-		if cols[8].button("Edit", key=f"quarantine_edit_{friendly_name}", use_container_width=True):
+		if cols[9].button("Edit", key=f"quarantine_edit_{friendly_name}", use_container_width=True):
 			_edit_dialog(friendly_name)
 
 
@@ -263,6 +276,46 @@ def _render_log_table(entries: list[dict]) -> None:
 		)
 
 
+def _distinct_group_tags(devices: list[dict]) -> list[str]:
+	"""Non-blank group_tag values currently assigned to any device, sorted.
+
+	Derived from the registry rather than a separate lookup table — a group
+	tag isn't its own entity, it's just a value devices happen to share.
+	"""
+	return sorted({device["group_tag"] for device in devices if device["group_tag"]})
+
+
+def _render_group_actions(devices: list[dict]) -> None:
+	"""Quarantine/Release an entire group_tag at once.
+
+	The per-device Edit dialog already lets you assign a group_tag to a
+	device (free text) — this is the other half that was missing: an
+	actual control to act on the group. quarantine_client.py and
+	keanexus-quarantine's /quarantine and /release both already accept
+	is_group=True, this was purely a gap in the UI. Hidden entirely when no
+	device has a group_tag set, since there'd be nothing to select.
+	"""
+	group_tags = _distinct_group_tags(devices)
+	if not group_tags:
+		return
+
+	st.markdown("**Group Actions**")
+	gc1, gc2, gc3 = st.columns([2, 1, 1])
+	with gc1:
+		selected_group = st.selectbox(
+			"Group Tag",
+			group_tags,
+			label_visibility="collapsed",
+			key="quarantine_group_select",
+		)
+	with gc2:
+		if st.button("Quarantine Group", use_container_width=True, key="quarantine_group_go"):
+			_trigger_action(selected_group, "quarantine", is_group=True)
+	with gc3:
+		if st.button("Release Group", use_container_width=True, key="quarantine_group_release"):
+			_trigger_action(selected_group, "release", is_group=True)
+
+
 def render_quarantine() -> None:
 	"""Render the Quarantine tab: device registry CRUD, Quarantine/Release
 	buttons, and a read-only audit log.
@@ -282,6 +335,8 @@ def render_quarantine() -> None:
 	devices = get_devices()
 	if devices:
 		_render_device_table(devices)
+		st.markdown("<div style='margin-top:10px'></div>", unsafe_allow_html=True)
+		_render_group_actions(devices)
 	else:
 		st.info("No devices registered yet.")
 

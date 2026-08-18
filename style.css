@@ -33,17 +33,20 @@
 }
 
 [data-baseweb="tab"] {
-	border-radius: 4px !important;
+	border-radius: 10px 10px 0 0 !important;
 	padding: 6px 20px !important;
 	font-family: monospace !important;
 	font-size: 13px !important;
-	font-weight: 800 !important;
+	font-weight: 500 !important;
 	color: #57606a !important;
 }
 
+/* Selected tab — bolder weight is what actually reads as "active" next to
+   the rounder shape above; background/color alone looked too subtle. */
 [aria-selected="true"] {
 	background: #ffffff !important;
 	color: #0969da !important;
+	font-weight: 800 !important;
 	box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1) !important;
 }
 
@@ -114,6 +117,38 @@
 [data-testid="stHorizontalBlock"]:has([data-testid="stTextInput"]),
 [data-testid="stHorizontalBlock"]:has([data-testid="stSelectbox"]) {
 	margin-bottom: 0 !important;
+}
+
+/* --- Quarantine tab: Quarantine/Release action chips ----------------------
+   Scoped via Streamlit's key-based class (st-key-<key>, set from the
+   `key=` arg on st.button) so this only ever touches these two buttons,
+   not every button caught by the small-button rule above. -------------- */
+[class*="st-key-quarantine_go_"][data-testid="stButton"],
+[class*="st-key-quarantine_go_"] [data-testid="stButton"],
+[class*="st-key-quarantine_release_"][data-testid="stButton"],
+[class*="st-key-quarantine_release_"] [data-testid="stButton"] {
+	display: flex !important;
+	justify-content: center !important;
+}
+
+/* Quarantine = red */
+[class*="st-key-quarantine_go_"] button {
+	background-color: #cf222e !important;
+	border-color: #cf222e !important;
+}
+[class*="st-key-quarantine_go_"] button p {
+	color: #ffffff !important;
+	font-size: 0.75rem !important;
+}
+
+/* Release (un-quarantine) = green */
+[class*="st-key-quarantine_release_"] button {
+	background-color: #1a7f37 !important;
+	border-color: #1a7f37 !important;
+}
+[class*="st-key-quarantine_release_"] button p {
+	color: #ffffff !important;
+	font-size: 0.75rem !important;
 }
 
 /* --- CSS tooltip for status chip notes ------------------------------------ */
