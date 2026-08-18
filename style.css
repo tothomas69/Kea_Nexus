@@ -14,10 +14,13 @@
 	padding-top: 0.25rem !important;
 }
 .main .block-container:has([data-testid="stTabs"]) {
-	padding-top: 2.8rem !important;
+	padding-top: 2.2rem !important;
 }
 
-/* --- Tab nav bar — fixed at top of the main content area ------------------ */
+/* --- Tab nav bar — fixed at top of the main content area ------------------
+   border-bottom is deliberately the same blue as the selected tab's text/
+   accent, spanning the full bar (left:210px to right:0, i.e. margin to
+   margin) so the selected tab visually connects into it. ------------------ */
 [data-baseweb="tab-list"] {
 	position: fixed !important;
 	top: 0 !important;
@@ -26,23 +29,28 @@
 	z-index: 999 !important;
 	background: #eaecf0 !important;
 	border: none !important;
-	border-bottom: 2px solid #d0d7de !important;
+	border-bottom: 2px solid #0969da !important;
 	border-radius: 0 !important;
-	padding: 6px 1.5rem !important;
+	padding: 4px 1.5rem !important;
 	gap: 4px !important;
 }
 
+/* Every tab gets the tab shape — filled background + rounded top corners —
+   regardless of selection state, so unselected tabs read as tabs sitting on
+   the bar rather than plain text that only gets a shape once clicked. */
 [data-baseweb="tab"] {
 	border-radius: 10px 10px 0 0 !important;
-	padding: 6px 20px !important;
+	padding: 5px 18px !important;
 	font-family: monospace !important;
 	font-size: 13px !important;
 	font-weight: 500 !important;
 	color: #57606a !important;
+	background: #dde1e6 !important;
 }
 
-/* Selected tab — bolder weight is what actually reads as "active" next to
-   the rounder shape above; background/color alone looked too subtle. */
+/* Selected tab — white + blue, bolder weight. Sits flush against the blue
+   border-bottom above, reading as "this tab's color continues into the
+   line running the full width of the bar." */
 [aria-selected="true"] {
 	background: #ffffff !important;
 	color: #0969da !important;
@@ -88,7 +96,9 @@
      This prevents the login form and dialog buttons from being shrunk.    -- */
 [data-testid="stHorizontalBlock"]:not(:has([data-testid="stTextInput"])):not(
 		:has([data-testid="stSelectbox"])
-	):not(:has([data-testid="stCheckbox"]))
+	):not(:has([data-testid="stCheckbox"])):not(:has([class*="st-key-quarantine_go_"])):not(
+		:has([class*="st-key-quarantine_release_"])
+	)
 	button[kind] {
 	padding: 1px 6px !important;
 	min-height: 0 !important;
@@ -98,7 +108,9 @@
 }
 [data-testid="stHorizontalBlock"]:not(:has([data-testid="stTextInput"])):not(
 		:has([data-testid="stSelectbox"])
-	):not(:has([data-testid="stCheckbox"]))
+	):not(:has([data-testid="stCheckbox"])):not(:has([class*="st-key-quarantine_go_"])):not(
+		:has([class*="st-key-quarantine_release_"])
+	)
 	button[kind]
 	p {
 	font-size: 0.6rem !important;
@@ -148,6 +160,20 @@
 }
 [class*="st-key-quarantine_release_"] button p {
 	color: #ffffff !important;
+	font-size: 0.75rem !important;
+}
+
+/* Edit — neutral color, but centered and font-matched to its Quarantine/
+   Release row-mates so all three chips in a device row line up visually.
+   Excluded from the shrink rule above by the same mechanism (its row
+   contains a quarantine_go_/quarantine_release_ chip), so without this it
+   would render at full default Streamlit size next to two small chips. */
+[class*="st-key-quarantine_edit_"][data-testid="stButton"],
+[class*="st-key-quarantine_edit_"] [data-testid="stButton"] {
+	display: flex !important;
+	justify-content: center !important;
+}
+[class*="st-key-quarantine_edit_"] button p {
 	font-size: 0.75rem !important;
 }
 
