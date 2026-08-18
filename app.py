@@ -107,7 +107,7 @@ def render_sidebar(stats: Optional[dict], config: Optional[dict], status: dict) 
 	)
 
 	st.sidebar.markdown('<div style="margin-top:16px"></div>', unsafe_allow_html=True)
-	if st.sidebar.button("Sign out", use_container_width=True):
+	if st.sidebar.button("Sign out", key="sign_out_button", use_container_width=True):
 		logout()
 		st.rerun()
 
