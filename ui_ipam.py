@@ -254,7 +254,7 @@ def _render_table(
 		c[4].markdown(f'<span style="{_CELL}">{row.info or ""}</span>', unsafe_allow_html=True)
 		# Network (.0) and broadcast (.255) have nothing to edit
 		if row.last_octet not in (0, 255):
-			if c[5].button("Edit", key=f"ipam_edit_{row.ip}", use_container_width=True):
+			if c[5].button("Edit", key=f"ipam_edit_{row.ip}_chipblue"):
 				_edit_dialog(
 					row.ip,
 					prefix,

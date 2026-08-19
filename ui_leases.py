@@ -54,7 +54,7 @@ def _row_chip(num: int, state: int) -> str:
 def _type_chip(label: str) -> str:
 	bg, fg = _TYPE_STYLE.get(label, _TYPE_STYLE["dynamic"])
 	return (
-		f'<span style="background:{bg};color:{fg};font-size:11px;font-weight:600;'
+		f'<span style="background:{bg};color:{fg};font-size:13px;font-weight:600;'
 		f'padding:2px 9px;border-radius:10px;display:inline-block">{label}</span>'
 	)
 
