@@ -79,16 +79,25 @@ def _labels_by_mac() -> dict[str, str]:
 def _real_hostname_cell(
 	reservation: dict, leases: list[dict], override_ips: set, override_macs: set
 ) -> str:
-	"""Real Hostname column text — distinguishes "device offline" from
-	"hostname hidden by an unmigrated Kea reservation override" rather than
-	showing a bare dash for both, since the fix differs (nothing to do vs.
-	edit-and-save the reservation)."""
+	"""Real Hostname column text — three distinct states, not two, since
+	real_hostname() returning "" is ambiguous on its own: it means either
+	"still masked by a Kea reservation override" (resaving the reservation
+	fixes it) or "the device simply didn't send a hostname on this lease"
+	(nothing to fix here — some clients, especially recent iOS, don't always
+	broadcast one). Checking override membership directly, rather than
+	inferring it from an empty return value, is what tells those two apart."""
 	lease = lease_for_reservation(reservation, leases)
 	if lease is None:
 		return f'<span style="{_TD_MUTED}">offline</span>'
+	is_overridden = (
+		lease.get("ip-address") in override_ips
+		or lease.get("hw-address", "").lower() in override_macs
+	)
+	if is_overridden:
+		return f'<span style="{_TD_MUTED}">masked — resave to fix</span>'
 	hostname = real_hostname(lease, override_ips, override_macs)
 	if not hostname:
-		return f'<span style="{_TD_MUTED}">masked — resave to fix</span>'
+		return f'<span style="{_TD_MUTED}">no hostname reported</span>'
 	return f'<span style="{_TD}">{hostname}</span>'
 
 
