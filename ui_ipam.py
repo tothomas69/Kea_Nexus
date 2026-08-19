@@ -165,7 +165,7 @@ def _edit_dialog(
 			f"({prefix}.{pool_start_octet}–{prefix}.{pool_end_octet}). "
 			f"Static records are only for out-of-scope addresses."
 		)
-		if st.button("Close"):
+		if st.button("Close", key="ipam_close_chipblue"):
 			st.rerun()
 		return
 

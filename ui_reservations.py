@@ -228,7 +228,7 @@ def _render_table(
 		)
 		cols[4].markdown(f'<span style="{_TD}">{mac or "—"}</span>', unsafe_allow_html=True)
 		cols[5].markdown(_type_chip(ip), unsafe_allow_html=True)
-		if cols[6].button("Edit", key=f"res_edit_{i}", use_container_width=True):
+		if cols[6].button("Edit", key=f"reservations_edit_{i}_chipblue"):
 			_edit_dialog(res, config, label)
 
 
@@ -247,7 +247,7 @@ def render_reservations(config, leases: list[dict]) -> None:
 	with header_col:
 		st.caption(f"{len(reservations)} reservations")
 	with btn_col:
-		if st.button("+ Add", use_container_width=True):
+		if st.button("+ Add", key="reservations_addtrigger_chipblue"):
 			add_reservation_dialog(config)
 
 	_render_table(reservations, config, _labels_by_mac(), leases)

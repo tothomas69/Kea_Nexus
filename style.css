@@ -114,7 +114,7 @@
 		:has([class*="st-key-quarantine_group_release"])
 	):not(:has([class*="st-key-dialog_save"])):not(:has([class*="st-key-dialog_cancel"])):not(
 		:has([class*="st-key-dialog_delete"])
-	)
+	):not(:has([class*="_chip"]))
 	button[kind] {
 	padding: 1px 6px !important;
 	min-height: 0 !important;
@@ -130,7 +130,7 @@
 		:has([class*="st-key-quarantine_group_release"])
 	):not(:has([class*="st-key-dialog_save"])):not(:has([class*="st-key-dialog_cancel"])):not(
 		:has([class*="st-key-dialog_delete"])
-	)
+	):not(:has([class*="_chip"]))
 	button[kind]
 	p {
 	font-size: 0.6rem !important;
@@ -309,6 +309,84 @@
 }
 [class*="st-key-dialog_delete"] button p {
 	color: #57606a !important;
+}
+
+/* --- Site-wide chip buttons (Add/Edit/Search/Refresh/Clear/Danger) --------
+   Every remaining st.button() outside the per-device Quarantine chips and
+   dialog Save/Cancel/Delete gets the same compact pill treatment via a
+   shared "_chip<color>" suffix on its key — unique per button (Streamlit
+   requires globally unique keys since st.tabs() renders every tab's content
+   on every run, not just the active one) but matched here by a shared
+   substring so one CSS rule covers all of them, colored by meaning. ------ */
+[class*="_chipblue"][data-testid="stButton"],
+[class*="_chipblue"] [data-testid="stButton"],
+[class*="_chipgreen"][data-testid="stButton"],
+[class*="_chipgreen"] [data-testid="stButton"],
+[class*="_chipgray"][data-testid="stButton"],
+[class*="_chipgray"] [data-testid="stButton"],
+[class*="_chipdanger"][data-testid="stButton"],
+[class*="_chipdanger"] [data-testid="stButton"] {
+	display: flex !important;
+	justify-content: center !important;
+}
+
+[class*="_chipblue"] button,
+[class*="_chipgreen"] button,
+[class*="_chipgray"] button,
+[class*="_chipdanger"] button {
+	padding: 3px 12px !important;
+	min-height: 0 !important;
+	height: auto !important;
+}
+[class*="_chipblue"] button p,
+[class*="_chipgreen"] button p,
+[class*="_chipgray"] button p,
+[class*="_chipdanger"] button p {
+	font-size: 0.78rem !important;
+	font-weight: 700 !important;
+	margin: 0 !important;
+	line-height: 1.3 !important;
+}
+
+/* Blue — neutral navigation (add/edit/search/refresh), same palette as the
+   Quarantine tab's own Edit/Add Device/Sign out chips. */
+[class*="_chipblue"] button {
+	background-color: #dbeafe !important;
+	border-color: #93c5fd !important;
+}
+[class*="_chipblue"] button p {
+	color: #1e40af !important;
+}
+
+/* Green — positive (save/enable), same palette as the dialog Save chip. */
+[class*="_chipgreen"] button {
+	background-color: #dcfce7 !important;
+	border-color: #86efac !important;
+}
+[class*="_chipgreen"] button p {
+	color: #166534 !important;
+}
+
+/* Gray — neutral cleanup (clear/delete-adjacent), same palette as the
+   dialog Delete chip. */
+[class*="_chipgray"] button {
+	background-color: #f6f8fa !important;
+	border-color: #d0d7de !important;
+}
+[class*="_chipgray"] button p {
+	color: #57606a !important;
+}
+
+/* Danger — deliberately a stronger, solid red rather than the pale pink
+   used for dialog Cancel/quarantine chips elsewhere, so a truly hard-to-
+   reverse action (disable DHCP, wipe every lease) still reads as more
+   serious than a merely-dismissable Cancel sitting right next to it. */
+[class*="_chipdanger"] button {
+	background-color: #cf222e !important;
+	border-color: #cf222e !important;
+}
+[class*="_chipdanger"] button p {
+	color: #ffffff !important;
 }
 
 /* --- CSS tooltip for status chip notes ------------------------------------ */
