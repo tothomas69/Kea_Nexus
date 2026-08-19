@@ -164,7 +164,7 @@ def _edit_dialog(
 
 	c1, c2, c3 = st.columns(3)
 	with c1:
-		if st.button("Save", type="primary", use_container_width=True):
+		if st.button("Save", type="primary", key="dialog_save"):
 			if not name_input.strip() or not hostname.strip():
 				st.error("Friendly Name and Hostname are required.")
 			else:
@@ -185,11 +185,11 @@ def _edit_dialog(
 				)
 				st.rerun()
 	with c2:
-		if existing and st.button("Delete", use_container_width=True):
+		if existing and st.button("Delete", key="dialog_delete"):
 			delete_device(friendly_name)
 			st.rerun()
 	with c3:
-		if st.button("Cancel", use_container_width=True):
+		if st.button("Cancel", key="dialog_cancel"):
 			st.rerun()
 
 

@@ -68,7 +68,7 @@ def add_reservation_dialog(config: dict) -> None:
 	mac = st.text_input("MAC address *", placeholder="aa:bb:cc:dd:ee:ff")
 	c1, c2 = st.columns(2)
 	with c1:
-		if st.button("Save", type="primary", use_container_width=True):
+		if st.button("Save", type="primary", key="dialog_save"):
 			if not mac.strip() or not hn.strip():
 				st.error("MAC and hostname are required.")
 				return
@@ -83,7 +83,7 @@ def add_reservation_dialog(config: dict) -> None:
 				config["subnet4"][0]["reservations"].pop()
 				st.error(str(e))
 	with c2:
-		if st.button("Cancel", use_container_width=True):
+		if st.button("Cancel", key="dialog_cancel"):
 			st.rerun()
 
 
@@ -101,7 +101,7 @@ def _edit_dialog(reservation: dict, config: dict) -> None:
 	)
 	c1, c2, c3 = st.columns(3)
 	with c1:
-		if st.button("Save", type="primary", use_container_width=True):
+		if st.button("Save", type="primary", key="dialog_save"):
 			if not mac.strip() or not hn.strip():
 				st.error("MAC and hostname are required.")
 				return
@@ -120,7 +120,7 @@ def _edit_dialog(reservation: dict, config: dict) -> None:
 			except KeaError as e:
 				st.error(str(e))
 	with c2:
-		if st.button("Delete", use_container_width=True):
+		if st.button("Delete", key="dialog_delete"):
 			res_list = config["subnet4"][0]["reservations"]
 			try:
 				res_list.remove(reservation)
@@ -132,7 +132,7 @@ def _edit_dialog(reservation: dict, config: dict) -> None:
 			except KeaError as e:
 				st.error(str(e))
 	with c3:
-		if st.button("Cancel", use_container_width=True):
+		if st.button("Cancel", key="dialog_cancel"):
 			st.rerun()
 
 
