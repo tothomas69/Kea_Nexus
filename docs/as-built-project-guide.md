@@ -130,6 +130,18 @@ Data persisted in Docker named volume `keanexus_data` mounted at `/app/data/`.
 - `get_client()` — `@st.cache_resource` singleton KeaClient
 - `load_leases/load_pool_stats/load_config/load_status` — `@st.cache_data` with TTL
 - `fmt_ttl(seconds)` — formats seconds to "Xh Ym" or "expired"
+- `build_reservation_type_sets(config)` / `lease_type(lease, ...)` — classifies a
+  lease as fixed/reserved/name-only/dynamic by cross-referencing it against Kea
+  reservations (moved here from `ui_leases.py` so it's shared and unit-testable)
+- `real_hostname(lease, lease_type)` / `distinct_real_hostnames(leases, config)` —
+  a Kea reservation's `hostname` field is admin-typed free text (see
+  `ui_reservations.py`'s mandatory `Hostname *` input), not the device's actual
+  DHCP-negotiated name — Kea reports that same typed string back on the live
+  lease. So for `fixed`/`reserved` leases the hostname is just that label;
+  only `dynamic` and `name-only` leases carry the device's real, self-reported
+  hostname. `distinct_real_hostnames` feeds the Quarantine tab's Add/Edit
+  device hostname picker so it only offers hostnames that will actually match
+  a live lease, rather than a reservation label that never will
 
 ### Database (`db.py`)
 
@@ -167,7 +179,9 @@ Data persisted in Docker named volume `keanexus_data` mounted at `/app/data/`.
 ### Leases Tab (`ui_leases.py`)
 
 - `render_leases(leases, config)` — HTML table, sorted by IP
-- `_build_type_sets(config)` / `_lease_type(lease, ...)` — classifies lease as fixed/reserved/name-only/dynamic
+- Hostname column shows `helpers.real_hostname(lease, lease_type)` — blank (`—`)
+  for `fixed`/`reserved` leases, since that value is a reservation label, not
+  a real hostname (see `helpers.py` above)
 - Dialogs: `add_lease_dialog()`, `edit_lease_dialog(lease)`
 
 ### Reservations Tab (`ui_reservations.py`)
@@ -179,13 +193,23 @@ Data persisted in Docker named volume `keanexus_data` mounted at `/app/data/`.
 
 ### Quarantine Tab (`ui_quarantine.py`)
 
-- `render_quarantine()` — device registry table with per-device Quarantine/Release
-  buttons, plus a read-only quarantine audit log
+- `render_quarantine(leases, config)` — device registry table with per-device
+  Quarantine/Release buttons, plus a read-only quarantine audit log. Takes
+  `leases`/`config` (passed down from `app.py`) purely to populate the
+  Add/Edit dialog's hostname picker
 - Manages `device_registry` directly (add/edit/delete via `_edit_dialog`), and
   triggers enforcement via `quarantine_client.py`, which calls the
   `keanexus-quarantine` service's own API — same endpoint a Siri Shortcut would call
-- `_edit_dialog(friendly_name)` — add/edit/delete a registry entry; friendly_name is
-  immutable once created (delete and re-add instead of renaming)
+- `_edit_dialog(friendly_name, leases, config)` — add/edit/delete a registry entry;
+  friendly*name is immutable once created (delete and re-add instead of renaming).
+  Hostname is a dropdown built from `helpers.distinct_real_hostnames(leases, config)`
+  rather than free text — picking from hostnames Kea has actually observed on a
+  live lease avoids registering a device with a Kea reservation \_label*
+  (see `helpers.py` above), which would never match and would make
+  `quarantine_service/identity.py`'s `resolve_target` fail with
+  `DeviceNotOnNetworkError` even though the device is online. Falls back to a
+  free-text input, with an explanatory caption, only when no real hostnames are
+  currently observed in leases at all
 - Fingerprint and last-seen fields are displayed read-only in the dialog — they're
   written by the quarantine service, not editable from this tab
 - `_trigger_action(friendly_name, action)` — calls `trigger_quarantine`/
@@ -308,18 +332,18 @@ ip)`. Blocking works by assigning the device's current IP to a dedicated
   check the `/clients` and `/groups` request/response shapes against this Pi-hole's
   own self-hosted docs at `http://pi.hole/api/docs` before relying on it.
 
-                    **Writes to both primary and secondary Pi-hole instances.** Discovered during
-                    deployment that the two Pi-hole instances on this network (172.16.17.212 primary,
-                    172.16.17.252 secondary on the TerraMaster NAS) are fully independent — no
-                    Nebula/Gravity/Orbital Sync between them — so blocking only the primary would
-                    leave a real gap if a device's DNS ever gets served by the secondary. `main.py`'s
-                    `_get_pihole_clients()` always includes the primary and adds the secondary only
-                    when `PIHOLE_SECONDARY_API_URL` is set; `_apply_pihole_step` writes to each with
-                    its own independent retry and its own audit log row (`pihole_primary` /
-                    `pihole_secondary` steps), so a partial failure on one instance is visible rather
-                    than collapsed into one ambiguous result. `PiholeClient.__init__` accepts optional
-                    `base_url`/`password` overrides (falling back to env vars) specifically to support
-                    constructing a second client pointed at the secondary instance.
+                            **Writes to both primary and secondary Pi-hole instances.** Discovered during
+                            deployment that the two Pi-hole instances on this network (172.16.17.212 primary,
+                            172.16.17.252 secondary on the TerraMaster NAS) are fully independent — no
+                            Nebula/Gravity/Orbital Sync between them — so blocking only the primary would
+                            leave a real gap if a device's DNS ever gets served by the secondary. `main.py`'s
+                            `_get_pihole_clients()` always includes the primary and adds the secondary only
+                            when `PIHOLE_SECONDARY_API_URL` is set; `_apply_pihole_step` writes to each with
+                            its own independent retry and its own audit log row (`pihole_primary` /
+                            `pihole_secondary` steps), so a partial failure on one instance is visible rather
+                            than collapsed into one ambiguous result. `PiholeClient.__init__` accepts optional
+                            `base_url`/`password` overrides (falling back to env vars) specifically to support
+                            constructing a second client pointed at the secondary instance.
 
 - `nmap_fingerprint.py` — `refresh_os_fingerprint(friendly_name, target_ip)` shells
   out to `nmap -O --osscan-guess` (no meaningful pure-Python equivalent exists for
@@ -410,7 +434,7 @@ since they require a live Streamlit server and can't be unit-tested). That inclu
 | `tests/test_auth.py`                        | `is_authenticated`, `attempt_login` (all credential paths), `logout`                                                                                                                                                                  |
 | `tests/test_db.py`                          | Full CRUD on `ipam_static`, `device_registry`, and `quarantine_log` via `temp_db` fixture (SQLite in tmp dir)                                                                                                                         |
 | `tests/test_kea.py`                         | All `KeaClient` methods; `httpx` patched via `http_mock` fixture                                                                                                                                                                      |
-| `tests/test_helpers.py`                     | `fmt_ttl`, `chip`, `leases_to_df` (pure functions only)                                                                                                                                                                               |
+| `tests/test_helpers.py`                     | `fmt_ttl`, `chip`, `leases_to_df`, `build_reservation_type_sets`, `lease_type`, `real_hostname`, `distinct_real_hostnames` (pure functions only)                                                                                      |
 | `tests/test_pihole.py`                      | `PiholeClient` session auth (caching, reuse, re-auth on expiry), CSRF header logic, error mapping, constructor overrides (base_url/password); `httpx` patched via `pihole_http_mock` fixture                                          |
 | `tests/test_quarantine_client.py`           | `trigger_quarantine`/`trigger_release` — request shape, auth header, is_group passthrough, missing-token error, connect error, HTTP error detail parsing; `httpx` patched via `quarantine_client_http_mock` fixture                   |
 | `tests/test_quarantine_auth.py`             | `require_bearer_token` — missing config, missing/malformed header, wrong token, success                                                                                                                                               |

@@ -7,42 +7,18 @@ from typing import Optional
 
 import streamlit as st
 
-from helpers import fmt_ttl, get_client, load_leases, load_pool_stats
+from helpers import (
+	build_reservation_type_sets,
+	fmt_ttl,
+	get_client,
+	lease_type,
+	load_leases,
+	load_pool_stats,
+	real_hostname,
+)
 from kea import KeaClient, KeaError
 
 LOOKUP_COLS = ["IP", "Hostname", "MAC", "Expires", "Status"]
-
-# --- Type resolution ---------------------------------------------------------
-
-
-def _build_type_sets(config: Optional[dict]) -> tuple[set, set, set]:
-	"""
-	Return three sets for cross-referencing a lease against reservations:
-	  fixed_ips     — ip-address values from reservations that pin a specific IP
-	  reserved_macs — hw-address values from reservations without a pinned IP
-	  name_hosts    — hostname values from reservations with no MAC or IP
-	"""
-	res = (config or {}).get("subnet4", [{}])[0].get("reservations", [])
-	fixed_ips = {r["ip-address"] for r in res if "ip-address" in r}
-	reserved_macs = {
-		r["hw-address"].lower() for r in res if "hw-address" in r and "ip-address" not in r
-	}
-	name_hosts = {
-		r["hostname"].lower()
-		for r in res
-		if "hostname" in r and "hw-address" not in r and "ip-address" not in r
-	}
-	return fixed_ips, reserved_macs, name_hosts
-
-
-def _lease_type(lease: dict, fixed_ips: set, reserved_macs: set, name_hosts: set) -> str:
-	if lease.get("ip-address") in fixed_ips:
-		return "fixed"
-	if lease.get("hw-address", "").lower() in reserved_macs:
-		return "reserved"
-	if lease.get("hostname", "").lower() in name_hosts:
-		return "name-only"
-	return "dynamic"
 
 
 # --- HTML table rendering ----------------------------------------------------
@@ -96,10 +72,10 @@ def _lease_table(
 	for i, lease in enumerate(leases, 1):
 		state = lease.get("state", 0)
 		ip = lease.get("ip-address", "")
-		hn = lease.get("hostname", "") or "—"
 		mac = lease.get("hw-address", "") or "—"
 		ttl = lease.get("cltt", 0) + lease.get("valid-lft", 86400) - now
-		ltype = _lease_type(lease, fixed_ips, reserved_macs, name_hosts)
+		ltype = lease_type(lease, fixed_ips, reserved_macs, name_hosts)
+		hn = real_hostname(lease, ltype) or "—"
 
 		rows.append(
 			f"<tr>"
@@ -179,7 +155,7 @@ def edit_lease_dialog(lease: dict) -> None:
 
 
 def render_leases(leases: list[dict], config: Optional[dict] = None) -> None:
-	fixed_ips, reserved_macs, name_hosts = _build_type_sets(config)
+	fixed_ips, reserved_macs, name_hosts = build_reservation_type_sets(config)
 
 	# Sort by IP ascending
 	sorted_leases = sorted(
