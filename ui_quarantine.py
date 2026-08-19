@@ -64,7 +64,7 @@ def _format_local_time(iso_utc: str) -> str:
 	return dt.astimezone(_LOCAL_TZ).strftime("%m/%d %H:%M %Z")
 
 
-_DEVICE_COL_WIDTHS = [1.3, 1.1, 0.5, 1.5, 1.3, 1.1, 1.1, 0.9, 0.8, 0.7]
+_DEVICE_COL_WIDTHS = [1.1, 0.95, 0.45, 1.5, 1.3, 1.0, 1.0, 1.2, 1.0, 0.8]
 _DEVICE_COL_HEADERS = [
 	"Friendly Name",
 	"Hostname",
@@ -333,19 +333,20 @@ def _render_group_actions(devices: list[dict]) -> None:
 		return
 
 	st.markdown("**Group Actions**")
-	gc1, gc2, gc3 = st.columns([2, 1, 1])
-	with gc1:
+	select_col, _ = st.columns([1, 3])
+	with select_col:
 		selected_group = st.selectbox(
 			"Group Tag",
 			group_tags,
 			label_visibility="collapsed",
 			key="quarantine_group_select",
 		)
-	with gc2:
-		if st.button("Quarantine Group", use_container_width=True, key="quarantine_group_go"):
+	gc1, gc2, _ = st.columns([1, 1, 5])
+	with gc1:
+		if st.button("Quarantine Group", key="quarantine_group_go"):
 			_trigger_action(selected_group, "quarantine", is_group=True)
-	with gc3:
-		if st.button("Release Group", use_container_width=True, key="quarantine_group_release"):
+	with gc2:
+		if st.button("Release Group", key="quarantine_group_release"):
 			_trigger_action(selected_group, "release", is_group=True)
 
 
@@ -362,7 +363,7 @@ def render_quarantine() -> None:
 
 	_render_pending_action_result()
 
-	if st.button("Add Device"):
+	if st.button("Add Device", key="quarantine_add_device"):
 		_edit_dialog()
 
 	devices = get_devices()
