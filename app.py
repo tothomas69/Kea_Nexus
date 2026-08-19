@@ -47,6 +47,10 @@ init_db()
 # key="init" parameter, not via Python object identity, so a plain
 # uncached call is correct here — main() only constructs one per run anyway.
 
+# Session-scoped (not module-scoped) so a genuinely fresh session always
+# gets its own single grace-stop, rather than sharing state across sessions.
+_COOKIE_SYNC_FLAG = "_cookie_sync_attempted"
+
 
 def _cookie_manager() -> stx.CookieManager:
 	return stx.CookieManager()
@@ -141,13 +145,21 @@ def main() -> None:
 
 	# A page reload starts a fresh Streamlit session (blank session_state) —
 	# restore it from the session cookie before falling back to the login
-	# page. The cookie's value can lag behind on the very first render of a
-	# brand-new session (the component's JS hasn't reported back yet), so
-	# this can occasionally still show the login page for one rerun even
-	# when a valid cookie exists — it resolves itself once the component
-	# syncs and triggers its own rerun.
+	# page. The component needs one round trip to the browser before
+	# .get_all() reflects real cookies; on a brand-new session its very
+	# first call returns {} regardless of what's actually stored, which
+	# would otherwise show the login page even when a valid cookie exists.
+	# A changed component return value always triggers exactly one automatic
+	# Streamlit rerun, so st.stop() here — gated to fire at most once per
+	# session via _COOKIE_SYNC_FLAG, never on every run — waits for that
+	# round trip instead of racing it. A genuinely cookie-less visitor still
+	# reaches the login page normally on the rerun that follows.
 	if not is_authenticated():
-		restore_session_from_cookie(cookie_manager.get(SESSION_COOKIE_NAME))
+		all_cookies = cookie_manager.get_all()
+		if not all_cookies and not st.session_state.get(_COOKIE_SYNC_FLAG):
+			st.session_state[_COOKIE_SYNC_FLAG] = True
+			st.stop()
+		restore_session_from_cookie(all_cookies.get(SESSION_COOKIE_NAME))
 
 	if not is_authenticated():
 		render_login(cookie_manager)
