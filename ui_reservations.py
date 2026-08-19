@@ -16,7 +16,13 @@ decoupled from Kea's own config.
 import streamlit as st
 
 from db import delete_reservation_label, get_reservation_labels, upsert_reservation_label
-from helpers import get_client, load_config
+from helpers import (
+	build_hostname_override_sets,
+	get_client,
+	lease_for_reservation,
+	load_config,
+	real_hostname,
+)
 from kea import KeaClient, KeaError
 
 _TH = (
@@ -24,9 +30,10 @@ _TH = (
 	"text-transform:uppercase;letter-spacing:.05em;overflow:hidden"
 )
 _TD = "font-family:monospace;font-size:13px;color:#1f2328"
+_TD_MUTED = "font-family:monospace;font-size:13px;color:#6e7681;font-style:italic"
 
-_COL_WIDTHS = [0.5, 2.0, 2.5, 2.5, 1.5, 1.0]
-_COL_HEADERS = ["#", "IP Address", "Label", "MAC", "Type", ""]
+_COL_WIDTHS = [0.4, 1.7, 1.9, 1.9, 1.9, 1.2, 0.9]
+_COL_HEADERS = ["#", "IP Address", "Label", "Real Hostname", "MAC", "Type", ""]
 
 
 # --- Helpers ------------------------------------------------------------------
@@ -67,6 +74,22 @@ def _save_config(config: dict) -> None:
 def _labels_by_mac() -> dict[str, str]:
 	"""mac_address (lowercase) -> label, from db.reservation_labels."""
 	return {row["mac_address"]: row["label"] for row in get_reservation_labels()}
+
+
+def _real_hostname_cell(
+	reservation: dict, leases: list[dict], override_ips: set, override_macs: set
+) -> str:
+	"""Real Hostname column text — distinguishes "device offline" from
+	"hostname hidden by an unmigrated Kea reservation override" rather than
+	showing a bare dash for both, since the fix differs (nothing to do vs.
+	edit-and-save the reservation)."""
+	lease = lease_for_reservation(reservation, leases)
+	if lease is None:
+		return f'<span style="{_TD_MUTED}">offline</span>'
+	hostname = real_hostname(lease, override_ips, override_macs)
+	if not hostname:
+		return f'<span style="{_TD_MUTED}">masked — resave to fix</span>'
+	return f'<span style="{_TD}">{hostname}</span>'
 
 
 # --- Dialogs ------------------------------------------------------------------
@@ -165,8 +188,11 @@ def _edit_dialog(reservation: dict, config: dict, current_label: str) -> None:
 # --- Table rendering ----------------------------------------------------------
 
 
-def _render_table(reservations: list[dict], config: dict, labels: dict[str, str]) -> None:
+def _render_table(
+	reservations: list[dict], config: dict, labels: dict[str, str], leases: list[dict]
+) -> None:
 	"""Render reservations as CSS-grid header + st.columns data rows."""
+	override_ips, override_macs = build_hostname_override_sets(config)
 	col_template = " ".join(f"{w}fr" for w in _COL_WIDTHS)
 	header_cells = "".join(f'<div style="{_TH}">{h}</div>' for h in _COL_HEADERS)
 	st.markdown(
@@ -188,16 +214,19 @@ def _render_table(reservations: list[dict], config: dict, labels: dict[str, str]
 		cols[0].markdown(f'<span style="{_TD};font-weight:600">{i}</span>', unsafe_allow_html=True)
 		cols[1].markdown(f'<span style="{_TD}">{ip or "—"}</span>', unsafe_allow_html=True)
 		cols[2].markdown(f'<span style="{_TD}">{label or "—"}</span>', unsafe_allow_html=True)
-		cols[3].markdown(f'<span style="{_TD}">{mac or "—"}</span>', unsafe_allow_html=True)
-		cols[4].markdown(_type_chip(ip), unsafe_allow_html=True)
-		if cols[5].button("Edit", key=f"res_edit_{i}", use_container_width=True):
+		cols[3].markdown(
+			_real_hostname_cell(res, leases, override_ips, override_macs), unsafe_allow_html=True
+		)
+		cols[4].markdown(f'<span style="{_TD}">{mac or "—"}</span>', unsafe_allow_html=True)
+		cols[5].markdown(_type_chip(ip), unsafe_allow_html=True)
+		if cols[6].button("Edit", key=f"res_edit_{i}", use_container_width=True):
 			_edit_dialog(res, config, label)
 
 
 # --- Main render --------------------------------------------------------------
 
 
-def render_reservations(config) -> None:
+def render_reservations(config, leases: list[dict]) -> None:
 	"""Render the Reservations tab: count, + Add button, and reservation table."""
 	if config is None:
 		st.error("Could not load Kea config. Check connection.")
@@ -212,4 +241,4 @@ def render_reservations(config) -> None:
 		if st.button("+ Add", use_container_width=True):
 			add_reservation_dialog(config)
 
-	_render_table(reservations, config, _labels_by_mac())
+	_render_table(reservations, config, _labels_by_mac(), leases)

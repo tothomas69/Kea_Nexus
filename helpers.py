@@ -176,3 +176,27 @@ def distinct_real_hostnames(leases: list[dict], config: Optional[dict]) -> list[
 	hostnames = {real_hostname(lease, override_ips, override_macs) for lease in leases}
 	hostnames.discard("")
 	return sorted(hostnames)
+
+
+def lease_for_reservation(reservation: dict, leases: list[dict]) -> Optional[dict]:
+	"""The live lease matching a reservation, by MAC (falling back to IP if
+	the reservation has no hw-address), or None if the device isn't
+	currently leased.
+
+	A missing lease (device offline) and a present lease whose hostname is
+	masked by a reservation override (see real_hostname) are different
+	situations — callers should distinguish "no active lease" from "hidden
+	by an unmigrated override" rather than collapsing both to a blank.
+	"""
+	mac = reservation.get("hw-address", "").lower()
+	if mac:
+		for lease in leases:
+			if lease.get("hw-address", "").lower() == mac:
+				return lease
+		return None
+	ip = reservation.get("ip-address")
+	if ip:
+		for lease in leases:
+			if lease.get("ip-address") == ip:
+				return lease
+	return None

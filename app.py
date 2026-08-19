@@ -151,7 +151,7 @@ def main() -> None:
 	with tab_ipam:
 		render_ipam(leases, config)
 	with tab_res:
-		render_reservations(config)
+		render_reservations(config, leases)
 	with tab_maint:
 		render_maintenance(leases)
 	with tab_quarantine:
