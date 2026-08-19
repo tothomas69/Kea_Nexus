@@ -6,9 +6,10 @@ Entry point. Page config, CSS injection, sidebar, and tab routing.
 from pathlib import Path
 from typing import Optional
 
+import extra_streamlit_components as stx
 import streamlit as st
 
-from auth import is_authenticated, logout
+from auth import SESSION_COOKIE_NAME, is_authenticated, logout, restore_session_from_cookie
 from db import init_db
 from helpers import get_client, load_config, load_leases, load_pool_stats, load_status
 from kea import KeaError
@@ -36,6 +37,17 @@ st.markdown(f"<style>{_css}</style>", unsafe_allow_html=True)
 
 # --- Database initialisation --------------------------------------------------
 init_db()
+
+# --- Session cookie -------------------------------------------------------------
+# Backs login persistence across a page reload — see auth.py's module
+# docstring. @st.cache_resource so the same CookieManager instance (and its
+# underlying component) is reused across reruns instead of re-declared.
+
+
+@st.cache_resource
+def _cookie_manager() -> stx.CookieManager:
+	return stx.CookieManager()
+
 
 # --- Sidebar ------------------------------------------------------------------
 
@@ -69,7 +81,9 @@ def _sidebar_version_block(status: dict) -> str:
 	)
 
 
-def render_sidebar(stats: Optional[dict], config: Optional[dict], status: dict) -> None:
+def render_sidebar(
+	stats: Optional[dict], config: Optional[dict], status: dict, cookie_manager: stx.CookieManager
+) -> None:
 	logo_path = Path(__file__).parent / "static" / "keanexus_logo.png"
 	if logo_path.exists():
 		st.sidebar.image(str(logo_path), use_container_width=True)
@@ -109,6 +123,10 @@ def render_sidebar(stats: Optional[dict], config: Optional[dict], status: dict) 
 	st.sidebar.markdown('<div style="margin-top:16px"></div>', unsafe_allow_html=True)
 	if st.sidebar.button("Sign out", key="sign_out_button", use_container_width=True):
 		logout()
+		# .delete() raises KeyError if the cookie hasn't synced into the
+		# component's internal cache yet — guard rather than crash sign-out.
+		if SESSION_COOKIE_NAME in cookie_manager.cookies:
+			cookie_manager.delete(SESSION_COOKIE_NAME)
 		st.rerun()
 
 
@@ -116,8 +134,20 @@ def render_sidebar(stats: Optional[dict], config: Optional[dict], status: dict) 
 
 
 def main() -> None:
+	cookie_manager = _cookie_manager()
+
+	# A page reload starts a fresh Streamlit session (blank session_state) —
+	# restore it from the session cookie before falling back to the login
+	# page. The cookie's value can lag behind on the very first render of a
+	# brand-new session (the component's JS hasn't reported back yet), so
+	# this can occasionally still show the login page for one rerun even
+	# when a valid cookie exists — it resolves itself once the component
+	# syncs and triggers its own rerun.
 	if not is_authenticated():
-		render_login()
+		restore_session_from_cookie(cookie_manager.get(SESSION_COOKIE_NAME))
+
+	if not is_authenticated():
+		render_login(cookie_manager)
 		return
 
 	kea = get_client()
@@ -131,7 +161,7 @@ def main() -> None:
 	config = load_config(kea)
 	status = load_status(kea)
 
-	render_sidebar(stats, config, status)
+	render_sidebar(stats, config, status, cookie_manager)
 
 	tab_pool, tab_leases, tab_ipam, tab_res, tab_maint, tab_quarantine, tab_settings = st.tabs(
 		[

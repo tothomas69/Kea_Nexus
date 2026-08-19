@@ -69,7 +69,27 @@ Data persisted in Docker named volume `keanexus_data` mounted at `/app/data/`.
 - `attempt_login(username, password)` — constant-time compare via `hmac.compare_digest`; sets session state on success
 - `logout()` — clears session state
 - `app.py` guards `main()` with `is_authenticated()` — unauthenticated requests see only the login page
-- Session lasts for the browser session only (no persistent cookie)
+- Login persists across a page reload via a real browser cookie, not just
+  `st.session_state` — a full reload starts a brand-new Streamlit session
+  with blank session_state, which used to force a re-login every time.
+  `SESSION_COOKIE_NAME` is the cookie name; `session_token()` returns the
+  expected value, an HMAC of `KEANEXUS_PASSWORD` (stateless — no server-side
+  session store, so restarting the app doesn't invalidate cookies already
+  issued, and no separate secret needs configuring).
+  `restore_session_from_cookie(cookie_value)` re-authenticates from that
+  cookie via `hmac.compare_digest` if `is_authenticated()` is False. `app.py`
+  owns the actual cookie I/O (via `extra_streamlit_components.CookieManager`,
+  cached with `@st.cache_resource` as `_cookie_manager()`) and calls this on
+  every fresh session before falling back to the login page — `auth.py`
+  itself stays free of the CookieManager/component dependency, just the
+  token logic
+- `ui_login.py`'s `render_login(cookie_manager)` sets the cookie via
+  `cookie_manager.set(...)` on successful login, with a 24h rolling expiry —
+  the CookieManager library always attaches an expiry (no true zero-expiry
+  "clears only when the browser closes" option), so this is the closest
+  practical approximation. Sign-out (`app.py`'s `render_sidebar`) deletes it,
+  guarded against `KeyError` since `.delete()` raises if the cookie hasn't
+  synced into the component's internal cache yet
 
 ### Kea Client (`kea.py`)
 
@@ -379,18 +399,18 @@ ip)`. Blocking works by assigning the device's current IP to a dedicated
   check the `/clients` and `/groups` request/response shapes against this Pi-hole's
   own self-hosted docs at `http://pi.hole/api/docs` before relying on it.
 
-                                                        **Writes to both primary and secondary Pi-hole instances.** Discovered during
-                                                        deployment that the two Pi-hole instances on this network (172.16.17.212 primary,
-                                                        172.16.17.252 secondary on the TerraMaster NAS) are fully independent — no
-                                                        Nebula/Gravity/Orbital Sync between them — so blocking only the primary would
-                                                        leave a real gap if a device's DNS ever gets served by the secondary. `main.py`'s
-                                                        `_get_pihole_clients()` always includes the primary and adds the secondary only
-                                                        when `PIHOLE_SECONDARY_API_URL` is set; `_apply_pihole_step` writes to each with
-                                                        its own independent retry and its own audit log row (`pihole_primary` /
-                                                        `pihole_secondary` steps), so a partial failure on one instance is visible rather
-                                                        than collapsed into one ambiguous result. `PiholeClient.__init__` accepts optional
-                                                        `base_url`/`password` overrides (falling back to env vars) specifically to support
-                                                        constructing a second client pointed at the secondary instance.
+                                                                **Writes to both primary and secondary Pi-hole instances.** Discovered during
+                                                                deployment that the two Pi-hole instances on this network (172.16.17.212 primary,
+                                                                172.16.17.252 secondary on the TerraMaster NAS) are fully independent — no
+                                                                Nebula/Gravity/Orbital Sync between them — so blocking only the primary would
+                                                                leave a real gap if a device's DNS ever gets served by the secondary. `main.py`'s
+                                                                `_get_pihole_clients()` always includes the primary and adds the secondary only
+                                                                when `PIHOLE_SECONDARY_API_URL` is set; `_apply_pihole_step` writes to each with
+                                                                its own independent retry and its own audit log row (`pihole_primary` /
+                                                                `pihole_secondary` steps), so a partial failure on one instance is visible rather
+                                                                than collapsed into one ambiguous result. `PiholeClient.__init__` accepts optional
+                                                                `base_url`/`password` overrides (falling back to env vars) specifically to support
+                                                                constructing a second client pointed at the secondary instance.
 
 - `nmap_fingerprint.py` — `refresh_os_fingerprint(friendly_name, target_ip)` shells
   out to `nmap -O --osscan-guess` (no meaningful pure-Python equivalent exists for
@@ -480,7 +500,7 @@ since they require a live Streamlit server and can't be unit-tested). That inclu
 
 | File                                        | What is tested                                                                                                                                                                                                                        |
 | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `tests/test_auth.py`                        | `is_authenticated`, `attempt_login` (all credential paths), `logout`                                                                                                                                                                  |
+| `tests/test_auth.py`                        | `is_authenticated`, `attempt_login` (all credential paths), `logout`, `session_token`, `restore_session_from_cookie`                                                                                                                  |
 | `tests/test_db.py`                          | Full CRUD on `ipam_static`, `reservation_labels`, `device_registry`, and `quarantine_log` via `temp_db` fixture (SQLite in tmp dir)                                                                                                   |
 | `tests/test_kea.py`                         | All `KeaClient` methods; `httpx` patched via `http_mock` fixture                                                                                                                                                                      |
 | `tests/test_helpers.py`                     | `fmt_ttl`, `chip`, `leases_to_df`, `build_reservation_type_sets`, `lease_type`, `build_hostname_override_sets`, `real_hostname`, `distinct_real_hostnames`, `lease_for_reservation` (pure functions only)                             |
