@@ -40,11 +40,14 @@ init_db()
 
 # --- Session cookie -------------------------------------------------------------
 # Backs login persistence across a page reload — see auth.py's module
-# docstring. @st.cache_resource so the same CookieManager instance (and its
-# underlying component) is reused across reruns instead of re-declared.
+# docstring. Deliberately NOT @st.cache_resource: CookieManager.__init__
+# itself calls a Streamlit component (a widget-like command), and Streamlit
+# forbids widget commands inside a cached function (CachedWidgetWarning).
+# The component stabilizes itself across reruns via its own internal
+# key="init" parameter, not via Python object identity, so a plain
+# uncached call is correct here — main() only constructs one per run anyway.
 
 
-@st.cache_resource
 def _cookie_manager() -> stx.CookieManager:
 	return stx.CookieManager()
 
