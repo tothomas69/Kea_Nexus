@@ -8,6 +8,7 @@ from unittest.mock import patch
 import pytest
 
 from helpers import (
+	build_hostname_override_sets,
 	build_reservation_type_sets,
 	chip,
 	distinct_real_hostnames,
@@ -183,31 +184,63 @@ class TestLeaseType:
 		assert lease_type(lease, set(), set(), set()) == "dynamic"
 
 
+class TestBuildHostnameOverrideSets:
+	def test_reservation_with_ip_and_hostname_is_an_override(self):
+		config = _make_config([{"ip-address": "10.0.0.5", "hw-address": "aa:bb", "hostname": "x"}])
+		override_ips, override_macs = build_hostname_override_sets(config)
+		assert override_ips == {"10.0.0.5"}
+		assert override_macs == {"aa:bb"}
+
+	def test_reservation_without_hostname_is_not_an_override(self):
+		config = _make_config([{"ip-address": "10.0.0.5", "hw-address": "AA:BB"}])
+		override_ips, override_macs = build_hostname_override_sets(config)
+		assert override_ips == set()
+		assert override_macs == set()
+
+	def test_name_only_reservation_is_not_an_override(self):
+		# No ip-address/hw-address to key on — this isn't a lease-level
+		# override, it's how Kea matches the reservation in the first place.
+		config = _make_config([{"hostname": "some-host"}])
+		override_ips, override_macs = build_hostname_override_sets(config)
+		assert override_ips == set()
+		assert override_macs == set()
+
+	def test_none_config_returns_empty_sets(self):
+		assert build_hostname_override_sets(None) == (set(), set())
+
+
 class TestRealHostname:
-	def test_fixed_lease_hostname_is_blank(self):
+	def test_ip_matching_override_is_blank(self):
 		lease = _make_lease("10.0.0.5", hostname="reservation-label")
-		assert real_hostname(lease, "fixed") == ""
+		assert real_hostname(lease, {"10.0.0.5"}, set()) == ""
 
-	def test_reserved_lease_hostname_is_blank(self):
-		lease = _make_lease("10.0.0.9", hostname="reservation-label")
-		assert real_hostname(lease, "reserved") == ""
+	def test_mac_matching_override_is_blank(self):
+		lease = _make_lease("10.0.0.9", hostname="reservation-label", mac="AA:BB")
+		assert real_hostname(lease, set(), {"aa:bb"}) == ""
 
-	def test_dynamic_lease_hostname_is_real(self):
+	def test_no_matching_override_is_real(self):
 		lease = _make_lease("10.0.0.9", hostname="actual-device-name")
-		assert real_hostname(lease, "dynamic") == "actual-device-name"
+		assert real_hostname(lease, set(), set()) == "actual-device-name"
 
-	def test_name_only_lease_hostname_is_real(self):
-		lease = _make_lease("10.0.0.9", hostname="actual-device-name")
-		assert real_hostname(lease, "name-only") == "actual-device-name"
+	def test_reserved_lease_without_override_is_real(self):
+		# A reservation with no "hostname" key (post-migration) still matches
+		# by IP/MAC for lease_type purposes, but isn't a hostname override.
+		lease = _make_lease("10.0.0.5", hostname="actual-device-name")
+		assert real_hostname(lease, set(), set()) == "actual-device-name"
 
 
 class TestDistinctRealHostnames:
-	def test_excludes_reservation_labels(self):
+	def test_excludes_reservation_label_overrides(self):
 		config = _make_config(
 			[{"ip-address": "10.0.0.5", "hw-address": "aa:bb", "hostname": "label"}]
 		)
 		leases = [_make_lease("10.0.0.5", hostname="label")]
 		assert distinct_real_hostnames(leases, config) == []
+
+	def test_includes_reserved_hostname_without_override(self):
+		config = _make_config([{"ip-address": "10.0.0.5", "hw-address": "aa:bb"}])
+		leases = [_make_lease("10.0.0.5", hostname="real-name")]
+		assert distinct_real_hostnames(leases, config) == ["real-name"]
 
 	def test_includes_dynamic_hostnames(self):
 		leases = [_make_lease("10.0.0.9", hostname="real-name")]
