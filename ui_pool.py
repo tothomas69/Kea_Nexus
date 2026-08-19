@@ -56,9 +56,9 @@ def _health_row(label: str, detail: str, up: bool, last: bool = False) -> str:
 	border = "" if last else "border-bottom:1px solid #f0f2f5;"
 	return (
 		f'<div style="display:flex;align-items:center;gap:8px;padding:8px 0;{border}'
-		f'font-family:monospace">'
+		f'font-family:monospace;font-size:13px">'
 		f'<div style="width:8px;height:8px;border-radius:50%;background:{dot};flex-shrink:0"></div>'
-		f'<span style="color:#57606a;font-weight:400;font-size:11px;flex:1">{label}</span>'
+		f'<span style="color:#57606a;font-weight:400;flex:1">{label}</span>'
 		f'<span style="color:#8c959f;font-size:10px">{detail}</span>'
 		f'<span style="background:{bg};color:{text};font-size:10px;font-weight:700;'
 		f'padding:2px 7px;border-radius:10px;margin-left:6px">{badge}</span>'

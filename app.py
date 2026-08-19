@@ -72,7 +72,8 @@ def _sidebar_item(label: str, value: str) -> str:
 def _sidebar_version_block(status: dict) -> str:
 	"""
 	Build the version info block for the sidebar.
-	Shows KeaNexus app version, Kea daemon version, and connection mode.
+	Shows Kea daemon version and connection mode — the KeaNexus app version
+	itself renders separately, above the logo (see render_sidebar).
 	Always rendered regardless of Kea connectivity — useful for diagnostics.
 	KeaNexus only supports the Kea 3.0+ direct API — there is no mode toggle.
 	"""
@@ -81,7 +82,6 @@ def _sidebar_version_block(status: dict) -> str:
 
 	return (
 		'<div style="margin-top:16px;padding-top:8px">'
-		+ _sidebar_item("KeaNexus", f"v{APP_VERSION}")
 		+ _sidebar_item("Kea DHCP", kea_ver)
 		+ _sidebar_item("API Mode", "Direct API")
 		+ "</div>"
@@ -91,6 +91,8 @@ def _sidebar_version_block(status: dict) -> str:
 def render_sidebar(
 	stats: Optional[dict], config: Optional[dict], status: dict, cookie_manager: stx.CookieManager
 ) -> None:
+	st.sidebar.markdown(_sidebar_item("KeaNexus", f"v{APP_VERSION}"), unsafe_allow_html=True)
+
 	logo_path = Path(__file__).parent / "static" / "keanexus_logo.png"
 	if logo_path.exists():
 		st.sidebar.image(str(logo_path), use_container_width=True)
