@@ -13,6 +13,7 @@ from helpers import (
 	chip,
 	distinct_real_hostnames,
 	fmt_ttl,
+	lease_for_reservation,
 	lease_type,
 	leases_to_df,
 	real_hostname,
@@ -257,3 +258,32 @@ class TestDistinctRealHostnames:
 	def test_empty_hostnames_excluded(self):
 		leases = [_make_lease("10.0.0.9", hostname="")]
 		assert distinct_real_hostnames(leases, None) == []
+
+
+class TestLeaseForReservation:
+	def test_matches_by_mac(self):
+		reservation = {"hw-address": "AA:BB", "ip-address": "10.0.0.5"}
+		lease = _make_lease("10.0.0.5", mac="aa:bb")
+		assert lease_for_reservation(reservation, [lease]) is lease
+
+	def test_mac_match_is_case_insensitive(self):
+		reservation = {"hw-address": "aa:bb"}
+		lease = _make_lease("10.0.0.5", mac="AA:BB")
+		assert lease_for_reservation(reservation, [lease]) is lease
+
+	def test_falls_back_to_ip_when_no_mac(self):
+		reservation = {"ip-address": "10.0.0.5"}
+		lease = _make_lease("10.0.0.5", mac="aa:bb")
+		assert lease_for_reservation(reservation, [lease]) is lease
+
+	def test_returns_none_when_no_lease_matches(self):
+		reservation = {"hw-address": "aa:bb", "ip-address": "10.0.0.5"}
+		other_lease = _make_lease("10.0.0.9", mac="cc:dd")
+		assert lease_for_reservation(reservation, [other_lease]) is None
+
+	def test_returns_none_for_empty_reservation(self):
+		assert lease_for_reservation({}, [_make_lease("10.0.0.5")]) is None
+
+	def test_returns_none_for_empty_lease_list(self):
+		reservation = {"hw-address": "aa:bb"}
+		assert lease_for_reservation(reservation, []) is None

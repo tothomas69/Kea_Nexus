@@ -147,6 +147,13 @@ override_macs)` / `distinct_real_hostnames(leases, config)` — a Kea
   a `dynamic` one. `distinct_real_hostnames` feeds the Quarantine tab's Add/Edit
   device hostname picker so it only offers hostnames that will actually match a
   live lease, rather than a reservation label that never will
+- `lease_for_reservation(reservation, leases)` — the live lease matching a
+  reservation, by MAC (falling back to IP if the reservation has no
+  hw-address), or `None` if the device isn't currently leased. Used by the
+  Reservations tab's Real Hostname column to tell "device offline" (no
+  matching lease at all) apart from "hostname hidden by an unmigrated Kea
+  override" (a lease exists, but `real_hostname` blanks it) — the fix differs
+  between the two, so collapsing both to a bare dash would hide that
 
 ### Database (`db.py`)
 
@@ -196,12 +203,21 @@ override_macs)` / `distinct_real_hostnames(leases, config)` — a Kea
 
 ### Reservations Tab (`ui_reservations.py`)
 
-- `render_reservations(config)` — CSS-grid header + `st.columns` data rows with per-row Edit buttons
+- `render_reservations(config, leases)` — CSS-grid header + `st.columns` data
+  rows with per-row Edit buttons
 - Reservations sent to Kea carry only `hw-address` (+ `ip-address` when fixed) —
   no `hostname` field. The "Label" column/input is a KeaNexus-only display name
   stored in `db.reservation_labels` (keyed by MAC), never written to Kea, so Kea
   always preserves the device's real DHCP-negotiated hostname on the lease —
   see `helpers.py`'s hostname-override note above
+- "Real Hostname" column — `_real_hostname_cell(reservation, leases,
+override_ips, override_macs)` shows what Kea actually sees the device
+  broadcast, distinct from the admin-chosen Label. Three states: the real
+  hostname (device online, no override in effect), `offline` (no matching
+  lease — `lease_for_reservation` returned `None`), or `masked — resave to
+fix` (a lease exists but its hostname is still overridden by an unmigrated
+  reservation — editing and saving that reservation clears it, same as the
+  Label-migration path below)
 - `_labels_by_mac()` — `{mac_address: label}` from `db.reservation_labels`, built
   once per render and threaded through to the table and dialogs
 - A reservation saved before this change (or hand-edited in `kea-dhcp4.conf`)
@@ -357,18 +373,18 @@ ip)`. Blocking works by assigning the device's current IP to a dedicated
   check the `/clients` and `/groups` request/response shapes against this Pi-hole's
   own self-hosted docs at `http://pi.hole/api/docs` before relying on it.
 
-                                        **Writes to both primary and secondary Pi-hole instances.** Discovered during
-                                        deployment that the two Pi-hole instances on this network (172.16.17.212 primary,
-                                        172.16.17.252 secondary on the TerraMaster NAS) are fully independent — no
-                                        Nebula/Gravity/Orbital Sync between them — so blocking only the primary would
-                                        leave a real gap if a device's DNS ever gets served by the secondary. `main.py`'s
-                                        `_get_pihole_clients()` always includes the primary and adds the secondary only
-                                        when `PIHOLE_SECONDARY_API_URL` is set; `_apply_pihole_step` writes to each with
-                                        its own independent retry and its own audit log row (`pihole_primary` /
-                                        `pihole_secondary` steps), so a partial failure on one instance is visible rather
-                                        than collapsed into one ambiguous result. `PiholeClient.__init__` accepts optional
-                                        `base_url`/`password` overrides (falling back to env vars) specifically to support
-                                        constructing a second client pointed at the secondary instance.
+                                                **Writes to both primary and secondary Pi-hole instances.** Discovered during
+                                                deployment that the two Pi-hole instances on this network (172.16.17.212 primary,
+                                                172.16.17.252 secondary on the TerraMaster NAS) are fully independent — no
+                                                Nebula/Gravity/Orbital Sync between them — so blocking only the primary would
+                                                leave a real gap if a device's DNS ever gets served by the secondary. `main.py`'s
+                                                `_get_pihole_clients()` always includes the primary and adds the secondary only
+                                                when `PIHOLE_SECONDARY_API_URL` is set; `_apply_pihole_step` writes to each with
+                                                its own independent retry and its own audit log row (`pihole_primary` /
+                                                `pihole_secondary` steps), so a partial failure on one instance is visible rather
+                                                than collapsed into one ambiguous result. `PiholeClient.__init__` accepts optional
+                                                `base_url`/`password` overrides (falling back to env vars) specifically to support
+                                                constructing a second client pointed at the secondary instance.
 
 - `nmap_fingerprint.py` — `refresh_os_fingerprint(friendly_name, target_ip)` shells
   out to `nmap -O --osscan-guess` (no meaningful pure-Python equivalent exists for
@@ -461,7 +477,7 @@ since they require a live Streamlit server and can't be unit-tested). That inclu
 | `tests/test_auth.py`                        | `is_authenticated`, `attempt_login` (all credential paths), `logout`                                                                                                                                                                  |
 | `tests/test_db.py`                          | Full CRUD on `ipam_static`, `reservation_labels`, `device_registry`, and `quarantine_log` via `temp_db` fixture (SQLite in tmp dir)                                                                                                   |
 | `tests/test_kea.py`                         | All `KeaClient` methods; `httpx` patched via `http_mock` fixture                                                                                                                                                                      |
-| `tests/test_helpers.py`                     | `fmt_ttl`, `chip`, `leases_to_df`, `build_reservation_type_sets`, `lease_type`, `build_hostname_override_sets`, `real_hostname`, `distinct_real_hostnames` (pure functions only)                                                      |
+| `tests/test_helpers.py`                     | `fmt_ttl`, `chip`, `leases_to_df`, `build_reservation_type_sets`, `lease_type`, `build_hostname_override_sets`, `real_hostname`, `distinct_real_hostnames`, `lease_for_reservation` (pure functions only)                             |
 | `tests/test_pihole.py`                      | `PiholeClient` session auth (caching, reuse, re-auth on expiry), CSRF header logic, error mapping, constructor overrides (base_url/password); `httpx` patched via `pihole_http_mock` fixture                                          |
 | `tests/test_quarantine_client.py`           | `trigger_quarantine`/`trigger_release` — request shape, auth header, is_group passthrough, missing-token error, connect error, HTTP error detail parsing; `httpx` patched via `quarantine_client_http_mock` fixture                   |
 | `tests/test_quarantine_auth.py`             | `require_bearer_token` — missing config, missing/malformed header, wrong token, success                                                                                                                                               |
