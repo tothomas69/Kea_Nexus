@@ -37,7 +37,7 @@ def confirm_disable_dialog() -> None:
 	)
 	c1, c2 = st.columns(2)
 	with c1:
-		if st.button("Confirm - Disable DHCP", type="primary", use_container_width=True):
+		if st.button("Confirm - Disable DHCP", key="maintenance_confirmdisable_chipdanger"):
 			try:
 				get_client().disable_dhcp(max_period=int(max_p))
 				st.session_state.dhcp_enabled = False
@@ -45,7 +45,7 @@ def confirm_disable_dialog() -> None:
 			except KeaError as e:
 				st.error(str(e))
 	with c2:
-		if st.button("Cancel", use_container_width=True):
+		if st.button("Cancel", key="dialog_cancel"):
 			st.rerun()
 
 
@@ -61,7 +61,7 @@ def confirm_wipe_dialog(lease_count: int) -> None:
 	c1, c2 = st.columns(2)
 	with c1:
 		if st.button(
-			"Wipe all leases", type="primary", use_container_width=True, disabled=not can_wipe
+			"Wipe all leases", key="maintenance_confirmwipe_chipdanger", disabled=not can_wipe
 		):
 			try:
 				count = get_client().wipe_leases(subnet_id=1)
@@ -72,7 +72,7 @@ def confirm_wipe_dialog(lease_count: int) -> None:
 			except KeaError as e:
 				st.error(str(e))
 	with c2:
-		if st.button("Cancel", use_container_width=True):
+		if st.button("Cancel", key="dialog_cancel"):
 			st.rerun()
 
 
@@ -80,7 +80,7 @@ def render_maintenance(leases: list[dict]) -> None:
 	# --- Refresh --------------------------------------------------------------
 	rc1, rc2 = st.columns([8, 1])
 	with rc2:
-		if st.button("Refresh", use_container_width=True):
+		if st.button("Refresh", key="maintenance_refresh_chipblue"):
 			load_leases.clear()
 			load_pool_stats.clear()
 			load_config.clear()
@@ -98,10 +98,10 @@ def render_maintenance(leases: list[dict]) -> None:
 			st.error("[!!] DHCP is DISABLED - clients cannot obtain or renew leases")
 	with sc2:
 		if dhcp_on:
-			if st.button("Disable DHCP", use_container_width=True):
+			if st.button("Disable DHCP", key="maintenance_disabletrigger_chipdanger"):
 				confirm_disable_dialog()
 		else:
-			if st.button("Enable DHCP", type="primary", use_container_width=True):
+			if st.button("Enable DHCP", type="primary", key="maintenance_enabledhcp_chipgreen"):
 				try:
 					get_client().enable_dhcp()
 					st.session_state.dhcp_enabled = True
@@ -122,7 +122,7 @@ def render_maintenance(leases: list[dict]) -> None:
 			f"{len(dec)} declined address(es) occupying pool space. "
 			"Clear them to reclaim the space immediately."
 		)
-		if st.button(f"Clear all {len(dec)} declined"):
+		if st.button(f"Clear all {len(dec)} declined", key="maintenance_clearall_chipgray"):
 			errors = []
 			for lease in dec:
 				try:
@@ -146,7 +146,7 @@ def render_maintenance(leases: list[dict]) -> None:
 			r1.code(lease["ip-address"])
 			r2.write(f"Quarantine: {fmt_ttl(ttl)}")
 			with r3:
-				if st.button("Clear", key=f"clr_{lease['ip-address']}"):
+				if st.button("Clear", key=f"maintenance_clear_{lease['ip-address']}_chipgray"):
 					try:
 						get_client().delete_lease(lease["ip-address"])
 						load_leases.clear()
@@ -170,7 +170,7 @@ def render_maintenance(leases: list[dict]) -> None:
 			key="maint_search_val",
 		)
 	with ls3:
-		do_search = st.button("Search", use_container_width=True, key="maint_search")
+		do_search = st.button("Search", key="maintenance_search_chipblue")
 
 	if do_search and sval.strip():
 		try:
@@ -203,5 +203,5 @@ def render_maintenance(leases: list[dict]) -> None:
 			"Fixed reservations in kea-dhcp4.conf are unaffected."
 		)
 	with wc2:
-		if st.button("Wipe all leases", use_container_width=True):
+		if st.button("Wipe all leases", key="maintenance_wipetrigger_chipdanger"):
 			confirm_wipe_dialog(len(leases))

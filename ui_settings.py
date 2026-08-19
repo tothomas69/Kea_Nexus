@@ -308,7 +308,7 @@ def render_settings(config: dict | None) -> None:
 
 	# --- Save button ------------------------------------------------------
 
-	if st.button("Save Settings", type="primary"):
+	if st.button("Save Settings", type="primary", key="settings_save_chipgreen"):
 		errors = _validate_inputs(
 			gateway=new_gateway,
 			dns=new_dns,

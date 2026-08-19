@@ -212,7 +212,7 @@ def render_leases(leases: list[dict], config: Optional[dict] = None) -> None:
 				key="leases_lookup_val",
 			)
 		with lc3:
-			do_lookup = st.button("Search", use_container_width=True)
+			do_lookup = st.button("Search", key="leases_search_chipblue")
 
 		if do_lookup and lval.strip():
 			kea = get_client()
@@ -235,7 +235,7 @@ def render_leases(leases: list[dict], config: Optional[dict] = None) -> None:
 						unsafe_allow_html=True,
 					)
 					if ltype == "IP Address" and found:
-						if st.button("Edit this lease"):
+						if st.button("Edit this lease", key="leases_editresult_chipblue"):
 							edit_lease_dialog(found[0])
 			except KeaError as e:
 				st.error(str(e))
@@ -243,13 +243,13 @@ def render_leases(leases: list[dict], config: Optional[dict] = None) -> None:
 		st.divider()
 		ac1, ac2 = st.columns(2)
 		with ac1:
-			if st.button("+ Add lease manually", use_container_width=True):
+			if st.button("+ Add lease manually", key="leases_addtrigger_chipblue"):
 				add_lease_dialog()
 		with ac2:
 			eip = st.text_input(
 				"Edit lease by IP", placeholder="172.16.17.x", label_visibility="collapsed"
 			)
-			if st.button("Edit ->", use_container_width=True) and eip.strip():
+			if st.button("Edit ->", key="leases_editbyip_chipblue") and eip.strip():
 				lease = get_client().get_lease_by_ip(eip.strip())
 				if lease:
 					edit_lease_dialog(lease)
