@@ -112,6 +112,8 @@
 		:has([class*="st-key-quarantine_release_"])
 	):not(:has([class*="st-key-quarantine_group_go"])):not(
 		:has([class*="st-key-quarantine_group_release"])
+	):not(:has([class*="st-key-dialog_save"])):not(:has([class*="st-key-dialog_cancel"])):not(
+		:has([class*="st-key-dialog_delete"])
 	)
 	button[kind] {
 	padding: 1px 6px !important;
@@ -126,6 +128,8 @@
 		:has([class*="st-key-quarantine_release_"])
 	):not(:has([class*="st-key-quarantine_group_go"])):not(
 		:has([class*="st-key-quarantine_group_release"])
+	):not(:has([class*="st-key-dialog_save"])):not(:has([class*="st-key-dialog_cancel"])):not(
+		:has([class*="st-key-dialog_delete"])
 	)
 	button[kind]
 	p {
@@ -245,6 +249,66 @@
 [class*="st-key-quarantine_add_device"] button p,
 [class*="st-key-sign_out_button"] button p {
 	color: #1e40af !important;
+}
+
+/* --- Dialog action chips (Save/Cancel/Delete) ------------------------------
+   Same compact pill size/weight as the Quarantine tab's chips above, reused
+   site-wide (via a shared literal key rather than per-dialog keys — Streamlit
+   dialogs are modal, so only one of these ever renders in a given run, and a
+   shared key means one CSS rule covers every popup instead of one per tab)
+   so every dialog's primary/dismiss actions read consistently: Save = pale
+   green, Cancel = pale red, Delete = neutral pale gray. Maintenance's two
+   danger-confirmation dialogs are deliberately excluded — their Confirm
+   button keeps Streamlit's default full-width "primary" look, and resizing
+   only Cancel next to it would read as broken rather than consistent. ------ */
+[class*="st-key-dialog_save"][data-testid="stButton"],
+[class*="st-key-dialog_save"] [data-testid="stButton"],
+[class*="st-key-dialog_cancel"][data-testid="stButton"],
+[class*="st-key-dialog_cancel"] [data-testid="stButton"],
+[class*="st-key-dialog_delete"][data-testid="stButton"],
+[class*="st-key-dialog_delete"] [data-testid="stButton"] {
+	display: flex !important;
+	justify-content: center !important;
+}
+
+[class*="st-key-dialog_save"] button,
+[class*="st-key-dialog_cancel"] button,
+[class*="st-key-dialog_delete"] button {
+	padding: 3px 12px !important;
+	min-height: 0 !important;
+	height: auto !important;
+}
+[class*="st-key-dialog_save"] button p,
+[class*="st-key-dialog_cancel"] button p,
+[class*="st-key-dialog_delete"] button p {
+	font-size: 0.78rem !important;
+	font-weight: 700 !important;
+	margin: 0 !important;
+	line-height: 1.3 !important;
+}
+
+[class*="st-key-dialog_save"] button {
+	background-color: #dcfce7 !important;
+	border-color: #86efac !important;
+}
+[class*="st-key-dialog_save"] button p {
+	color: #166534 !important;
+}
+
+[class*="st-key-dialog_cancel"] button {
+	background-color: #fee2e2 !important;
+	border-color: #fca5a5 !important;
+}
+[class*="st-key-dialog_cancel"] button p {
+	color: #991b1b !important;
+}
+
+[class*="st-key-dialog_delete"] button {
+	background-color: #f6f8fa !important;
+	border-color: #d0d7de !important;
+}
+[class*="st-key-dialog_delete"] button p {
+	color: #57606a !important;
 }
 
 /* --- CSS tooltip for status chip notes ------------------------------------ */
