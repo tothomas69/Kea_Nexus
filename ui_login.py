@@ -4,12 +4,18 @@ ui_login.py — Login page for KeaNexus.
 
 from pathlib import Path
 
+import extra_streamlit_components as stx
 import streamlit as st
 
-from auth import attempt_login
+from auth import SESSION_COOKIE_NAME, attempt_login, session_token
+
+# Rolling expiry for the session cookie — the CookieManager component always
+# attaches an expiry (no true zero-expiry "clears on browser close" option),
+# so this is the closest practical approximation. See auth.py's docstring.
+_SESSION_COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24
 
 
-def render_login() -> None:
+def render_login(cookie_manager: stx.CookieManager) -> None:
 	"""Render the login page. Calls st.rerun() on successful authentication."""
 	_, col, _ = st.columns([1, 1.2, 1])
 
@@ -28,6 +34,9 @@ def render_login() -> None:
 
 		if st.button("Sign in", type="primary", use_container_width=True):
 			if attempt_login(username.strip(), password):
+				cookie_manager.set(
+					SESSION_COOKIE_NAME, session_token(), max_age=_SESSION_COOKIE_MAX_AGE_SECONDS
+				)
 				st.rerun()
 			else:
 				st.error("Invalid username or password.")

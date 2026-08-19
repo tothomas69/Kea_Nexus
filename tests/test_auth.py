@@ -81,3 +81,46 @@ class TestLogout:
 	def test_logout_when_not_authenticated_is_safe(self, session):
 		auth.logout()
 		assert session.get("authenticated") is False
+
+
+class TestSessionToken:
+	_ENV = {"KEANEXUS_PASSWORD": "s3cr3t"}
+
+	def test_same_password_produces_same_token(self, session):
+		with patch.dict(os.environ, self._ENV):
+			assert auth.session_token() == auth.session_token()
+
+	def test_different_password_produces_different_token(self, session):
+		with patch.dict(os.environ, {"KEANEXUS_PASSWORD": "s3cr3t"}):
+			token_a = auth.session_token()
+		with patch.dict(os.environ, {"KEANEXUS_PASSWORD": "different"}):
+			token_b = auth.session_token()
+		assert token_a != token_b
+
+	def test_missing_password_still_returns_a_token(self, session):
+		with patch.dict(os.environ, {}, clear=True):
+			os.environ.pop("KEANEXUS_PASSWORD", None)
+			assert auth.session_token() != ""
+
+
+class TestRestoreSessionFromCookie:
+	_ENV = {"KEANEXUS_PASSWORD": "s3cr3t"}
+
+	def test_none_cookie_does_not_authenticate(self, session):
+		assert auth.restore_session_from_cookie(None) is False
+		assert session.get("authenticated") is not True
+
+	def test_empty_cookie_does_not_authenticate(self, session):
+		assert auth.restore_session_from_cookie("") is False
+		assert session.get("authenticated") is not True
+
+	def test_wrong_cookie_does_not_authenticate(self, session):
+		with patch.dict(os.environ, self._ENV):
+			assert auth.restore_session_from_cookie("bogus-value") is False
+		assert session.get("authenticated") is not True
+
+	def test_valid_cookie_authenticates(self, session):
+		with patch.dict(os.environ, self._ENV):
+			valid_token = auth.session_token()
+			assert auth.restore_session_from_cookie(valid_token) is True
+		assert session.get("authenticated") is True
