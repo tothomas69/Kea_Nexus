@@ -76,6 +76,12 @@ def init_db() -> None:
 		# column has to be retrofitted explicitly.
 		_ensure_column(conn, "device_registry", "last_seen_at", "TEXT NOT NULL DEFAULT ''")
 		conn.execute("""
+			CREATE TABLE IF NOT EXISTS reservation_labels (
+				mac_address  TEXT PRIMARY KEY,
+				label        TEXT NOT NULL
+			)
+		""")
+		conn.execute("""
 			CREATE TABLE IF NOT EXISTS quarantine_log (
 				log_id         INTEGER PRIMARY KEY AUTOINCREMENT,
 				friendly_name  TEXT NOT NULL,
@@ -134,6 +140,53 @@ def delete_static_entry(ip_address: str) -> None:
 	"""Remove a static IPAM entry by IP address."""
 	with _connect() as conn:
 		conn.execute("DELETE FROM ipam_static WHERE ip_address = ?", (ip_address,))
+		conn.commit()
+
+
+# --- Reservation labels ------------------------------------------------------
+# A Kea reservation's own "hostname" field is admin-typed free text that Kea
+# echoes back on the live lease, discarding the device's real DHCP-negotiated
+# hostname (see helpers.py's real_hostname/build_hostname_override_sets).
+# ui_reservations.py no longer sends that field to Kea at all — an admin
+# label for a reservation lives here instead, keyed by MAC address, entirely
+# decoupled from Kea's own config.
+
+
+def get_reservation_labels() -> list[dict]:
+	"""Return all reservation labels."""
+	with _connect() as conn:
+		rows = conn.execute("SELECT * FROM reservation_labels ORDER BY mac_address").fetchall()
+	return [dict(row) for row in rows]
+
+
+def get_reservation_label(mac_address: str) -> Optional[dict]:
+	"""Return a single reservation label by MAC address, or None if not found."""
+	with _connect() as conn:
+		row = conn.execute(
+			"SELECT * FROM reservation_labels WHERE mac_address = ?", (mac_address.lower(),)
+		).fetchone()
+	return dict(row) if row else None
+
+
+def upsert_reservation_label(mac_address: str, label: str) -> None:
+	"""Insert or update a reservation label."""
+	assert mac_address, "mac_address must be a non-empty string"
+	with _connect() as conn:
+		conn.execute(
+			"""
+			INSERT INTO reservation_labels (mac_address, label)
+			VALUES (?, ?)
+			ON CONFLICT(mac_address) DO UPDATE SET label = excluded.label
+			""",
+			(mac_address.lower(), label),
+		)
+		conn.commit()
+
+
+def delete_reservation_label(mac_address: str) -> None:
+	"""Remove a reservation label by MAC address."""
+	with _connect() as conn:
+		conn.execute("DELETE FROM reservation_labels WHERE mac_address = ?", (mac_address.lower(),))
 		conn.commit()
 
 

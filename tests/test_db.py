@@ -100,6 +100,51 @@ class TestDeleteStaticEntry:
 		assert db.get_static_entry("10.0.0.2") is not None
 
 
+class TestReservationLabels:
+	def test_insert_retrieves_label(self, temp_db):
+		db.upsert_reservation_label("AA:BB:CC:DD:EE:FF", "kids-ipad")
+		label = db.get_reservation_label("AA:BB:CC:DD:EE:FF")
+		assert label is not None
+		assert label["label"] == "kids-ipad"
+
+	def test_mac_address_normalized_to_lowercase(self, temp_db):
+		db.upsert_reservation_label("AA:BB:CC:DD:EE:FF", "kids-ipad")
+		label = db.get_reservation_label("aa:bb:cc:dd:ee:ff")
+		assert label["mac_address"] == "aa:bb:cc:dd:ee:ff"
+
+	def test_update_overwrites_existing_label(self, temp_db):
+		db.upsert_reservation_label("aa:bb:cc:dd:ee:ff", "old-label")
+		db.upsert_reservation_label("aa:bb:cc:dd:ee:ff", "new-label")
+		assert db.get_reservation_label("aa:bb:cc:dd:ee:ff")["label"] == "new-label"
+
+	def test_returns_none_for_unknown_mac(self, temp_db):
+		assert db.get_reservation_label("00:00:00:00:00:00") is None
+
+	def test_empty_mac_address_raises(self, temp_db):
+		with pytest.raises(AssertionError):
+			db.upsert_reservation_label("", "some-label")
+
+	def test_get_reservation_labels_returns_all_sorted(self, temp_db):
+		db.upsert_reservation_label("bb:bb:bb:bb:bb:bb", "b-device")
+		db.upsert_reservation_label("aa:aa:aa:aa:aa:aa", "a-device")
+		macs = [row["mac_address"] for row in db.get_reservation_labels()]
+		assert macs == sorted(macs)
+
+	def test_delete_removes_existing_label(self, temp_db):
+		db.upsert_reservation_label("aa:bb:cc:dd:ee:ff", "kids-ipad")
+		db.delete_reservation_label("aa:bb:cc:dd:ee:ff")
+		assert db.get_reservation_label("aa:bb:cc:dd:ee:ff") is None
+
+	def test_delete_does_not_raise_for_unknown_mac(self, temp_db):
+		db.delete_reservation_label("00:00:00:00:00:00")  # must not raise
+
+	def test_delete_does_not_remove_other_labels(self, temp_db):
+		db.upsert_reservation_label("aa:aa:aa:aa:aa:aa", "a-device")
+		db.upsert_reservation_label("bb:bb:bb:bb:bb:bb", "b-device")
+		db.delete_reservation_label("aa:aa:aa:aa:aa:aa")
+		assert db.get_reservation_label("bb:bb:bb:bb:bb:bb") is not None
+
+
 class TestUpsertAndGetDevice:
 	def test_insert_retrieves_all_fields(self, temp_db):
 		db.upsert_device(
