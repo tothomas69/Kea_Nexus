@@ -8,6 +8,7 @@ from typing import Optional
 import streamlit as st
 
 from helpers import (
+	build_hostname_override_sets,
 	build_reservation_type_sets,
 	fmt_ttl,
 	get_client,
@@ -63,6 +64,8 @@ def _lease_table(
 	fixed_ips: set,
 	reserved_macs: set,
 	name_hosts: set,
+	override_ips: set,
+	override_macs: set,
 ) -> str:
 	now = int(_time.time())
 	cols = ["#", "IP", "Hostname", "MAC", "Expires", "Type"]
@@ -75,7 +78,7 @@ def _lease_table(
 		mac = lease.get("hw-address", "") or "—"
 		ttl = lease.get("cltt", 0) + lease.get("valid-lft", 86400) - now
 		ltype = lease_type(lease, fixed_ips, reserved_macs, name_hosts)
-		hn = real_hostname(lease, ltype) or "—"
+		hn = real_hostname(lease, override_ips, override_macs) or "—"
 
 		rows.append(
 			f"<tr>"
@@ -156,6 +159,7 @@ def edit_lease_dialog(lease: dict) -> None:
 
 def render_leases(leases: list[dict], config: Optional[dict] = None) -> None:
 	fixed_ips, reserved_macs, name_hosts = build_reservation_type_sets(config)
+	override_ips, override_macs = build_hostname_override_sets(config)
 
 	# Sort by IP ascending
 	sorted_leases = sorted(
@@ -186,7 +190,9 @@ def render_leases(leases: list[dict], config: Optional[dict] = None) -> None:
 		]
 
 	st.markdown(
-		_lease_table(sorted_leases, fixed_ips, reserved_macs, name_hosts),
+		_lease_table(
+			sorted_leases, fixed_ips, reserved_macs, name_hosts, override_ips, override_macs
+		),
 		unsafe_allow_html=True,
 	)
 
@@ -223,7 +229,9 @@ def render_leases(leases: list[dict], config: Optional[dict] = None) -> None:
 					st.info("No leases found.")
 				else:
 					st.markdown(
-						_lease_table(found, fixed_ips, reserved_macs, name_hosts),
+						_lease_table(
+							found, fixed_ips, reserved_macs, name_hosts, override_ips, override_macs
+						),
 						unsafe_allow_html=True,
 					)
 					if ltype == "IP Address" and found:

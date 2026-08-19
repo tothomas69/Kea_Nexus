@@ -99,16 +99,6 @@ def chip(label: str, cls: str) -> str:
 
 
 # --- Lease/reservation classification ------------------------------------------
-#
-# A Kea reservation's "hostname" field is admin-typed free text (see
-# ui_reservations.py's mandatory "Hostname *" input), not the device's actual
-# DHCP-negotiated hostname — Kea reports that same typed string back on the
-# live lease, overriding whatever the client itself sent. So for a lease
-# matched by IP or MAC to a reservation (types "fixed"/"reserved"), the
-# lease's hostname is really just that label. Only "dynamic" leases (no
-# reservation match) and "name-only" reservations (matched purely by the
-# client's self-reported hostname, since there's no MAC/IP to key on instead)
-# carry the device's real hostname.
 
 
 def build_reservation_type_sets(config: Optional[dict]) -> tuple[set, set, set]:
@@ -141,10 +131,36 @@ def lease_type(lease: dict, fixed_ips: set, reserved_macs: set, name_hosts: set)
 	return "dynamic"
 
 
-def real_hostname(lease: dict, ltype: str) -> str:
+# --- Real vs. reservation-label hostnames ---------------------------------------
+#
+# A Kea reservation's "hostname" field, when set, is admin-typed free text
+# that Kea echoes back on the live lease, discarding the device's actual
+# DHCP-negotiated name. ui_reservations.py no longer writes that field to
+# Kea — an admin label for a reservation lives in db.reservation_labels
+# instead. But a reservation created before that change (or added to
+# kea-dhcp4.conf by hand) can still carry a "hostname" override, so real vs.
+# label has to be decided per-reservation, by checking whether *that specific*
+# reservation still has the field — not by the lease's fixed/reserved/
+# dynamic type, which says nothing about whether an override is present.
+
+
+def build_hostname_override_sets(config: Optional[dict]) -> tuple[set, set]:
+	"""
+	Return the ip-address/hw-address values of reservations that still carry
+	an explicit "hostname" override in Kea's own config.
+	"""
+	res = (config or {}).get("subnet4", [{}])[0].get("reservations", [])
+	override_ips = {r["ip-address"] for r in res if "ip-address" in r and "hostname" in r}
+	override_macs = {r["hw-address"].lower() for r in res if "hw-address" in r and "hostname" in r}
+	return override_ips, override_macs
+
+
+def real_hostname(lease: dict, override_ips: set, override_macs: set) -> str:
 	"""The lease's hostname, but only when it reflects the device's own
-	DHCP-negotiated name rather than an admin-typed reservation label."""
-	if ltype in ("fixed", "reserved"):
+	DHCP-negotiated name rather than a reservation's hostname override."""
+	if lease.get("ip-address") in override_ips:
+		return ""
+	if lease.get("hw-address", "").lower() in override_macs:
 		return ""
 	return lease.get("hostname", "")
 
@@ -156,10 +172,7 @@ def distinct_real_hostnames(leases: list[dict], config: Optional[dict]) -> list[
 	select from hostnames Kea actually saw a device report, rather than
 	risk typing a reservation label that will never match a live lease.
 	"""
-	fixed_ips, reserved_macs, name_hosts = build_reservation_type_sets(config)
-	hostnames = {
-		real_hostname(lease, lease_type(lease, fixed_ips, reserved_macs, name_hosts))
-		for lease in leases
-	}
+	override_ips, override_macs = build_hostname_override_sets(config)
+	hostnames = {real_hostname(lease, override_ips, override_macs) for lease in leases}
 	hostnames.discard("")
 	return sorted(hostnames)

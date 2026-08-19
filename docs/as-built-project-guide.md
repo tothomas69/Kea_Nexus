@@ -132,21 +132,29 @@ Data persisted in Docker named volume `keanexus_data` mounted at `/app/data/`.
 - `fmt_ttl(seconds)` — formats seconds to "Xh Ym" or "expired"
 - `build_reservation_type_sets(config)` / `lease_type(lease, ...)` — classifies a
   lease as fixed/reserved/name-only/dynamic by cross-referencing it against Kea
-  reservations (moved here from `ui_leases.py` so it's shared and unit-testable)
-- `real_hostname(lease, lease_type)` / `distinct_real_hostnames(leases, config)` —
-  a Kea reservation's `hostname` field is admin-typed free text (see
-  `ui_reservations.py`'s mandatory `Hostname *` input), not the device's actual
-  DHCP-negotiated name — Kea reports that same typed string back on the live
-  lease. So for `fixed`/`reserved` leases the hostname is just that label;
-  only `dynamic` and `name-only` leases carry the device's real, self-reported
-  hostname. `distinct_real_hostnames` feeds the Quarantine tab's Add/Edit
-  device hostname picker so it only offers hostnames that will actually match
-  a live lease, rather than a reservation label that never will
+  reservations (moved here from `ui_leases.py` so it's shared and unit-testable).
+  Purely descriptive — says nothing about whether the lease's hostname is real
+- `build_hostname_override_sets(config)` / `real_hostname(lease, override_ips,
+override_macs)` / `distinct_real_hostnames(leases, config)` — a Kea
+  reservation's `hostname` field, when set, is admin-typed free text that Kea
+  echoes back on the live lease, discarding the device's actual DHCP-negotiated
+  name. `ui_reservations.py` no longer writes that field to Kea at all (the
+  admin label lives in `db.reservation_labels` instead — see below), but a
+  reservation created before that change, or added to `kea-dhcp4.conf` by hand,
+  can still carry the override. So real-vs-label is decided **per reservation**
+  (does _this_ reservation's config still have a `hostname` key), not by lease
+  type — a `fixed`/`reserved` lease with no override present is just as real as
+  a `dynamic` one. `distinct_real_hostnames` feeds the Quarantine tab's Add/Edit
+  device hostname picker so it only offers hostnames that will actually match a
+  live lease, rather than a reservation label that never will
 
 ### Database (`db.py`)
 
 - SQLite at `/app/data/keanexus.db`
 - Table: `ipam_static` — static IP records (ip_address PK, hostname, mac_address, description, notes)
+- Table: `reservation_labels` — KeaNexus-only display label for a Reservations-tab
+  entry (mac_address PK, label), entirely decoupled from Kea's own config. See
+  `helpers.py`'s hostname-override note above for why this exists
 - Table: `device_registry` — quarantine-feature identity registry (friendly_name PK,
   hostname, group_tag, os_fingerprint, last_seen_mac_address, last_seen_ip_address,
   last_quarantined_at, notes). Keyed on friendly_name rather than MAC — MAC can be
@@ -158,6 +166,8 @@ Data persisted in Docker named volume `keanexus_data` mounted at `/app/data/`.
   step attempt.
 - `init_db()` — idempotent schema creation, called at app startup
 - `get_static_entries()`, `get_static_entry(ip)`, `upsert_static_entry(...)`, `delete_static_entry(ip)`
+- `get_reservation_labels()`, `get_reservation_label(mac)`, `upsert_reservation_label(mac, label)`,
+  `delete_reservation_label(mac)` — mac_address is always lowercased before storage/lookup
 - `get_devices()`, `get_device(name)`, `upsert_device(...)`, `delete_device(name)`
 - `insert_quarantine_log_entry(...)`, `get_quarantine_log(friendly_name=None, limit=100)`
 
@@ -179,16 +189,31 @@ Data persisted in Docker named volume `keanexus_data` mounted at `/app/data/`.
 ### Leases Tab (`ui_leases.py`)
 
 - `render_leases(leases, config)` — HTML table, sorted by IP
-- Hostname column shows `helpers.real_hostname(lease, lease_type)` — blank (`—`)
-  for `fixed`/`reserved` leases, since that value is a reservation label, not
-  a real hostname (see `helpers.py` above)
+- Hostname column shows `helpers.real_hostname(lease, override_ips, override_macs)`
+  — blank (`—`) only when the lease's matching reservation still carries a Kea
+  `hostname` override, not based on lease type (see `helpers.py` above)
 - Dialogs: `add_lease_dialog()`, `edit_lease_dialog(lease)`
 
 ### Reservations Tab (`ui_reservations.py`)
 
 - `render_reservations(config)` — CSS-grid header + `st.columns` data rows with per-row Edit buttons
+- Reservations sent to Kea carry only `hw-address` (+ `ip-address` when fixed) —
+  no `hostname` field. The "Label" column/input is a KeaNexus-only display name
+  stored in `db.reservation_labels` (keyed by MAC), never written to Kea, so Kea
+  always preserves the device's real DHCP-negotiated hostname on the lease —
+  see `helpers.py`'s hostname-override note above
+- `_labels_by_mac()` — `{mac_address: label}` from `db.reservation_labels`, built
+  once per render and threaded through to the table and dialogs
+- A reservation saved before this change (or hand-edited in `kea-dhcp4.conf`)
+  can still carry Kea's own `hostname` field; `_render_table` falls back to that
+  value only when no `reservation_labels` row exists yet for the MAC. Editing
+  and saving that reservation migrates it automatically — `updated` never
+  includes `hostname`, so it's stripped from Kea's config, and the label moves
+  to `reservation_labels` in the same save
 - `_sorted_reservations(reservations)` — fixed-IP entries first (by IP), then name-only
-- Dialogs: `add_reservation_dialog(config)`, `_edit_dialog(reservation, config)` (includes Delete)
+- Dialogs: `add_reservation_dialog(config)`, `_edit_dialog(reservation, config,
+current_label)` (includes Delete). Deleting a reservation, or changing its MAC
+  on save, also deletes/moves its `reservation_labels` row
 - Each save writes immediately via `config-set` + `config-write`; no deferred "Save" step
 
 ### Quarantine Tab (`ui_quarantine.py`)
@@ -332,18 +357,18 @@ ip)`. Blocking works by assigning the device's current IP to a dedicated
   check the `/clients` and `/groups` request/response shapes against this Pi-hole's
   own self-hosted docs at `http://pi.hole/api/docs` before relying on it.
 
-                            **Writes to both primary and secondary Pi-hole instances.** Discovered during
-                            deployment that the two Pi-hole instances on this network (172.16.17.212 primary,
-                            172.16.17.252 secondary on the TerraMaster NAS) are fully independent — no
-                            Nebula/Gravity/Orbital Sync between them — so blocking only the primary would
-                            leave a real gap if a device's DNS ever gets served by the secondary. `main.py`'s
-                            `_get_pihole_clients()` always includes the primary and adds the secondary only
-                            when `PIHOLE_SECONDARY_API_URL` is set; `_apply_pihole_step` writes to each with
-                            its own independent retry and its own audit log row (`pihole_primary` /
-                            `pihole_secondary` steps), so a partial failure on one instance is visible rather
-                            than collapsed into one ambiguous result. `PiholeClient.__init__` accepts optional
-                            `base_url`/`password` overrides (falling back to env vars) specifically to support
-                            constructing a second client pointed at the secondary instance.
+                                        **Writes to both primary and secondary Pi-hole instances.** Discovered during
+                                        deployment that the two Pi-hole instances on this network (172.16.17.212 primary,
+                                        172.16.17.252 secondary on the TerraMaster NAS) are fully independent — no
+                                        Nebula/Gravity/Orbital Sync between them — so blocking only the primary would
+                                        leave a real gap if a device's DNS ever gets served by the secondary. `main.py`'s
+                                        `_get_pihole_clients()` always includes the primary and adds the secondary only
+                                        when `PIHOLE_SECONDARY_API_URL` is set; `_apply_pihole_step` writes to each with
+                                        its own independent retry and its own audit log row (`pihole_primary` /
+                                        `pihole_secondary` steps), so a partial failure on one instance is visible rather
+                                        than collapsed into one ambiguous result. `PiholeClient.__init__` accepts optional
+                                        `base_url`/`password` overrides (falling back to env vars) specifically to support
+                                        constructing a second client pointed at the secondary instance.
 
 - `nmap_fingerprint.py` — `refresh_os_fingerprint(friendly_name, target_ip)` shells
   out to `nmap -O --osscan-guess` (no meaningful pure-Python equivalent exists for
@@ -407,6 +432,8 @@ All endpoints require `Authorization: Bearer <QUARANTINE_API_TOKEN>`.
 
 **All times UTC internally** — Kea lease expiry timestamps are Unix epoch. Display formatting converts to human-readable durations via `fmt_ttl()`. `quarantine_log.occurred_at` is likewise stamped as UTC ISO8601 in `db.py`, not left to the caller.
 
+**Reservation labels decoupled from Kea's `hostname` field** — Kea's own docs confirm host-level reservation values (including `hostname`) always take priority: once a reservation sets `hostname`, Kea echoes that admin-typed string back on every lease for the device, permanently discarding whatever hostname the client itself requests. That made `device_registry` entries built from a reservation's hostname unable to ever match a live lease during quarantine identity resolution (`resolve_target` would raise `DeviceNotOnNetworkError` for a device that was clearly online), and made the Leases tab show a made-up label instead of the device's real name. Reservations created or edited via `ui_reservations.py` no longer send `hostname` to Kea at all — the admin-facing label lives in `db.reservation_labels` instead, keyed by MAC, so Kea always preserves the real DHCP-negotiated hostname on the lease. The tradeoff: a reservation's hostname can no longer drive Kea's own DDNS registration for that device, since Kea has nothing to register.
+
 **Device identity keyed on friendly_name, not MAC** — `device_registry` treats
 MAC and current IP as disposable breadcrumbs rather than identity, because a
 device can change its own MAC address. hostname and an nmap OS fingerprint
@@ -432,9 +459,9 @@ since they require a live Streamlit server and can't be unit-tested). That inclu
 | File                                        | What is tested                                                                                                                                                                                                                        |
 | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `tests/test_auth.py`                        | `is_authenticated`, `attempt_login` (all credential paths), `logout`                                                                                                                                                                  |
-| `tests/test_db.py`                          | Full CRUD on `ipam_static`, `device_registry`, and `quarantine_log` via `temp_db` fixture (SQLite in tmp dir)                                                                                                                         |
+| `tests/test_db.py`                          | Full CRUD on `ipam_static`, `reservation_labels`, `device_registry`, and `quarantine_log` via `temp_db` fixture (SQLite in tmp dir)                                                                                                   |
 | `tests/test_kea.py`                         | All `KeaClient` methods; `httpx` patched via `http_mock` fixture                                                                                                                                                                      |
-| `tests/test_helpers.py`                     | `fmt_ttl`, `chip`, `leases_to_df`, `build_reservation_type_sets`, `lease_type`, `real_hostname`, `distinct_real_hostnames` (pure functions only)                                                                                      |
+| `tests/test_helpers.py`                     | `fmt_ttl`, `chip`, `leases_to_df`, `build_reservation_type_sets`, `lease_type`, `build_hostname_override_sets`, `real_hostname`, `distinct_real_hostnames` (pure functions only)                                                      |
 | `tests/test_pihole.py`                      | `PiholeClient` session auth (caching, reuse, re-auth on expiry), CSRF header logic, error mapping, constructor overrides (base_url/password); `httpx` patched via `pihole_http_mock` fixture                                          |
 | `tests/test_quarantine_client.py`           | `trigger_quarantine`/`trigger_release` — request shape, auth header, is_group passthrough, missing-token error, connect error, HTTP error detail parsing; `httpx` patched via `quarantine_client_http_mock` fixture                   |
 | `tests/test_quarantine_auth.py`             | `require_bearer_token` — missing config, missing/malformed header, wrong token, success                                                                                                                                               |
