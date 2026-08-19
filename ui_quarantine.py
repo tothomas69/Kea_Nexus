@@ -24,6 +24,7 @@ from db import (
 	get_quarantine_log,
 	upsert_device,
 )
+from helpers import distinct_real_hostnames
 from quarantine_client import QuarantineServiceError, trigger_quarantine, trigger_release
 
 _CELL = "font-family:monospace;font-size:13px;color:#1f2328"
@@ -104,7 +105,9 @@ def _render_grid_header(widths: list[float], headers: list[str]) -> None:
 
 
 @st.dialog("Device Registry Entry")
-def _edit_dialog(friendly_name: str = "") -> None:
+def _edit_dialog(
+	friendly_name: str = "", leases: list[dict] | None = None, config: dict | None = None
+) -> None:
 	"""Add or edit a device_registry entry. Delete is offered when editing."""
 	existing = get_device(friendly_name) if friendly_name else None
 	is_new = existing is None
@@ -118,7 +121,26 @@ def _edit_dialog(friendly_name: str = "") -> None:
 		help="Stable identifier used to trigger quarantine actions, e.g. 'tommy_laptop'. "
 		"Cannot be changed after creation — delete and re-add instead.",
 	)
-	hostname = st.text_input("Hostname", value=existing.get("hostname", "") if existing else "")
+
+	existing_hostname = existing.get("hostname", "") if existing else ""
+	hostname_options = distinct_real_hostnames(leases or [], config)
+	if existing_hostname and existing_hostname not in hostname_options:
+		hostname_options = sorted({*hostname_options, existing_hostname})
+
+	if hostname_options:
+		hostname = st.selectbox(
+			"Hostname",
+			hostname_options,
+			index=hostname_options.index(existing_hostname) if existing_hostname else 0,
+			help="A device's real DHCP-negotiated hostname, not a reservation label — "
+			"identity resolution matches leases by this value.",
+		)
+	else:
+		st.caption(
+			"No real hostnames currently observed in leases — a reservation's "
+			"hostname field is just a label and won't match a live lease."
+		)
+		hostname = st.text_input("Hostname", value=existing_hostname)
 	group_tag = st.text_input(
 		"Group Tag",
 		value=existing.get("group_tag", "") if existing else "",
@@ -244,7 +266,7 @@ def _render_pending_action_result() -> None:
 		st.warning(pending["message"])
 
 
-def _render_device_table(devices: list[dict]) -> None:
+def _render_device_table(devices: list[dict], leases: list[dict], config: dict | None) -> None:
 	_render_grid_header(_DEVICE_COL_WIDTHS, _DEVICE_COL_HEADERS)
 	for device in devices:
 		friendly_name = device["friendly_name"]
@@ -284,7 +306,7 @@ def _render_device_table(devices: list[dict]) -> None:
 		):
 			_trigger_action(friendly_name, "release")
 		if cols[9].button("Edit", key=f"quarantine_edit_{friendly_name}", use_container_width=True):
-			_edit_dialog(friendly_name)
+			_edit_dialog(friendly_name, leases, config)
 
 
 def _render_log_table(entries: list[dict]) -> None:
@@ -350,9 +372,12 @@ def _render_group_actions(devices: list[dict]) -> None:
 			_trigger_action(selected_group, "release", is_group=True)
 
 
-def render_quarantine() -> None:
+def render_quarantine(leases: list[dict], config: dict | None) -> None:
 	"""Render the Quarantine tab: device registry CRUD, Quarantine/Release
 	buttons, and a read-only audit log.
+
+	leases/config are only used to populate the Hostname picker in the Add/Edit
+	dialog with real, currently-observed hostnames — see helpers.distinct_real_hostnames.
 	"""
 	st.caption(
 		"Identity registry for the network quarantine feature. Devices are "
@@ -364,11 +389,11 @@ def render_quarantine() -> None:
 	_render_pending_action_result()
 
 	if st.button("Add Device", key="quarantine_add_device"):
-		_edit_dialog()
+		_edit_dialog(leases=leases, config=config)
 
 	devices = get_devices()
 	if devices:
-		_render_device_table(devices)
+		_render_device_table(devices, leases, config)
 		st.markdown("---")
 		_render_group_actions(devices)
 	else:

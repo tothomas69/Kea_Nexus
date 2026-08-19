@@ -155,7 +155,7 @@ def main() -> None:
 	with tab_maint:
 		render_maintenance(leases)
 	with tab_quarantine:
-		render_quarantine()
+		render_quarantine(leases, config)
 	with tab_settings:
 		render_settings(config)
 

@@ -7,7 +7,15 @@ from unittest.mock import patch
 
 import pytest
 
-from helpers import chip, fmt_ttl, leases_to_df
+from helpers import (
+	build_reservation_type_sets,
+	chip,
+	distinct_real_hostnames,
+	fmt_ttl,
+	lease_type,
+	leases_to_df,
+	real_hostname,
+)
 
 # ─── fmt_ttl ──────────────────────────────────────────────────────────────────
 
@@ -127,3 +135,92 @@ class TestLeasesToDf:
 		}
 		df = leases_to_df([lease])
 		assert df.iloc[0]["Expires"] == "expired"
+
+
+# ─── build_reservation_type_sets / lease_type / real_hostname ────────────────
+
+
+def _make_config(reservations: list[dict]) -> dict:
+	return {"subnet4": [{"reservations": reservations}]}
+
+
+class TestBuildReservationTypeSets:
+	def test_fixed_ip_reservation(self):
+		config = _make_config([{"ip-address": "10.0.0.5", "hw-address": "aa:bb", "hostname": "x"}])
+		fixed_ips, reserved_macs, name_hosts = build_reservation_type_sets(config)
+		assert fixed_ips == {"10.0.0.5"}
+		assert reserved_macs == set()
+
+	def test_mac_only_reservation(self):
+		config = _make_config([{"hw-address": "AA:BB", "hostname": "x"}])
+		_, reserved_macs, _ = build_reservation_type_sets(config)
+		assert reserved_macs == {"aa:bb"}
+
+	def test_name_only_reservation(self):
+		config = _make_config([{"hostname": "Some-Host"}])
+		_, _, name_hosts = build_reservation_type_sets(config)
+		assert name_hosts == {"some-host"}
+
+	def test_none_config_returns_empty_sets(self):
+		assert build_reservation_type_sets(None) == (set(), set(), set())
+
+
+class TestLeaseType:
+	def test_fixed_ip_match(self):
+		lease = _make_lease("10.0.0.5")
+		assert lease_type(lease, {"10.0.0.5"}, set(), set()) == "fixed"
+
+	def test_reserved_mac_match(self):
+		lease = _make_lease("10.0.0.9", mac="AA:BB")
+		assert lease_type(lease, set(), {"aa:bb"}, set()) == "reserved"
+
+	def test_name_only_match(self):
+		lease = _make_lease("10.0.0.9", hostname="Some-Host")
+		assert lease_type(lease, set(), set(), {"some-host"}) == "name-only"
+
+	def test_no_match_is_dynamic(self):
+		lease = _make_lease("10.0.0.9", hostname="whatever")
+		assert lease_type(lease, set(), set(), set()) == "dynamic"
+
+
+class TestRealHostname:
+	def test_fixed_lease_hostname_is_blank(self):
+		lease = _make_lease("10.0.0.5", hostname="reservation-label")
+		assert real_hostname(lease, "fixed") == ""
+
+	def test_reserved_lease_hostname_is_blank(self):
+		lease = _make_lease("10.0.0.9", hostname="reservation-label")
+		assert real_hostname(lease, "reserved") == ""
+
+	def test_dynamic_lease_hostname_is_real(self):
+		lease = _make_lease("10.0.0.9", hostname="actual-device-name")
+		assert real_hostname(lease, "dynamic") == "actual-device-name"
+
+	def test_name_only_lease_hostname_is_real(self):
+		lease = _make_lease("10.0.0.9", hostname="actual-device-name")
+		assert real_hostname(lease, "name-only") == "actual-device-name"
+
+
+class TestDistinctRealHostnames:
+	def test_excludes_reservation_labels(self):
+		config = _make_config(
+			[{"ip-address": "10.0.0.5", "hw-address": "aa:bb", "hostname": "label"}]
+		)
+		leases = [_make_lease("10.0.0.5", hostname="label")]
+		assert distinct_real_hostnames(leases, config) == []
+
+	def test_includes_dynamic_hostnames(self):
+		leases = [_make_lease("10.0.0.9", hostname="real-name")]
+		assert distinct_real_hostnames(leases, None) == ["real-name"]
+
+	def test_sorted_and_deduplicated(self):
+		leases = [
+			_make_lease("10.0.0.9", hostname="beta"),
+			_make_lease("10.0.0.10", hostname="alpha"),
+			_make_lease("10.0.0.11", hostname="alpha"),
+		]
+		assert distinct_real_hostnames(leases, None) == ["alpha", "beta"]
+
+	def test_empty_hostnames_excluded(self):
+		leases = [_make_lease("10.0.0.9", hostname="")]
+		assert distinct_real_hostnames(leases, None) == []
