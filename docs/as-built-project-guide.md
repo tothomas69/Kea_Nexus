@@ -228,9 +228,16 @@ override_macs)` / `distinct_real_hostnames(leases, config)` — a Kea
   `helpers.py`'s hostname-override note above for why this exists
 - Table: `device_registry` — quarantine-feature identity registry (friendly_name PK,
   hostname, group_tag, os_fingerprint, last_seen_mac_address, last_seen_ip_address,
-  last_quarantined_at, notes). Keyed on friendly_name rather than MAC — MAC can be
-  changed by the device, hostname/fingerprint can't. See
+  last_quarantined_at, is_quarantined, notes). Keyed on friendly_name rather than
+  MAC — MAC can be changed by the device, hostname/fingerprint can't. See
   `docs/quarantine-feature-design.md` for the full rationale.
+  `is_quarantined` is a separate boolean from `last_quarantined_at` on purpose:
+  the timestamp is deliberately never cleared on release (it means "last
+  quarantined," not "last touched" — see `main.py`'s `_stamp_quarantine_state`
+  below), so it can't answer "is this device quarantined right now." Set from
+  the enforcement action actually taken (`True` on quarantine, `False` on
+  release), not gated on individual step success — a partial failure is
+  already visible in that action's own step-result checkmarks.
 - Table: `quarantine_log` — append-only audit trail (log_id PK autoincrement,
   friendly_name, action, step, succeeded, attempt_count, detail, occurred_at).
   Written by the `keanexus-quarantine` service (see below) on every enforcement
@@ -340,6 +347,10 @@ current_label)` (includes Delete). Deleting a reservation, or changing its MAC
 - `_summarize_step_results(action_label, result)` — turns the API's `step_results`
   into a one-line-per-device pass/fail summary; flags `skipped_due_to_identity_drift`
   distinctly from a step actually failing
+- `_status_chip(is_quarantined)` — Status column in the device table, a pastel
+  red "● Quarantined" / green "● Active" pill reading `device_registry.
+is_quarantined` directly. Exists because `last_quarantined_at` alone can't
+  answer "is this quarantined right now" — it's never cleared on release
 - `_render_log_table(entries)` — renders the 50 most recent `quarantine_log` rows
 
 ### keanexus-quarantine Service (`quarantine_service/`)
@@ -362,15 +373,16 @@ folded into the descriptions below rather than tracked as separate PR numbers.
       IP. Otherwise runs `_enforce_device`: applies the Kea DROP-class deny, starts ARP
       disruption, applies the Pi-hole DNS block, and refreshes the OS fingerprint via
       nmap (all four through `retry.run_with_retries`), then calls
-      `_stamp_last_quarantined` to record the current UTC timestamp in
-      `device_registry.last_quarantined_at` — the field the Quarantine tab displays.
-      Returns resolved devices plus per-device `step_results`, each including
+      `_stamp_quarantine_state` to set `device_registry.is_quarantined = True` and
+      record the current UTC timestamp in `last_quarantined_at`. Returns resolved
+      devices plus per-device `step_results`, each including
       `skipped_due_to_identity_drift`
     - `POST /release` — same request/response shape and safety check as `/quarantine`;
       removes the Kea deny, stops ARP disruption, and removes the Pi-hole block instead
-      of applying/starting them (fingerprint refresh still runs either way, but
-      `last_quarantined_at` is deliberately **not** touched on release — it means
-      exactly "last quarantined," not "last touched")
+      of applying/starting them (fingerprint refresh still runs either way).
+      `_stamp_quarantine_state` still runs and sets `is_quarantined = False`, but
+      `last_quarantined_at` is deliberately **not** touched — it means exactly
+      "last quarantined," not "last touched"
     - `GET /status/{friendly_name}` — returns recent `quarantine_log` rows for one device
     - `POST /presence-check/{friendly_name}` — immediately ARP-probes one registered
       device via `presence_check.probe_device_now`, bypassing that module's 5-minute
@@ -477,18 +489,18 @@ ip)`. Blocking works by assigning the device's current IP to a dedicated
   check the `/clients` and `/groups` request/response shapes against this Pi-hole's
   own self-hosted docs at `http://pi.hole/api/docs` before relying on it.
 
-                                                                                                                            **Writes to both primary and secondary Pi-hole instances.** Discovered during
-                                                                                                                            deployment that the two Pi-hole instances on this network (172.16.17.212 primary,
-                                                                                                                            172.16.17.252 secondary on the TerraMaster NAS) are fully independent — no
-                                                                                                                            Nebula/Gravity/Orbital Sync between them — so blocking only the primary would
-                                                                                                                            leave a real gap if a device's DNS ever gets served by the secondary. `main.py`'s
-                                                                                                                            `_get_pihole_clients()` always includes the primary and adds the secondary only
-                                                                                                                            when `PIHOLE_SECONDARY_API_URL` is set; `_apply_pihole_step` writes to each with
-                                                                                                                            its own independent retry and its own audit log row (`pihole_primary` /
-                                                                                                                            `pihole_secondary` steps), so a partial failure on one instance is visible rather
-                                                                                                                            than collapsed into one ambiguous result. `PiholeClient.__init__` accepts optional
-                                                                                                                            `base_url`/`password` overrides (falling back to env vars) specifically to support
-                                                                                                                            constructing a second client pointed at the secondary instance.
+                                                                                                                                    **Writes to both primary and secondary Pi-hole instances.** Discovered during
+                                                                                                                                    deployment that the two Pi-hole instances on this network (172.16.17.212 primary,
+                                                                                                                                    172.16.17.252 secondary on the TerraMaster NAS) are fully independent — no
+                                                                                                                                    Nebula/Gravity/Orbital Sync between them — so blocking only the primary would
+                                                                                                                                    leave a real gap if a device's DNS ever gets served by the secondary. `main.py`'s
+                                                                                                                                    `_get_pihole_clients()` always includes the primary and adds the secondary only
+                                                                                                                                    when `PIHOLE_SECONDARY_API_URL` is set; `_apply_pihole_step` writes to each with
+                                                                                                                                    its own independent retry and its own audit log row (`pihole_primary` /
+                                                                                                                                    `pihole_secondary` steps), so a partial failure on one instance is visible rather
+                                                                                                                                    than collapsed into one ambiguous result. `PiholeClient.__init__` accepts optional
+                                                                                                                                    `base_url`/`password` overrides (falling back to env vars) specifically to support
+                                                                                                                                    constructing a second client pointed at the secondary instance.
 
 - `nmap_fingerprint.py` — `refresh_os_fingerprint(friendly_name, target_ip)` shells
   out to `nmap -O --osscan-guess` (no meaningful pure-Python equivalent exists for
@@ -580,23 +592,23 @@ since they require a live Streamlit server and can't be unit-tested). That inclu
 `auth.py`, `db.py`, `kea.py`, `helpers.py`, `pihole.py`, and everything in
 `quarantine_service/`.
 
-| File                                        | What is tested                                                                                                                                                                                                                                                           |
-| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `tests/test_auth.py`                        | `is_authenticated`, `attempt_login` (all credential paths), `logout`, `session_token`, `restore_session_from_cookie`                                                                                                                                                     |
-| `tests/test_db.py`                          | Full CRUD on `ipam_static`, `reservation_labels`, `device_registry`, and `quarantine_log` via `temp_db` fixture (SQLite in tmp dir)                                                                                                                                      |
-| `tests/test_kea.py`                         | All `KeaClient` methods; `httpx` patched via `http_mock` fixture                                                                                                                                                                                                         |
-| `tests/test_helpers.py`                     | `fmt_ttl`, `chip`, `leases_to_df`, `build_reservation_type_sets`, `lease_type`, `build_hostname_override_sets`, `real_hostname`, `distinct_real_hostnames`, `lease_for_reservation` (pure functions only)                                                                |
-| `tests/test_pihole.py`                      | `PiholeClient` session auth (caching, reuse, re-auth on expiry), CSRF header logic, error mapping, constructor overrides (base_url/password); `httpx` patched via `pihole_http_mock` fixture                                                                             |
-| `tests/test_quarantine_client.py`           | `trigger_quarantine`/`trigger_release` — request shape, auth header, is_group passthrough, missing-token error, connect error, HTTP error detail parsing; `httpx` patched via `quarantine_client_http_mock` fixture                                                      |
-| `tests/test_quarantine_auth.py`             | `require_bearer_token` — missing config, missing/malformed header, wrong token, success                                                                                                                                                                                  |
-| `tests/test_quarantine_identity.py`         | `resolve_target` — single device and group resolution, case-insensitive friendly_name/group_tag matching, unregistered target, no-lease case, last-seen refresh; `verify_identity_unchanged` — match, IP drift, MAC drift, lease gone — using `StubKeaClient`            |
-| `tests/test_quarantine_kea_deny.py`         | `apply_drop_class` / `remove_drop_class` (pure config mutation), `deny_via_kea` / `undo_deny_via_kea` (via `StubKeaClient`)                                                                                                                                              |
-| `tests/test_quarantine_arp_disrupt.py`      | `send_poisoned_arp_reply` packet construction, `start_arp_disruption` / `stop_arp_disruption` loop lifecycle, idempotent restart, survives a failed send, no packets after stop — `sendp` always patched                                                                 |
-| `tests/test_quarantine_pihole_block.py`     | `block_via_pihole` / `unblock_via_pihole` — group/regex creation vs reuse, unrelated groups ignored, client PUT/DELETE calls, using `StubPiholeClient`                                                                                                                   |
-| `tests/test_quarantine_nmap_fingerprint.py` | `refresh_os_fingerprint` — persists top-accuracy match, preserves other registry fields, inconclusive scan doesn't overwrite existing fingerprint, subprocess failure propagates; `subprocess.run` always patched                                                        |
-| `tests/test_quarantine_retry.py`            | `run_with_retries` — first-attempt success, success-after-failures, exhausted-retries, custom `max_attempts`, one-row-per-step logging                                                                                                                                   |
-| `tests/test_quarantine_main.py`             | FastAPI routes via `TestClient` — auth enforcement, 404/409 error mapping, all four enforcement steps wired correctly, group requests, pre-fire safety check skips a device whose identity drifted between resolution and enforcement, `/presence-check/{friendly_name}` |
-| `tests/test_quarantine_presence_check.py`   | `probe_device_now` — unregistered device, no current lease, Kea unreachable, no ARP reply, ARP reply stamps last-seen fields, default-constructed `KeaClient`; `_run_one_pass` probes every registered device                                                            |
+| File                                        | What is tested                                                                                                                                                                                                                                                                                                                                      |
+| ------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `tests/test_auth.py`                        | `is_authenticated`, `attempt_login` (all credential paths), `logout`, `session_token`, `restore_session_from_cookie`                                                                                                                                                                                                                                |
+| `tests/test_db.py`                          | Full CRUD on `ipam_static`, `reservation_labels`, `device_registry`, and `quarantine_log` via `temp_db` fixture (SQLite in tmp dir)                                                                                                                                                                                                                 |
+| `tests/test_kea.py`                         | All `KeaClient` methods; `httpx` patched via `http_mock` fixture                                                                                                                                                                                                                                                                                    |
+| `tests/test_helpers.py`                     | `fmt_ttl`, `chip`, `leases_to_df`, `build_reservation_type_sets`, `lease_type`, `build_hostname_override_sets`, `real_hostname`, `distinct_real_hostnames`, `lease_for_reservation` (pure functions only)                                                                                                                                           |
+| `tests/test_pihole.py`                      | `PiholeClient` session auth (caching, reuse, re-auth on expiry), CSRF header logic, error mapping, constructor overrides (base_url/password); `httpx` patched via `pihole_http_mock` fixture                                                                                                                                                        |
+| `tests/test_quarantine_client.py`           | `trigger_quarantine`/`trigger_release` — request shape, auth header, is_group passthrough, missing-token error, connect error, HTTP error detail parsing; `httpx` patched via `quarantine_client_http_mock` fixture                                                                                                                                 |
+| `tests/test_quarantine_auth.py`             | `require_bearer_token` — missing config, missing/malformed header, wrong token, success                                                                                                                                                                                                                                                             |
+| `tests/test_quarantine_identity.py`         | `resolve_target` — single device and group resolution, case-insensitive friendly_name/group_tag matching, unregistered target, no-lease case, last-seen refresh; `verify_identity_unchanged` — match, IP drift, MAC drift, lease gone — using `StubKeaClient`                                                                                       |
+| `tests/test_quarantine_kea_deny.py`         | `apply_drop_class` / `remove_drop_class` (pure config mutation), `deny_via_kea` / `undo_deny_via_kea` (via `StubKeaClient`)                                                                                                                                                                                                                         |
+| `tests/test_quarantine_arp_disrupt.py`      | `send_poisoned_arp_reply` packet construction, `start_arp_disruption` / `stop_arp_disruption` loop lifecycle, idempotent restart, survives a failed send, no packets after stop — `sendp` always patched                                                                                                                                            |
+| `tests/test_quarantine_pihole_block.py`     | `block_via_pihole` / `unblock_via_pihole` — group/regex creation vs reuse, unrelated groups ignored, client PUT/DELETE calls, using `StubPiholeClient`                                                                                                                                                                                              |
+| `tests/test_quarantine_nmap_fingerprint.py` | `refresh_os_fingerprint` — persists top-accuracy match, preserves other registry fields, inconclusive scan doesn't overwrite existing fingerprint, subprocess failure propagates; `subprocess.run` always patched                                                                                                                                   |
+| `tests/test_quarantine_retry.py`            | `run_with_retries` — first-attempt success, success-after-failures, exhausted-retries, custom `max_attempts`, one-row-per-step logging                                                                                                                                                                                                              |
+| `tests/test_quarantine_main.py`             | FastAPI routes via `TestClient` — auth enforcement, 404/409 error mapping, all four enforcement steps wired correctly, group requests, pre-fire safety check skips a device whose identity drifted between resolution and enforcement, `/presence-check/{friendly_name}`, `is_quarantined`/`last_quarantined_at` stamping on quarantine vs. release |
+| `tests/test_quarantine_presence_check.py`   | `probe_device_now` — unregistered device, no current lease, Kea unreachable, no ARP reply, ARP reply stamps last-seen fields, default-constructed `KeaClient`; `_run_one_pass` probes every registered device                                                                                                                                       |
 
 `conftest.py` provides `temp_db` (redirects `_DB_PATH` to a temp file), `http_mock`
 (patches `kea.httpx.Client`), `pihole_http_mock` (patches `pihole.httpx.Client`,

@@ -155,6 +155,7 @@ class TestUpsertAndGetDevice:
 			last_seen_mac_address="aa:bb:cc:dd:ee:ff",
 			last_seen_ip_address="172.16.17.50",
 			last_quarantined_at="2026-08-16T00:00:00+00:00",
+			is_quarantined=True,
 			notes="school laptop",
 		)
 		device = db.get_device("tommy_laptop")
@@ -166,6 +167,7 @@ class TestUpsertAndGetDevice:
 		assert device["last_seen_mac_address"] == "aa:bb:cc:dd:ee:ff"
 		assert device["last_seen_ip_address"] == "172.16.17.50"
 		assert device["last_quarantined_at"] == "2026-08-16T00:00:00+00:00"
+		assert device["is_quarantined"] == 1
 		assert device["notes"] == "school laptop"
 
 	def test_update_overwrites_existing_entry(self, temp_db):
@@ -182,7 +184,14 @@ class TestUpsertAndGetDevice:
 		assert device["last_seen_mac_address"] == ""
 		assert device["last_seen_ip_address"] == ""
 		assert device["last_quarantined_at"] == ""
+		assert device["is_quarantined"] == 0
 		assert device["notes"] == ""
+
+	def test_update_can_flip_is_quarantined_back_to_false(self, temp_db):
+		db.upsert_device("tommy_laptop", hostname="tommy-kubuntu", is_quarantined=True)
+		assert db.get_device("tommy_laptop")["is_quarantined"] == 1
+		db.upsert_device("tommy_laptop", hostname="tommy-kubuntu", is_quarantined=False)
+		assert db.get_device("tommy_laptop")["is_quarantined"] == 0
 
 	def test_multiple_devices_stored_independently(self, temp_db):
 		db.upsert_device("tommy_laptop", hostname="tommy-kubuntu")
@@ -222,6 +231,29 @@ class TestGetDevices:
 			db.upsert_device(name, hostname=name)
 		names = [d["friendly_name"] for d in db.get_devices()]
 		assert names == sorted(names)
+
+
+class TestTouchLastSeen:
+	def test_stamps_last_seen_at(self, temp_db):
+		db.upsert_device("tommy_laptop", hostname="tommy-kubuntu")
+		db.touch_last_seen("tommy_laptop")
+		assert db.get_device("tommy_laptop")["last_seen_at"] != ""
+
+	def test_updates_mac_and_ip_when_provided(self, temp_db):
+		db.upsert_device("tommy_laptop", hostname="tommy-kubuntu")
+		db.touch_last_seen("tommy_laptop", "aa:bb:cc:dd:ee:ff", "172.16.17.50")
+		device = db.get_device("tommy_laptop")
+		assert device["last_seen_mac_address"] == "aa:bb:cc:dd:ee:ff"
+		assert device["last_seen_ip_address"] == "172.16.17.50"
+
+	def test_preserves_is_quarantined(self, temp_db):
+		db.upsert_device("tommy_laptop", hostname="tommy-kubuntu", is_quarantined=True)
+		db.touch_last_seen("tommy_laptop")
+		assert db.get_device("tommy_laptop")["is_quarantined"] == 1
+
+	def test_noop_for_unregistered_device(self, temp_db):
+		db.touch_last_seen("nobody")
+		assert db.get_device("nobody") is None
 
 
 class TestDeleteDevice:
