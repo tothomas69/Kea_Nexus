@@ -164,6 +164,17 @@ Data persisted in Docker named volume `keanexus_data` mounted at `/app/data/`.
   and the Kea DHCP row both pass `show_divider=False` so only the last row in
   each cluster (Stats Source above, API Mode here) keeps a trailing divider line
 
+### Tab Routing (`app.py`)
+
+- `main()`'s `st.tabs([...], key="main_tabs")` — the `key` is load-bearing, not
+  cosmetic: without it, `st.tabs()` has no persisted selection and always resets
+  to the first tab on any rerun. Several tabs trigger an explicit `st.rerun()`
+  after an action (e.g. `ui_quarantine.py`'s Quarantine/Release buttons, and its
+  Add/Edit Device dialog's Save), which otherwise bounced the user to the Pool
+  tab with the previous tab's content still visible fading out underneath —
+  `key=` makes the active tab persist across that rerun like any other keyed
+  widget's session-state value
+
 ### Helpers (`helpers.py`)
 
 - `get_client()` — `@st.cache_resource` singleton KeaClient
@@ -457,18 +468,18 @@ ip)`. Blocking works by assigning the device's current IP to a dedicated
   check the `/clients` and `/groups` request/response shapes against this Pi-hole's
   own self-hosted docs at `http://pi.hole/api/docs` before relying on it.
 
-                                                                                                            **Writes to both primary and secondary Pi-hole instances.** Discovered during
-                                                                                                            deployment that the two Pi-hole instances on this network (172.16.17.212 primary,
-                                                                                                            172.16.17.252 secondary on the TerraMaster NAS) are fully independent — no
-                                                                                                            Nebula/Gravity/Orbital Sync between them — so blocking only the primary would
-                                                                                                            leave a real gap if a device's DNS ever gets served by the secondary. `main.py`'s
-                                                                                                            `_get_pihole_clients()` always includes the primary and adds the secondary only
-                                                                                                            when `PIHOLE_SECONDARY_API_URL` is set; `_apply_pihole_step` writes to each with
-                                                                                                            its own independent retry and its own audit log row (`pihole_primary` /
-                                                                                                            `pihole_secondary` steps), so a partial failure on one instance is visible rather
-                                                                                                            than collapsed into one ambiguous result. `PiholeClient.__init__` accepts optional
-                                                                                                            `base_url`/`password` overrides (falling back to env vars) specifically to support
-                                                                                                            constructing a second client pointed at the secondary instance.
+                                                                                                                    **Writes to both primary and secondary Pi-hole instances.** Discovered during
+                                                                                                                    deployment that the two Pi-hole instances on this network (172.16.17.212 primary,
+                                                                                                                    172.16.17.252 secondary on the TerraMaster NAS) are fully independent — no
+                                                                                                                    Nebula/Gravity/Orbital Sync between them — so blocking only the primary would
+                                                                                                                    leave a real gap if a device's DNS ever gets served by the secondary. `main.py`'s
+                                                                                                                    `_get_pihole_clients()` always includes the primary and adds the secondary only
+                                                                                                                    when `PIHOLE_SECONDARY_API_URL` is set; `_apply_pihole_step` writes to each with
+                                                                                                                    its own independent retry and its own audit log row (`pihole_primary` /
+                                                                                                                    `pihole_secondary` steps), so a partial failure on one instance is visible rather
+                                                                                                                    than collapsed into one ambiguous result. `PiholeClient.__init__` accepts optional
+                                                                                                                    `base_url`/`password` overrides (falling back to env vars) specifically to support
+                                                                                                                    constructing a second client pointed at the secondary instance.
 
 - `nmap_fingerprint.py` — `refresh_os_fingerprint(friendly_name, target_ip)` shells
   out to `nmap -O --osscan-guess` (no meaningful pure-Python equivalent exists for
