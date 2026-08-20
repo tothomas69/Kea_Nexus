@@ -81,14 +81,26 @@ def resolve_target(kea: KeaClient, target: str, is_group: bool) -> list[Resolved
 
 
 def _matching_registry_entries(target: str, is_group: bool) -> list[dict]:
-	"""Return the device_registry rows matching target, by name or group tag."""
+	"""Return the device_registry rows matching target, by name or group tag.
+
+	Case-insensitive: target typically arrives dictated via a Siri Shortcut,
+	which capitalizes the first letter of whatever was said regardless of
+	how the friendly_name/group_tag was actually registered. The exact match
+	is tried first (a fast, indexed lookup for the common case where casing
+	already matches); a case-insensitive scan only runs as a fallback.
+	"""
+	target_lower = target.lower()
 	if not is_group:
 		device = get_device(target)
+		if device is None:
+			device = next(
+				(d for d in get_devices() if d["friendly_name"].lower() == target_lower), None
+			)
 		if device is None:
 			raise DeviceNotRegisteredError(f"No device_registry entry for '{target}'")
 		return [device]
 
-	matches = [device for device in get_devices() if device["group_tag"] == target]
+	matches = [device for device in get_devices() if device["group_tag"].lower() == target_lower]
 	if not matches:
 		raise DeviceNotRegisteredError(f"No device_registry entries with group_tag '{target}'")
 	return matches

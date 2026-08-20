@@ -52,6 +52,17 @@ class TestResolveTargetSingleDevice:
 		with pytest.raises(DeviceNotOnNetworkError):
 			resolve_target(kea, "tommy_laptop", is_group=False)
 
+	def test_matches_case_insensitively(self, temp_db, stub_kea_client):
+		# Siri Shortcuts dictation capitalizes the first letter of whatever
+		# was said, regardless of how the device is actually registered.
+		db.upsert_device("tommy_laptop", hostname="tommy-kubuntu")
+		kea = stub_kea_client(
+			{"tommy-kubuntu": [{"hw-address": "aa:bb:cc:dd:ee:ff", "ip-address": "172.16.17.50"}]}
+		)
+		resolved = resolve_target(kea, "Tommy_laptop", is_group=False)
+		assert len(resolved) == 1
+		assert resolved[0].friendly_name == "tommy_laptop"
+
 
 class TestResolveTargetGroup:
 	def test_resolves_all_devices_in_group(self, temp_db, stub_kea_client):
@@ -85,6 +96,15 @@ class TestResolveTargetGroup:
 		kea = stub_kea_client({})
 		with pytest.raises(DeviceNotRegisteredError):
 			resolve_target(kea, "nonexistent_group", is_group=True)
+
+	def test_matches_group_tag_case_insensitively(self, temp_db, stub_kea_client):
+		db.upsert_device("tommy_laptop", hostname="tommy-kubuntu", group_tag="kids")
+		kea = stub_kea_client(
+			{"tommy-kubuntu": [{"hw-address": "aa:aa:aa:aa:aa:aa", "ip-address": "172.16.17.50"}]}
+		)
+		resolved = resolve_target(kea, "Kids", is_group=True)
+		assert len(resolved) == 1
+		assert resolved[0].friendly_name == "tommy_laptop"
 
 	def test_one_device_missing_lease_is_skipped_not_fatal(self, temp_db, stub_kea_client):
 		db.upsert_device("tommy_laptop", hostname="tommy-kubuntu", group_tag="kids")
