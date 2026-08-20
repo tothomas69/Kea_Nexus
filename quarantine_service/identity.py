@@ -117,6 +117,7 @@ def _refresh_last_seen(device: dict, mac_address: str, ip_address: str) -> None:
 		last_seen_ip_address=ip_address,
 		last_seen_at=device["last_seen_at"],
 		last_quarantined_at=device["last_quarantined_at"],
+		is_quarantined=bool(device["is_quarantined"]),
 		notes=device["notes"],
 	)
 

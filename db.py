@@ -68,13 +68,15 @@ def init_db() -> None:
 				last_seen_ip_address   TEXT NOT NULL DEFAULT '',
 				last_seen_at           TEXT NOT NULL DEFAULT '',
 				last_quarantined_at    TEXT NOT NULL DEFAULT '',
+				is_quarantined         INTEGER NOT NULL DEFAULT 0,
 				notes                  TEXT NOT NULL DEFAULT ''
 			)
 		""")
-		# device_registry may already exist from before last_seen_at existed —
-		# CREATE TABLE IF NOT EXISTS above is a no-op in that case, so the
-		# column has to be retrofitted explicitly.
+		# device_registry may already exist from before these columns existed —
+		# CREATE TABLE IF NOT EXISTS above is a no-op in that case, so they
+		# have to be retrofitted explicitly.
 		_ensure_column(conn, "device_registry", "last_seen_at", "TEXT NOT NULL DEFAULT ''")
+		_ensure_column(conn, "device_registry", "is_quarantined", "INTEGER NOT NULL DEFAULT 0")
 		conn.execute("""
 			CREATE TABLE IF NOT EXISTS reservation_labels (
 				mac_address  TEXT PRIMARY KEY,
@@ -222,9 +224,19 @@ def upsert_device(
 	last_seen_ip_address: str = "",
 	last_seen_at: str = "",
 	last_quarantined_at: str = "",
+	is_quarantined: bool = False,
 	notes: str = "",
 ) -> None:
-	"""Insert or update a device registry entry."""
+	"""Insert or update a device registry entry.
+
+	is_quarantined defaults to False, same as every other field here — this
+	function does a plain overwrite, not a read-modify-write, so a caller
+	that isn't intentionally changing quarantine state must read the
+	existing value and pass it through explicitly (same convention already
+	used for last_quarantined_at etc across every other upsert_device call
+	site), or a routine edit (notes, group_tag) would silently un-quarantine
+	the device in the UI.
+	"""
 	assert friendly_name, "friendly_name must be a non-empty string"
 	assert hostname, "hostname must be a non-empty string"
 	with _connect() as conn:
@@ -233,9 +245,9 @@ def upsert_device(
 			INSERT INTO device_registry (
 				friendly_name, hostname, group_tag, os_fingerprint,
 				last_seen_mac_address, last_seen_ip_address, last_seen_at,
-				last_quarantined_at, notes
+				last_quarantined_at, is_quarantined, notes
 			)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT(friendly_name) DO UPDATE SET
 				hostname               = excluded.hostname,
 				group_tag              = excluded.group_tag,
@@ -244,6 +256,7 @@ def upsert_device(
 				last_seen_ip_address   = excluded.last_seen_ip_address,
 				last_seen_at           = excluded.last_seen_at,
 				last_quarantined_at    = excluded.last_quarantined_at,
+				is_quarantined         = excluded.is_quarantined,
 				notes                  = excluded.notes
 			""",
 			(
@@ -255,6 +268,7 @@ def upsert_device(
 				last_seen_ip_address,
 				last_seen_at,
 				last_quarantined_at,
+				int(is_quarantined),
 				notes,
 			),
 		)
@@ -283,6 +297,7 @@ def touch_last_seen(friendly_name: str, mac_address: str = "", ip_address: str =
 		last_seen_ip_address=ip_address or existing["last_seen_ip_address"],
 		last_seen_at=datetime.now(timezone.utc).isoformat(),
 		last_quarantined_at=existing["last_quarantined_at"],
+		is_quarantined=bool(existing["is_quarantined"]),
 		notes=existing["notes"],
 	)
 

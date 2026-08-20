@@ -444,6 +444,40 @@ class TestLastQuarantinedStamp:
 		assert response.status_code == 200
 		assert db.get_device("tommy_laptop")["last_quarantined_at"] == ""
 
+	def test_quarantine_sets_is_quarantined_true(self, client, stub_kea_client):
+		db.upsert_device("tommy_laptop", hostname="tommy-kubuntu")
+		stub = stub_kea_client(
+			leases_by_hostname={
+				"tommy-kubuntu": [{"hw-address": "aa:bb:cc:dd:ee:ff", "ip-address": "172.16.17.50"}]
+			},
+			dhcp4_config={"subnet4": [{"reservations": [], "option-data": []}]},
+		)
+		with (
+			patch("quarantine_service.main._get_kea_client", return_value=stub),
+			patch("quarantine_service.main.start_arp_disruption"),
+			patch("quarantine_service.main.block_via_pihole"),
+			patch("quarantine_service.main.refresh_os_fingerprint", return_value=""),
+		):
+			client.post("/quarantine", json={"target": "tommy_laptop"}, headers=_auth_header())
+		assert db.get_device("tommy_laptop")["is_quarantined"] == 1
+
+	def test_release_sets_is_quarantined_false(self, client, stub_kea_client):
+		db.upsert_device("tommy_laptop", hostname="tommy-kubuntu", is_quarantined=True)
+		stub = stub_kea_client(
+			leases_by_hostname={
+				"tommy-kubuntu": [{"hw-address": "aa:bb:cc:dd:ee:ff", "ip-address": "172.16.17.50"}]
+			},
+			dhcp4_config={"subnet4": [{"reservations": [], "option-data": []}]},
+		)
+		with (
+			patch("quarantine_service.main._get_kea_client", return_value=stub),
+			patch("quarantine_service.main.stop_arp_disruption"),
+			patch("quarantine_service.main.unblock_via_pihole"),
+			patch("quarantine_service.main.refresh_os_fingerprint", return_value=""),
+		):
+			client.post("/release", json={"target": "tommy_laptop"}, headers=_auth_header())
+		assert db.get_device("tommy_laptop")["is_quarantined"] == 0
+
 	def test_preserves_other_fields_when_stamping(self, client, stub_kea_client):
 		db.upsert_device(
 			"tommy_laptop", hostname="tommy-kubuntu", group_tag="kids", notes="school laptop"

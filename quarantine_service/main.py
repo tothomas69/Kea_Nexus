@@ -216,11 +216,19 @@ def _skipped_step_result(friendly_name: str) -> dict:
 	}
 
 
-def _stamp_last_quarantined(device: ResolvedDevice) -> None:
-	"""Record when this device was last quarantined, for the registry UI.
+def _stamp_quarantine_state(device: ResolvedDevice, action: str) -> None:
+	"""Record this device's current quarantine state, for the registry UI's
+	Status indicator, plus last_quarantined_at on quarantine only.
 
-	Only called on a successful quarantine action, never on release —
-	"last quarantined" means exactly that, not "last touched."
+	is_quarantined is set unconditionally from the action taken (not gated
+	on individual step success) — same convention as last_quarantined_at
+	below, which has always been stamped this way: it reflects the last
+	enforcement direction requested, not a live per-step health check. A
+	partial failure is already visible in the action's own step-result
+	checkmarks; this field answers "was this device released since its
+	last quarantine," not "is every enforcement step currently healthy."
+	last_quarantined_at is only touched on quarantine — it means exactly
+	"last quarantined," not "last touched."
 	"""
 	current = get_device(device.friendly_name)
 	if current is None:
@@ -233,7 +241,12 @@ def _stamp_last_quarantined(device: ResolvedDevice) -> None:
 		last_seen_mac_address=current["last_seen_mac_address"],
 		last_seen_ip_address=current["last_seen_ip_address"],
 		last_seen_at=current["last_seen_at"],
-		last_quarantined_at=datetime.now(timezone.utc).isoformat(),
+		last_quarantined_at=(
+			datetime.now(timezone.utc).isoformat()
+			if action == "quarantine"
+			else current["last_quarantined_at"]
+		),
+		is_quarantined=(action == "quarantine"),
 		notes=current["notes"],
 	)
 
@@ -258,8 +271,7 @@ def _enforce_device(
 		"fingerprint_refreshed": _refresh_fingerprint_step(device, action),
 		"skipped_due_to_identity_drift": False,
 	}
-	if action == "quarantine":
-		_stamp_last_quarantined(device)
+	_stamp_quarantine_state(device, action)
 	return result
 
 
