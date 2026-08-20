@@ -34,6 +34,11 @@ load_dotenv()
 # timeout from KeaNexus's side.
 _REQUEST_TIMEOUT_SECONDS = 180.0
 
+# A presence check is a single ARP probe (2s server-side timeout) plus one
+# Kea lease lookup — nowhere near as slow as full enforcement, so it gets
+# its own much shorter timeout rather than inheriting the 180s above.
+_PRESENCE_CHECK_TIMEOUT_SECONDS = 10.0
+
 
 class QuarantineServiceError(Exception):
 	"""Raised when a call to keanexus-quarantine fails or is unreachable."""
@@ -47,6 +52,34 @@ def trigger_quarantine(target: str, is_group: bool = False) -> dict:
 def trigger_release(target: str, is_group: bool = False) -> dict:
 	"""Call POST /release on the keanexus-quarantine service."""
 	return _call("/release", target, is_group)
+
+
+def trigger_presence_check(friendly_name: str) -> dict:
+	"""Call POST /presence-check/{friendly_name} on the keanexus-quarantine
+	service — an immediate ARP probe, bypassing that service's background
+	5-minute loop, so a freshly added/edited device doesn't sit with blank
+	Last MAC/Last IP/Last Seen in the Quarantine tab until the loop's next pass.
+	"""
+	token = _token()
+	if not token:
+		raise QuarantineServiceError(
+			"QUARANTINE_SERVICE_TOKEN is not configured in KeaNexus's own .env"
+		)
+
+	try:
+		with httpx.Client(timeout=_PRESENCE_CHECK_TIMEOUT_SECONDS) as client:
+			resp = client.post(
+				f"{_base_url()}/presence-check/{friendly_name}",
+				headers={"Authorization": f"Bearer {token}"},
+			)
+		resp.raise_for_status()
+	except httpx.ConnectError as exc:
+		raise QuarantineServiceError(f"Cannot reach keanexus-quarantine at {_base_url()}") from exc
+	except httpx.HTTPStatusError as exc:
+		detail = _error_detail(exc)
+		raise QuarantineServiceError(f"HTTP {exc.response.status_code}: {detail}") from exc
+
+	return resp.json()
 
 
 def _base_url() -> str:

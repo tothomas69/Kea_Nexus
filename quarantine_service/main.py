@@ -34,7 +34,7 @@ from quarantine_service.identity import (
 from quarantine_service.kea_deny import deny_via_kea, undo_deny_via_kea
 from quarantine_service.nmap_fingerprint import refresh_os_fingerprint
 from quarantine_service.pihole_block import block_via_pihole, unblock_via_pihole
-from quarantine_service.presence_check import start_presence_check_loop
+from quarantine_service.presence_check import probe_device_now, start_presence_check_loop
 from quarantine_service.retry import run_with_retries
 
 # Without this, Python's root logger sits at its default WARNING level and
@@ -320,3 +320,13 @@ def release(request: QuarantineRequest) -> dict:
 def status(friendly_name: str) -> dict:
 	"""Return recent quarantine log entries for a single device."""
 	return {"friendly_name": friendly_name, "log": get_quarantine_log(friendly_name)}
+
+
+@app.post("/presence-check/{friendly_name}", dependencies=[Depends(require_bearer_token)])
+def presence_check(friendly_name: str) -> dict:
+	"""Immediately ARP-probe one registered device, bypassing the background
+	loop's interval — called by KeaNexus right after a device is added or
+	edited so Last MAC/Last IP/Last Seen don't sit blank waiting for the
+	loop's next pass (see presence_check.py)."""
+	seen = probe_device_now(friendly_name)
+	return {"friendly_name": friendly_name, "seen": seen}

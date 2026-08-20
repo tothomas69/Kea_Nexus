@@ -13,6 +13,11 @@ Design note: this sends a genuine ARP "who-has" request and listens for a
 real reply (scapy srp — send AND receive), unlike arp_disrupt.py's sendp,
 which fires spoofed replies and never listens. Presence checking and
 disruption are opposite operations that happen to share a library.
+
+probe_device_now() exposes the same per-device probe on demand (via main.py's
+/presence-check/{friendly_name}) so a freshly added/edited device doesn't sit
+with blank Last MAC/Last IP/Last Seen for up to DEFAULT_INTERVAL_SECONDS
+waiting for the loop's next pass.
 """
 
 import logging
@@ -22,7 +27,7 @@ from typing import Optional
 
 from scapy.all import ARP, Ether, srp
 
-from db import get_devices, touch_last_seen
+from db import get_device, get_devices, touch_last_seen
 from kea import KeaClient, KeaError
 
 logger = logging.getLogger(__name__)
@@ -66,29 +71,49 @@ def _loop(interval_seconds: float) -> None:
 def _run_one_pass() -> None:
 	"""Probe every registered device once, stamping last_seen_at for any
 	that currently have a live Kea lease AND answer the ARP request.
-
-	A device with no current lease is skipped outright — nothing to send
-	the probe to, and identity.py already treats "no lease" as "not on
-	the network" for the same reason.
 	"""
 	kea = KeaClient()
-	interface = os.environ.get("ARP_INTERFACE") or None
 	for device in get_devices():
-		try:
-			leases = kea.get_leases_by_hostname(device["hostname"])
-		except KeaError:
-			logger.warning("Kea unreachable during presence check for %s", device["friendly_name"])
-			continue
-		if not leases:
-			continue
+		probe_device_now(device["friendly_name"], kea=kea)
 
-		ip_address = leases[0].get("ip-address", "") or ""
-		mac_address = leases[0].get("hw-address", "") or ""
-		if not ip_address:
-			continue
 
-		if _probe(interface, ip_address):
-			touch_last_seen(device["friendly_name"], mac_address, ip_address)
+def probe_device_now(friendly_name: str, kea: Optional[KeaClient] = None) -> bool:
+	"""Immediately ARP-probe one registered device and stamp last_seen_* if
+	it answers, without waiting for the next background pass.
+
+	Called right after a device is added or edited in the KeaNexus UI (see
+	main.py's /presence-check/{friendly_name}) so Last MAC/Last IP/Last Seen
+	don't sit blank for up to DEFAULT_INTERVAL_SECONDS until the loop's next
+	pass gets to it. A device with no current lease is skipped outright —
+	nothing to send the probe to, and identity.py already treats "no lease"
+	as "not on the network" for the same reason. Returns True if the device
+	answered, False otherwise (unregistered, no lease, Kea unreachable, or
+	no ARP reply).
+	"""
+	device = get_device(friendly_name)
+	if device is None:
+		return False
+
+	kea = kea or KeaClient()
+	try:
+		leases = kea.get_leases_by_hostname(device["hostname"])
+	except KeaError:
+		logger.warning("Kea unreachable during presence check for %s", friendly_name)
+		return False
+	if not leases:
+		return False
+
+	ip_address = leases[0].get("ip-address", "") or ""
+	mac_address = leases[0].get("hw-address", "") or ""
+	if not ip_address:
+		return False
+
+	interface = os.environ.get("ARP_INTERFACE") or None
+	if not _probe(interface, ip_address):
+		return False
+
+	touch_last_seen(friendly_name, mac_address, ip_address)
+	return True
 
 
 def _probe(
