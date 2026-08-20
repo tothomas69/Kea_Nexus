@@ -21,7 +21,6 @@ from ui_pool import render_pool
 from ui_quarantine import render_quarantine
 from ui_reservations import render_reservations
 from ui_settings import render_settings
-from version import APP_VERSION
 
 # --- Page config (must be first Streamlit call) -------------------------------
 st.set_page_config(
@@ -59,9 +58,10 @@ def _cookie_manager() -> stx.CookieManager:
 # --- Sidebar ------------------------------------------------------------------
 
 
-def _sidebar_item(label: str, value: str) -> str:
+def _sidebar_item(label: str, value: str, show_divider: bool = True) -> str:
+	border = "border-bottom:1px solid #e8ecf0;" if show_divider else ""
 	return (
-		f'<div style="padding:8px 0;border-bottom:1px solid #e8ecf0;text-align:center">'
+		f'<div style="padding:8px 0;{border}text-align:center">'
 		f'<div style="font-family:monospace;font-size:10px;font-weight:700;color:#57606a;'
 		f'text-transform:uppercase;letter-spacing:.06em;margin-bottom:3px">{label}</div>'
 		f'<div style="font-family:monospace;font-size:12px;color:#1f2328">{value}</div>'
@@ -72,8 +72,7 @@ def _sidebar_item(label: str, value: str) -> str:
 def _sidebar_version_block(status: dict) -> str:
 	"""
 	Build the version info block for the sidebar.
-	Shows Kea daemon version and connection mode — the KeaNexus app version
-	itself renders separately, above the logo (see render_sidebar).
+	Shows Kea daemon version and connection mode.
 	Always rendered regardless of Kea connectivity — useful for diagnostics.
 	KeaNexus only supports the Kea 3.0+ direct API — there is no mode toggle.
 	"""
@@ -81,8 +80,8 @@ def _sidebar_version_block(status: dict) -> str:
 	kea_ver = dhcp4.version if dhcp4 and hasattr(dhcp4, "version") else "—"
 
 	return (
-		'<div style="margin-top:16px;padding-top:8px">'
-		+ _sidebar_item("Kea DHCP", kea_ver)
+		'<div style="margin-top:6px">'
+		+ _sidebar_item("Kea DHCP", kea_ver, show_divider=False)
 		+ _sidebar_item("API Mode", "Direct API")
 		+ "</div>"
 	)
@@ -91,8 +90,6 @@ def _sidebar_version_block(status: dict) -> str:
 def render_sidebar(
 	stats: Optional[dict], config: Optional[dict], status: dict, cookie_manager: stx.CookieManager
 ) -> None:
-	st.sidebar.markdown(_sidebar_item("KeaNexus", f"v{APP_VERSION}"), unsafe_allow_html=True)
-
 	logo_path = Path(__file__).parent / "static" / "keanexus_logo.png"
 	if logo_path.exists():
 		st.sidebar.image(str(logo_path), use_container_width=True)
@@ -118,7 +115,7 @@ def render_sidebar(
 			+ _sidebar_item("Stats Source", "API" if cumul > 0 else "lease list")
 		)
 		st.sidebar.markdown(
-			f'<div style="margin-top:12px">{rows}</div>',
+			f'<div style="margin-top:6px">{rows}</div>',
 			unsafe_allow_html=True,
 		)
 
@@ -129,7 +126,7 @@ def render_sidebar(
 		unsafe_allow_html=True,
 	)
 
-	st.sidebar.markdown('<div style="margin-top:16px"></div>', unsafe_allow_html=True)
+	st.sidebar.markdown('<div style="margin-top:8px"></div>', unsafe_allow_html=True)
 	if st.sidebar.button("Sign out", key="sign_out_button", use_container_width=True):
 		logout()
 		# .delete() raises KeyError if the cookie hasn't synced into the

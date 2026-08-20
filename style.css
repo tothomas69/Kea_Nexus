@@ -14,7 +14,7 @@
 	padding-top: 0.25rem !important;
 }
 .main .block-container:has([data-testid="stTabs"]) {
-	padding-top: 1.85rem !important;
+	padding-top: 2.6rem !important;
 }
 
 /* --- Tab nav bar — fixed at top of the main content area ------------------
@@ -26,7 +26,7 @@
    rather than as a separate strip floating under them. --------------------- */
 [data-testid="stTabs"] [role="tablist"] {
 	position: fixed !important;
-	top: 0 !important;
+	top: 0.75rem !important;
 	left: 210px !important;
 	right: 0 !important;
 	z-index: 999 !important;
@@ -96,6 +96,14 @@
 
 [data-testid="stSidebar"] > div:first-child {
 	padding: 0.1rem 0.75rem 1rem;
+}
+
+/* Streamlit's default vertical gap between stacked sidebar elements
+   (logo, pool stats block, version block, sign-out button) leaves a lot
+   of empty space at the top of a short sidebar — tighten it so content
+   sits higher rather than spreading out to fill the column. */
+[data-testid="stSidebar"] [data-testid="stVerticalBlock"] {
+	gap: 0.3rem !important;
 }
 
 /* --- Shared metric/health row ---------------------------------------------- */
