@@ -98,6 +98,22 @@
 	padding: 0.1rem 0.75rem 1rem;
 }
 
+/* Streamlit reserves a fixed-height header bar at the top of every sidebar
+   for the collapse arrow and an st.logo() slot — a spacer this app never
+   fills, since the KeaNexus logo is rendered as regular sidebar content
+   instead. Left alone, that reserved bar pushes everything below it (the
+   version line, the logo, the rest of the sidebar) down by ~60px for no
+   visible reason. Shrinking it to just the collapse button's own size lets
+   the actual content start right at the top. */
+[data-testid="stSidebarHeader"] {
+	height: auto !important;
+	min-height: 0 !important;
+	padding: 4px 0 !important;
+}
+[data-testid="stLogoSpacer"] {
+	display: none !important;
+}
+
 /* Streamlit's default vertical gap between stacked sidebar elements
    (logo, pool stats block, version block, sign-out button) leaves a lot
    of empty space at the top of a short sidebar — tighten it so content
