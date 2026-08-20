@@ -320,9 +320,18 @@ current_label)` (includes Delete). Deleting a reservation, or changing its MAC
   `quarantine_service/identity.py`'s `resolve_target` fail with
   `DeviceNotOnNetworkError` even though the device is online. Falls back to a
   free-text input, with an explanatory caption, only when no real hostnames are
-  currently observed in leases at all
+  currently observed in leases at all. On Save, calls
+  `quarantine_client.trigger_presence_check(name)` best-effort (wrapped in
+  `st.spinner`, failures swallowed) so Last MAC/Last IP/Last Seen populate
+  immediately rather than sitting blank until the quarantine service's
+  5-minute background loop gets to the new device
 - Fingerprint and last-seen fields are displayed read-only in the dialog — they're
   written by the quarantine service, not editable from this tab
+- `_render_enforcement_step_legend()` — a collapsed `st.expander` right below the
+  tab's top caption, explaining in plain language what each of the four
+  enforcement steps (Kea, ARP, Pi-hole, Fingerprint) actually does and why —
+  the ✓/✗ summary line after a Quarantine/Release action only shows step
+  names, which aren't self-explanatory on their own
 - `_trigger_action(friendly_name, action)` — calls `trigger_quarantine`/
   `trigger_release`, stashes a pass/fail summary in `st.session_state`, then calls
   `st.rerun()`. The stash-then-rerun pattern is necessary because `st.rerun()` wipes
@@ -468,18 +477,18 @@ ip)`. Blocking works by assigning the device's current IP to a dedicated
   check the `/clients` and `/groups` request/response shapes against this Pi-hole's
   own self-hosted docs at `http://pi.hole/api/docs` before relying on it.
 
-                                                                                                                    **Writes to both primary and secondary Pi-hole instances.** Discovered during
-                                                                                                                    deployment that the two Pi-hole instances on this network (172.16.17.212 primary,
-                                                                                                                    172.16.17.252 secondary on the TerraMaster NAS) are fully independent — no
-                                                                                                                    Nebula/Gravity/Orbital Sync between them — so blocking only the primary would
-                                                                                                                    leave a real gap if a device's DNS ever gets served by the secondary. `main.py`'s
-                                                                                                                    `_get_pihole_clients()` always includes the primary and adds the secondary only
-                                                                                                                    when `PIHOLE_SECONDARY_API_URL` is set; `_apply_pihole_step` writes to each with
-                                                                                                                    its own independent retry and its own audit log row (`pihole_primary` /
-                                                                                                                    `pihole_secondary` steps), so a partial failure on one instance is visible rather
-                                                                                                                    than collapsed into one ambiguous result. `PiholeClient.__init__` accepts optional
-                                                                                                                    `base_url`/`password` overrides (falling back to env vars) specifically to support
-                                                                                                                    constructing a second client pointed at the secondary instance.
+                                                                                                                            **Writes to both primary and secondary Pi-hole instances.** Discovered during
+                                                                                                                            deployment that the two Pi-hole instances on this network (172.16.17.212 primary,
+                                                                                                                            172.16.17.252 secondary on the TerraMaster NAS) are fully independent — no
+                                                                                                                            Nebula/Gravity/Orbital Sync between them — so blocking only the primary would
+                                                                                                                            leave a real gap if a device's DNS ever gets served by the secondary. `main.py`'s
+                                                                                                                            `_get_pihole_clients()` always includes the primary and adds the secondary only
+                                                                                                                            when `PIHOLE_SECONDARY_API_URL` is set; `_apply_pihole_step` writes to each with
+                                                                                                                            its own independent retry and its own audit log row (`pihole_primary` /
+                                                                                                                            `pihole_secondary` steps), so a partial failure on one instance is visible rather
+                                                                                                                            than collapsed into one ambiguous result. `PiholeClient.__init__` accepts optional
+                                                                                                                            `base_url`/`password` overrides (falling back to env vars) specifically to support
+                                                                                                                            constructing a second client pointed at the secondary instance.
 
 - `nmap_fingerprint.py` — `refresh_os_fingerprint(friendly_name, target_ip)` shells
   out to `nmap -O --osscan-guess` (no meaningful pure-Python equivalent exists for

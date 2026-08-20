@@ -209,6 +209,41 @@ def _edit_dialog(
 			st.rerun()
 
 
+_ENFORCEMENT_STEPS = [
+	(
+		"Kea",
+		"Adds a DHCP deny rule for the device's MAC, so it can't renew or obtain a "
+		"new IP lease. This alone doesn't drop an existing connection — a device "
+		"keeps working until its current lease expires — which is why the other "
+		"three steps run alongside it.",
+	),
+	(
+		"ARP",
+		"Starts a background loop that tells the device its gateway lives at a "
+		"black-hole MAC address. This is what actually severs a live connection "
+		"right away, since Kea's deny only blocks future lease renewals.",
+	),
+	(
+		"Pi-hole",
+		"Blocks all DNS resolution for the device's current IP, so even a "
+		"connection that somehow survives ARP disruption can't resolve any "
+		"hostname to reach it.",
+	),
+	(
+		"Fingerprint",
+		"Refreshes the device's OS fingerprint via an nmap scan, keeping identity "
+		"data current. Runs on both Quarantine and Release — it's identity "
+		"upkeep, not enforcement, so it isn't undone on release.",
+	),
+]
+
+
+def _render_enforcement_step_legend() -> None:
+	with st.expander("What do Kea / ARP / Pi-hole / Fingerprint mean?"):
+		for name, explanation in _ENFORCEMENT_STEPS:
+			st.markdown(f"**{name}** — {explanation}")
+
+
 def _summarize_step_results(action_label: str, result: dict) -> tuple[bool, str]:
 	"""Turn keanexus-quarantine's response into a short pass/fail summary.
 
@@ -402,6 +437,7 @@ def render_quarantine(leases: list[dict], config: dict | None) -> None:
 		"Quarantine/Release call keanexus-quarantine's own API directly — "
 		"see docs/quarantine-feature-design.md."
 	)
+	_render_enforcement_step_legend()
 
 	_render_pending_action_result()
 
