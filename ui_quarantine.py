@@ -24,7 +24,7 @@ from db import (
 	get_quarantine_log,
 	upsert_device,
 )
-from helpers import distinct_real_hostnames
+from helpers import distinct_real_hostnames, html_safe_mac
 from quarantine_client import QuarantineServiceError, trigger_quarantine, trigger_release
 
 _CELL = "font-family:monospace;font-size:13px;color:#1f2328"
@@ -282,7 +282,8 @@ def _render_device_table(devices: list[dict], leases: list[dict], config: dict |
 			f'<span style="{_CELL}">{device["group_tag"] or "—"}</span>', unsafe_allow_html=True
 		)
 		cols[3].markdown(
-			f'<span style="{_CELL_NOWRAP}">{device["last_seen_mac_address"] or "—"}</span>',
+			f'<span style="{_CELL_NOWRAP}">'
+			f"{html_safe_mac(device['last_seen_mac_address']) or '—'}</span>",
 			unsafe_allow_html=True,
 		)
 		cols[4].markdown(

@@ -12,6 +12,7 @@ from helpers import (
 	build_reservation_type_sets,
 	fmt_ttl,
 	get_client,
+	html_safe_mac,
 	lease_type,
 	load_leases,
 	load_pool_stats,
@@ -85,7 +86,7 @@ def _lease_table(
 			f'<td style="{_TD}">{_row_chip(i, state)}</td>'
 			f'<td style="{_TD}">{ip}</td>'
 			f'<td style="{_TD}">{hn}</td>'
-			f'<td style="{_TD}">{mac}</td>'
+			f'<td style="{_TD}">{html_safe_mac(mac)}</td>'
 			f'<td style="{_TD}">{fmt_ttl(ttl)}</td>'
 			f'<td style="{_TD}">{_type_chip(ltype)}</td>'
 			f"</tr>"
