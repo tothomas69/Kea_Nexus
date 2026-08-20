@@ -272,6 +272,25 @@ class TestStatusEndpoint:
 		assert response.json()["log"] == []
 
 
+class TestPresenceCheckEndpoint:
+	def test_requires_auth(self, client):
+		response = client.post("/presence-check/tommy_laptop")
+		assert response.status_code == 401
+
+	def test_returns_seen_true_when_device_answers(self, client):
+		with patch("quarantine_service.main.probe_device_now", return_value=True) as mock_probe:
+			response = client.post("/presence-check/tommy_laptop", headers=_auth_header())
+		assert response.status_code == 200
+		assert response.json() == {"friendly_name": "tommy_laptop", "seen": True}
+		mock_probe.assert_called_once_with("tommy_laptop")
+
+	def test_returns_seen_false_when_device_does_not_answer(self, client):
+		with patch("quarantine_service.main.probe_device_now", return_value=False):
+			response = client.post("/presence-check/nobody", headers=_auth_header())
+		assert response.status_code == 200
+		assert response.json() == {"friendly_name": "nobody", "seen": False}
+
+
 class TestStartupSchemaCreation:
 	def test_init_db_runs_on_startup(self, temp_db):
 		"""Regression test for a real deployment bug: keanexus-quarantine must

@@ -15,7 +15,12 @@ from unittest.mock import MagicMock
 import httpx
 import pytest
 
-from quarantine_client import QuarantineServiceError, trigger_quarantine, trigger_release
+from quarantine_client import (
+	QuarantineServiceError,
+	trigger_presence_check,
+	trigger_quarantine,
+	trigger_release,
+)
 
 
 def _make_response(json_data: Optional[dict] = None, content: bytes = b"{}") -> MagicMock:
@@ -104,3 +109,35 @@ class TestTriggerRelease:
 
 		args, _ = quarantine_client_http_mock.post.call_args
 		assert args[0] == "http://172.16.17.215:8600/release"
+
+
+class TestTriggerPresenceCheck:
+	def test_posts_to_presence_check_endpoint_with_auth_header(
+		self, quarantine_client_http_mock, monkeypatch
+	):
+		monkeypatch.setenv("QUARANTINE_SERVICE_URL", "http://172.16.17.215:8600")
+		monkeypatch.setenv("QUARANTINE_SERVICE_TOKEN", "test-token")
+		quarantine_client_http_mock.post.return_value = _make_response(
+			{"friendly_name": "tommy_pc", "seen": True}
+		)
+
+		result = trigger_presence_check("tommy_pc")
+
+		args, kwargs = quarantine_client_http_mock.post.call_args
+		assert args[0] == "http://172.16.17.215:8600/presence-check/tommy_pc"
+		assert kwargs["headers"]["Authorization"] == "Bearer test-token"
+		assert result == {"friendly_name": "tommy_pc", "seen": True}
+
+	def test_raises_when_token_not_configured(self, monkeypatch):
+		monkeypatch.delenv("QUARANTINE_SERVICE_TOKEN", raising=False)
+		with pytest.raises(QuarantineServiceError, match="not configured"):
+			trigger_presence_check("tommy_pc")
+
+	def test_connect_error_raises_quarantine_service_error(
+		self, quarantine_client_http_mock, monkeypatch
+	):
+		monkeypatch.setenv("QUARANTINE_SERVICE_TOKEN", "test-token")
+		quarantine_client_http_mock.post.side_effect = httpx.ConnectError("connection refused")
+
+		with pytest.raises(QuarantineServiceError, match="Cannot reach"):
+			trigger_presence_check("tommy_pc")

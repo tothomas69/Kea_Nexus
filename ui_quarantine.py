@@ -25,7 +25,12 @@ from db import (
 	upsert_device,
 )
 from helpers import distinct_real_hostnames, html_safe_mac
-from quarantine_client import QuarantineServiceError, trigger_quarantine, trigger_release
+from quarantine_client import (
+	QuarantineServiceError,
+	trigger_presence_check,
+	trigger_quarantine,
+	trigger_release,
+)
 
 _CELL = "font-family:monospace;font-size:13px;color:#1f2328"
 # MAC/IP columns are narrow enough that the default cell style can wrap them
@@ -168,8 +173,9 @@ def _edit_dialog(
 			if not name_input.strip() or not hostname.strip():
 				st.error("Friendly Name and Hostname are required.")
 			else:
+				name = name_input.strip()
 				upsert_device(
-					name_input.strip(),
+					name,
 					hostname.strip(),
 					group_tag=group_tag.strip(),
 					os_fingerprint=existing.get("os_fingerprint", "") if existing else "",
@@ -183,6 +189,16 @@ def _edit_dialog(
 					last_quarantined_at=existing.get("last_quarantined_at", "") if existing else "",
 					notes=notes.strip(),
 				)
+				# Best-effort — an immediate ARP probe so Last MAC/Last IP/Last
+				# Seen don't sit blank until the quarantine service's next
+				# background pass (up to 5 minutes). A failure here (service
+				# down, unreachable) shouldn't block the save that already
+				# succeeded above.
+				with st.spinner("Checking device presence…"):
+					try:
+						trigger_presence_check(name)
+					except QuarantineServiceError:
+						pass
 				st.rerun()
 	with c2:
 		if existing and st.button("Delete", key="dialog_delete"):
