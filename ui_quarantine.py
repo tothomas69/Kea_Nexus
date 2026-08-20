@@ -70,10 +70,9 @@ def _format_local_time(iso_utc: str) -> str:
 	return dt.astimezone(_LOCAL_TZ).strftime("%m/%d %H:%M %Z")
 
 
-_DEVICE_COL_WIDTHS = [1.0, 0.9, 0.95, 0.45, 1.5, 1.3, 1.0, 1.0, 1.2, 1.0, 0.8]
+_DEVICE_COL_WIDTHS = [1.1, 0.95, 0.45, 1.5, 1.3, 1.0, 1.0, 1.2, 1.0, 0.8]
 _DEVICE_COL_HEADERS = [
 	"Friendly Name",
-	"Status",
 	"Hostname",
 	"Group",
 	"Last MAC",
@@ -85,22 +84,23 @@ _DEVICE_COL_HEADERS = [
 	"",
 ]
 
+# Whether keanexus-quarantine's last action for this device was Quarantine
+# (still in effect — last_quarantined_at is never cleared on release, so
+# that column alone can't answer "right now") or Release. Rather than a
+# separate Status column, a quarantined device's entire row renders in this
+# red instead of the normal cell color, matching the pastel-red already used
+# for the Quarantine button/chip elsewhere.
+_QUARANTINED_TEXT_COLOR = "#991b1b"
 
-def _status_chip(is_quarantined) -> str:
-	"""Whether keanexus-quarantine's last action for this device was
-	Quarantine (still in effect — last_quarantined_at is never cleared on
-	release, so that column alone can't answer "right now") or Release."""
-	if is_quarantined:
-		return (
-			'<span style="background:#fee2e2;color:#991b1b;font-size:11px;font-weight:700;'
-			'padding:2px 9px;border-radius:10px;display:inline-block;white-space:nowrap">'
-			"● Quarantined</span>"
-		)
-	return (
-		'<span style="background:#dcfce7;color:#166534;font-size:11px;font-weight:700;'
-		'padding:2px 9px;border-radius:10px;display:inline-block;white-space:nowrap">'
-		"● Active</span>"
-	)
+
+def _row_cell_styles(is_quarantined) -> tuple[str, str, str]:
+	"""(cell, cell_nowrap, cell_meta) style strings for one device row,
+	swapping in _QUARANTINED_TEXT_COLOR when the device is quarantined."""
+	if not is_quarantined:
+		return _CELL, _CELL_NOWRAP, _CELL_META
+	cell = f"font-family:monospace;font-size:13px;color:{_QUARANTINED_TEXT_COLOR}"
+	cell_meta = f"font-family:monospace;font-size:11px;color:{_QUARANTINED_TEXT_COLOR}"
+	return cell, cell + ";white-space:nowrap", cell_meta
 
 
 _LOG_COL_WIDTHS = [1.8, 1.4, 1.4, 1.0, 1.0, 1.6, 2.4]
@@ -343,46 +343,44 @@ def _render_device_table(devices: list[dict], leases: list[dict], config: dict |
 	_render_grid_header(_DEVICE_COL_WIDTHS, _DEVICE_COL_HEADERS)
 	for device in devices:
 		friendly_name = device["friendly_name"]
+		cell, cell_nowrap, cell_meta = _row_cell_styles(device["is_quarantined"])
 		cols = st.columns(_DEVICE_COL_WIDTHS)
 		cols[0].markdown(
-			f'<span style="{_CELL};font-weight:600">{friendly_name}</span>',
+			f'<span style="{cell};font-weight:600">{friendly_name}</span>',
 			unsafe_allow_html=True,
 		)
-		cols[1].markdown(_status_chip(device["is_quarantined"]), unsafe_allow_html=True)
+		cols[1].markdown(
+			f'<span style="{cell}">{device["hostname"]}</span>', unsafe_allow_html=True
+		)
 		cols[2].markdown(
-			f'<span style="{_CELL}">{device["hostname"]}</span>', unsafe_allow_html=True
+			f'<span style="{cell}">{device["group_tag"] or "—"}</span>', unsafe_allow_html=True
 		)
 		cols[3].markdown(
-			f'<span style="{_CELL}">{device["group_tag"] or "—"}</span>', unsafe_allow_html=True
-		)
-		cols[4].markdown(
-			f'<span style="{_CELL_NOWRAP}">'
+			f'<span style="{cell_nowrap}">'
 			f"{html_safe_mac(device['last_seen_mac_address']) or '—'}</span>",
 			unsafe_allow_html=True,
 		)
+		cols[4].markdown(
+			f'<span style="{cell_nowrap}">{device["last_seen_ip_address"] or "—"}</span>',
+			unsafe_allow_html=True,
+		)
 		cols[5].markdown(
-			f'<span style="{_CELL_NOWRAP}">{device["last_seen_ip_address"] or "—"}</span>',
+			f'<span style="{cell_meta}">{_format_local_time(device["last_seen_at"])}</span>',
 			unsafe_allow_html=True,
 		)
 		cols[6].markdown(
-			f'<span style="{_CELL_META}">{_format_local_time(device["last_seen_at"])}</span>',
+			f'<span style="{cell_meta}">{_format_local_time(device["last_quarantined_at"])}</span>',
 			unsafe_allow_html=True,
 		)
-		cols[7].markdown(
-			f'<span style="{_CELL_META}">{_format_local_time(device["last_quarantined_at"])}</span>',
-			unsafe_allow_html=True,
-		)
-		if cols[8].button(
+		if cols[7].button(
 			"Quarantine", key=f"quarantine_go_{friendly_name}", use_container_width=True
 		):
 			_trigger_action(friendly_name, "quarantine")
-		if cols[9].button(
+		if cols[8].button(
 			"Release", key=f"quarantine_release_{friendly_name}", use_container_width=True
 		):
 			_trigger_action(friendly_name, "release")
-		if cols[10].button(
-			"Edit", key=f"quarantine_edit_{friendly_name}", use_container_width=True
-		):
+		if cols[9].button("Edit", key=f"quarantine_edit_{friendly_name}", use_container_width=True):
 			_edit_dialog(friendly_name, leases, config)
 
 
