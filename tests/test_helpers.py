@@ -13,6 +13,7 @@ from helpers import (
 	chip,
 	distinct_real_hostnames,
 	fmt_ttl,
+	html_safe_mac,
 	lease_for_reservation,
 	lease_type,
 	leases_to_df,
@@ -65,6 +66,23 @@ class TestChip:
 
 	def test_different_classes_produce_different_output(self):
 		assert chip("x", "green") != chip("x", "red")
+
+
+# ─── html_safe_mac ────────────────────────────────────────────────────────────
+
+
+class TestHtmlSafeMac:
+	def test_encodes_colons(self):
+		assert html_safe_mac("d2:de:e1:4d:e6:73") == "d2&#58;de&#58;e1&#58;4d&#58;e6&#58;73"
+
+	def test_no_literal_colon_left_to_match_a_markdown_shortcode(self):
+		assert ":" not in html_safe_mac("d2:de:e1:4d:e6:73")
+
+	def test_empty_string_passthrough(self):
+		assert html_safe_mac("") == ""
+
+	def test_no_colons_unaffected(self):
+		assert html_safe_mac("gateway") == "gateway"
 
 
 # ─── leases_to_df ─────────────────────────────────────────────────────────────

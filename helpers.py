@@ -98,6 +98,20 @@ def chip(label: str, cls: str) -> str:
 	return f'<span class="chip {cls}">{label}</span>'
 
 
+def html_safe_mac(mac: str) -> str:
+	"""Encode a MAC address's colons before interpolating it into an
+	st.markdown(unsafe_allow_html=True) string.
+
+	Streamlit's markdown renderer expands ":xx:" shortcodes into emoji (Slack/
+	GitHub-style), and a MAC's hex byte pairs can spell a two-letter ISO
+	country code between colons — e.g. "d2:de:e1:..." renders "de" as the
+	German flag. HTML-entity-encoding the colons keeps the literal ":" on
+	screen while hiding it from the shortcode parser, which only matches
+	literal colon characters.
+	"""
+	return mac.replace(":", "&#58;") if mac else mac
+
+
 # --- Lease/reservation classification ------------------------------------------
 
 

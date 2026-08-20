@@ -19,6 +19,7 @@ from db import delete_reservation_label, get_reservation_labels, upsert_reservat
 from helpers import (
 	build_hostname_override_sets,
 	get_client,
+	html_safe_mac,
 	lease_for_reservation,
 	load_config,
 	real_hostname,
@@ -226,7 +227,9 @@ def _render_table(
 		cols[3].markdown(
 			_real_hostname_cell(res, leases, override_ips, override_macs), unsafe_allow_html=True
 		)
-		cols[4].markdown(f'<span style="{_TD}">{mac or "—"}</span>', unsafe_allow_html=True)
+		cols[4].markdown(
+			f'<span style="{_TD}">{html_safe_mac(mac) or "—"}</span>', unsafe_allow_html=True
+		)
 		cols[5].markdown(_type_chip(ip), unsafe_allow_html=True)
 		if cols[6].button("Edit", key=f"reservations_edit_{i}_chipblue"):
 			_edit_dialog(res, config, label)

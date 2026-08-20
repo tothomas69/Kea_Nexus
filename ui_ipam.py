@@ -14,7 +14,7 @@ from typing import Optional
 import streamlit as st
 
 from db import delete_static_entry, get_static_entries, get_static_entry, upsert_static_entry
-from helpers import fmt_ttl, get_client
+from helpers import fmt_ttl, get_client, html_safe_mac
 
 # --- Status constants ---------------------------------------------------------
 
@@ -250,7 +250,9 @@ def _render_table(
 			else f'<span style="{_CELL}">{row.hostname or "—"}</span>'
 		)
 		c[2].markdown(hostname_html, unsafe_allow_html=True)
-		c[3].markdown(f'<span style="{_CELL}">{row.mac or "—"}</span>', unsafe_allow_html=True)
+		c[3].markdown(
+			f'<span style="{_CELL}">{html_safe_mac(row.mac) or "—"}</span>', unsafe_allow_html=True
+		)
 		c[4].markdown(f'<span style="{_CELL}">{row.info or ""}</span>', unsafe_allow_html=True)
 		# Network (.0) and broadcast (.255) have nothing to edit
 		if row.last_octet not in (0, 255):
