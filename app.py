@@ -182,6 +182,12 @@ def main() -> None:
 
 	render_sidebar(stats, config, status, cookie_manager)
 
+	# key= makes Streamlit remember the active tab across a rerun (e.g. the
+	# Quarantine tab's st.rerun() after a Quarantine/Release action). Without
+	# it, st.tabs() has no persisted selection and always snaps back to the
+	# first tab on any rerun — from the user's side, clicking Quarantine
+	# would bounce them to Pool with the Quarantine tab's old content still
+	# fading out underneath.
 	tab_pool, tab_leases, tab_ipam, tab_res, tab_maint, tab_quarantine, tab_settings = st.tabs(
 		[
 			"Pool",
@@ -191,7 +197,8 @@ def main() -> None:
 			"Maintenance",
 			"Quarantine",
 			"Settings",
-		]
+		],
+		key="main_tabs",
 	)
 	with tab_pool:
 		render_pool(stats, config, status)
