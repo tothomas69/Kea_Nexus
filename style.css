@@ -9,12 +9,19 @@
 	display: none !important;
 }
 
-/* --- Top padding — only add room for fixed tab bar when tabs are present -- */
-.main .block-container {
+/* --- Top padding — only add room for fixed tab bar when tabs are present --
+   [data-testid="stMainBlockContainer"] is the real hook — a past Streamlit
+   upgrade dropped the ".main" wrapper class this used to key off of, which
+   silently turned both rules below into dead CSS. Nothing broke visually
+   only because Streamlit's own default padding-top (96px) happened to be
+   large enough to still clear the fixed tab bar, just by accident — that's
+   the actual source of the oversized tab-to-content gap this was meant to
+   control on purpose. --------------------------------------------------- */
+[data-testid="stMainBlockContainer"] {
 	padding-top: 0.25rem !important;
 }
-.main .block-container:has([data-testid="stTabs"]) {
-	padding-top: 2.6rem !important;
+[data-testid="stMainBlockContainer"]:has([data-testid="stTabs"]) {
+	padding-top: 2.9rem !important;
 }
 
 /* --- Tab nav bar — fixed at top of the main content area ------------------
