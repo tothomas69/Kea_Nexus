@@ -216,6 +216,15 @@ class TestBuildHostnameOverrideSets:
 		assert override_ips == set()
 		assert override_macs == set()
 
+	def test_reservation_with_empty_string_hostname_is_not_an_override(self):
+		# Kea's config-get always includes every reservation field, "hostname"
+		# included, defaulting to "" when never set — mere key presence isn't
+		# enough to mean "an override is in effect."
+		config = _make_config([{"ip-address": "10.0.0.5", "hw-address": "AA:BB", "hostname": ""}])
+		override_ips, override_macs = build_hostname_override_sets(config)
+		assert override_ips == set()
+		assert override_macs == set()
+
 	def test_name_only_reservation_is_not_an_override(self):
 		# No ip-address/hw-address to key on — this isn't a lease-level
 		# override, it's how Kea matches the reservation in the first place.

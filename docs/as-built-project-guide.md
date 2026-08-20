@@ -178,16 +178,23 @@ Data persisted in Docker named volume `keanexus_data` mounted at `/app/data/`.
   Purely descriptive — says nothing about whether the lease's hostname is real
 - `build_hostname_override_sets(config)` / `real_hostname(lease, override_ips,
 override_macs)` / `distinct_real_hostnames(leases, config)` — a Kea
-  reservation's `hostname` field, when set, is admin-typed free text that Kea
-  echoes back on the live lease, discarding the device's actual DHCP-negotiated
-  name. `ui_reservations.py` no longer writes that field to Kea at all (the
-  admin label lives in `db.reservation_labels` instead — see below), but a
-  reservation created before that change, or added to `kea-dhcp4.conf` by hand,
-  can still carry the override. So real-vs-label is decided **per reservation**
-  (does _this_ reservation's config still have a `hostname` key), not by lease
-  type — a `fixed`/`reserved` lease with no override present is just as real as
-  a `dynamic` one. `distinct_real_hostnames` feeds the Quarantine tab's Add/Edit
-  device hostname picker so it only offers hostnames that will actually match a
+  reservation's `hostname` field, when set to a **non-empty value**, is
+  admin-typed free text that Kea echoes back on the live lease, discarding
+  the device's actual DHCP-negotiated name. `ui_reservations.py` no longer
+  writes that field to Kea at all (the admin label lives in
+  `db.reservation_labels` instead — see below), but a reservation created
+  before that change, or added to `kea-dhcp4.conf` by hand, can still carry
+  the override. So real-vs-label is decided **per reservation** (does _this_
+  reservation's config have a non-empty `hostname` value), not by lease type
+  — a `fixed`/`reserved` lease with no override present is just as real as a
+  `dynamic` one. **Checking mere key presence is not enough** — confirmed
+  live via `config-get`, Kea always includes every reservation field,
+  `hostname` included, defaulting to `""` when never set. An earlier version
+  of this check used `"hostname" in r`, which treated every reservation as
+  permanently overridden regardless of value, making the masked state
+  unfixable by any resave since there was nothing left to strip.
+  `distinct_real_hostnames` feeds the Quarantine tab's Add/Edit device
+  hostname picker so it only offers hostnames that will actually match a
   live lease, rather than a reservation label that never will
 - `lease_for_reservation(reservation, leases)` — the live lease matching a
   reservation, by MAC (falling back to IP if the reservation has no

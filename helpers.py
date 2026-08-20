@@ -147,25 +147,36 @@ def lease_type(lease: dict, fixed_ips: set, reserved_macs: set, name_hosts: set)
 
 # --- Real vs. reservation-label hostnames ---------------------------------------
 #
-# A Kea reservation's "hostname" field, when set, is admin-typed free text
-# that Kea echoes back on the live lease, discarding the device's actual
-# DHCP-negotiated name. ui_reservations.py no longer writes that field to
-# Kea — an admin label for a reservation lives in db.reservation_labels
-# instead. But a reservation created before that change (or added to
-# kea-dhcp4.conf by hand) can still carry a "hostname" override, so real vs.
-# label has to be decided per-reservation, by checking whether *that specific*
-# reservation still has the field — not by the lease's fixed/reserved/
-# dynamic type, which says nothing about whether an override is present.
+# A Kea reservation's "hostname" field, when set to a non-empty value, is
+# admin-typed free text that Kea echoes back on the live lease, discarding
+# the device's actual DHCP-negotiated name. ui_reservations.py no longer
+# writes that field to Kea — an admin label for a reservation lives in
+# db.reservation_labels instead. But a reservation created before that
+# change (or added to kea-dhcp4.conf by hand) can still carry a "hostname"
+# override, so real vs. label has to be decided per-reservation, by
+# checking whether *that specific* reservation still has a non-empty value
+# — not by the lease's fixed/reserved/dynamic type, which says nothing
+# about whether an override is present.
+#
+# Checking mere key presence ("hostname" in r) is NOT enough: Kea's
+# config-get always includes every reservation field, "hostname" included,
+# defaulting to "" when it was never set — confirmed live via config-get,
+# where a reservation this app had already saved without a hostname still
+# came back with "hostname": "". Treating that as an override made the
+# masked state permanent and unfixable by any resave, since there was
+# nothing left for a resave to strip.
 
 
 def build_hostname_override_sets(config: Optional[dict]) -> tuple[set, set]:
 	"""
 	Return the ip-address/hw-address values of reservations that still carry
-	an explicit "hostname" override in Kea's own config.
+	a non-empty "hostname" override in Kea's own config.
 	"""
 	res = (config or {}).get("subnet4", [{}])[0].get("reservations", [])
-	override_ips = {r["ip-address"] for r in res if "ip-address" in r and "hostname" in r}
-	override_macs = {r["hw-address"].lower() for r in res if "hw-address" in r and "hostname" in r}
+	override_ips = {r["ip-address"] for r in res if "ip-address" in r and r.get("hostname")}
+	override_macs = {
+		r["hw-address"].lower() for r in res if "hw-address" in r and r.get("hostname")
+	}
 	return override_ips, override_macs
 
 
