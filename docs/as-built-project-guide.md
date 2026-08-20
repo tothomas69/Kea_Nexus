@@ -151,20 +151,18 @@ Data persisted in Docker named volume `keanexus_data` mounted at `/app/data/`.
 
 ### Version (`version.py`)
 
-- `APP_VERSION` — single string constant. Not currently displayed anywhere in the
-  UI (the sidebar's KeaNexus version row was removed for space) — kept as the
-  single source of truth for the app version in case a future surface (e.g.
-  Settings tab, About dialog) wants it
-- Bump on every release
+- `APP_VERSION` — single string constant, rendered as the sidebar's top row
+  (`app.py`'s `render_sidebar`)
+- Bump on every release; no other source of truth for the app version
 
 ### Sidebar Version Block (`app.py`)
 
-- `_sidebar_version_block(status)` — renders two info rows at the bottom of the sidebar
+- `_sidebar_version_block(status)` — renders two info rows near the bottom of the sidebar
 - Displays: Kea DHCP daemon version (from `get_status()`), API Mode (always "Direct API")
 - Always rendered regardless of Kea connectivity — aids diagnosis when Kea is unreachable
-- `_sidebar_item(label, value, show_divider=True)` — the Kea DHCP row passes
-  `show_divider=False` so only the API Mode row (the last one) keeps the
-  trailing divider line
+- `_sidebar_item(label, value, show_divider=True)` — the top KeaNexus/version row
+  and the Kea DHCP row both pass `show_divider=False` so only the last row in
+  each cluster (Stats Source above, API Mode here) keeps a trailing divider line
 
 ### Helpers (`helpers.py`)
 
@@ -440,18 +438,18 @@ ip)`. Blocking works by assigning the device's current IP to a dedicated
   check the `/clients` and `/groups` request/response shapes against this Pi-hole's
   own self-hosted docs at `http://pi.hole/api/docs` before relying on it.
 
-                                                                                            **Writes to both primary and secondary Pi-hole instances.** Discovered during
-                                                                                            deployment that the two Pi-hole instances on this network (172.16.17.212 primary,
-                                                                                            172.16.17.252 secondary on the TerraMaster NAS) are fully independent — no
-                                                                                            Nebula/Gravity/Orbital Sync between them — so blocking only the primary would
-                                                                                            leave a real gap if a device's DNS ever gets served by the secondary. `main.py`'s
-                                                                                            `_get_pihole_clients()` always includes the primary and adds the secondary only
-                                                                                            when `PIHOLE_SECONDARY_API_URL` is set; `_apply_pihole_step` writes to each with
-                                                                                            its own independent retry and its own audit log row (`pihole_primary` /
-                                                                                            `pihole_secondary` steps), so a partial failure on one instance is visible rather
-                                                                                            than collapsed into one ambiguous result. `PiholeClient.__init__` accepts optional
-                                                                                            `base_url`/`password` overrides (falling back to env vars) specifically to support
-                                                                                            constructing a second client pointed at the secondary instance.
+                                                                                                    **Writes to both primary and secondary Pi-hole instances.** Discovered during
+                                                                                                    deployment that the two Pi-hole instances on this network (172.16.17.212 primary,
+                                                                                                    172.16.17.252 secondary on the TerraMaster NAS) are fully independent — no
+                                                                                                    Nebula/Gravity/Orbital Sync between them — so blocking only the primary would
+                                                                                                    leave a real gap if a device's DNS ever gets served by the secondary. `main.py`'s
+                                                                                                    `_get_pihole_clients()` always includes the primary and adds the secondary only
+                                                                                                    when `PIHOLE_SECONDARY_API_URL` is set; `_apply_pihole_step` writes to each with
+                                                                                                    its own independent retry and its own audit log row (`pihole_primary` /
+                                                                                                    `pihole_secondary` steps), so a partial failure on one instance is visible rather
+                                                                                                    than collapsed into one ambiguous result. `PiholeClient.__init__` accepts optional
+                                                                                                    `base_url`/`password` overrides (falling back to env vars) specifically to support
+                                                                                                    constructing a second client pointed at the secondary instance.
 
 - `nmap_fingerprint.py` — `refresh_os_fingerprint(friendly_name, target_ip)` shells
   out to `nmap -O --osscan-guess` (no meaningful pure-Python equivalent exists for

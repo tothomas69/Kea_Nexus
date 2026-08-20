@@ -21,6 +21,7 @@ from ui_pool import render_pool
 from ui_quarantine import render_quarantine
 from ui_reservations import render_reservations
 from ui_settings import render_settings
+from version import APP_VERSION
 
 # --- Page config (must be first Streamlit call) -------------------------------
 st.set_page_config(
@@ -90,6 +91,10 @@ def _sidebar_version_block(status: dict) -> str:
 def render_sidebar(
 	stats: Optional[dict], config: Optional[dict], status: dict, cookie_manager: stx.CookieManager
 ) -> None:
+	st.sidebar.markdown(
+		_sidebar_item("KeaNexus", f"v{APP_VERSION}", show_divider=False), unsafe_allow_html=True
+	)
+
 	logo_path = Path(__file__).parent / "static" / "keanexus_logo.png"
 	if logo_path.exists():
 		st.sidebar.image(str(logo_path), use_container_width=True)
