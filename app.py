@@ -70,6 +70,21 @@ def _sidebar_item(label: str, value: str, show_divider: bool = True) -> str:
 	)
 
 
+def _sidebar_value_only(value: str, show_divider: bool = True) -> str:
+	"""Same visual slot as _sidebar_item but with no label line above the
+	value — used for the top version row, where "KeaNexus" as a heading is
+	redundant right above the app's own logo. Tighter vertical padding than
+	_sidebar_item's 8px — a single line doesn't need as much breathing room,
+	and this row sits directly above the logo, which should read as close
+	beneath it rather than another evenly-spaced row."""
+	border = "border-bottom:1px solid #e8ecf0;" if show_divider else ""
+	return (
+		f'<div style="padding:2px 0 4px;{border}text-align:center">'
+		f'<div style="font-family:monospace;font-size:12px;color:#1f2328">{value}</div>'
+		f"</div>"
+	)
+
+
 def _sidebar_version_block(status: dict) -> str:
 	"""
 	Build the version info block for the sidebar.
@@ -92,7 +107,7 @@ def render_sidebar(
 	stats: Optional[dict], config: Optional[dict], status: dict, cookie_manager: stx.CookieManager
 ) -> None:
 	st.sidebar.markdown(
-		_sidebar_item("KeaNexus", f"v{APP_VERSION}", show_divider=False), unsafe_allow_html=True
+		_sidebar_value_only(f"v{APP_VERSION}", show_divider=False), unsafe_allow_html=True
 	)
 
 	logo_path = Path(__file__).parent / "static" / "keanexus_logo.png"
