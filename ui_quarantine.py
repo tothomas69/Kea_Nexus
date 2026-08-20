@@ -376,7 +376,8 @@ def _render_log_table(entries: list[dict]) -> None:
 			f'<span style="{_CELL}">{entry["attempt_count"]}</span>', unsafe_allow_html=True
 		)
 		cols[5].markdown(
-			f'<span style="{_CELL}">{entry["occurred_at"]}</span>', unsafe_allow_html=True
+			f'<span style="{_CELL}">{_format_local_time(entry["occurred_at"])}</span>',
+			unsafe_allow_html=True,
 		)
 		cols[6].markdown(
 			f'<span style="{_CELL}">{entry["detail"] or "—"}</span>', unsafe_allow_html=True
