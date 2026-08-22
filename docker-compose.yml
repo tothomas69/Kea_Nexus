@@ -1,62 +1,64 @@
 name: keanexus
 
 services:
-  keanexus:
-    build: .
-    container_name: keanexus
-    restart: unless-stopped
-    ports:
-      - "8502:8501"
-    env_file:
-      - .env
-    volumes:
-      - ./app.py:/app/app.py
-      - ./auth.py:/app/auth.py
-      - ./kea.py:/app/kea.py
-      - ./quarantine_client.py:/app/quarantine_client.py
-      - ./version.py:/app/version.py
-      - ./helpers.py:/app/helpers.py
-      - ./db.py:/app/db.py
-      - ./ui_login.py:/app/ui_login.py
-      - ./ui_pool.py:/app/ui_pool.py
-      - ./ui_leases.py:/app/ui_leases.py
-      - ./ui_ipam.py:/app/ui_ipam.py
-      - ./ui_reservations.py:/app/ui_reservations.py
-      - ./ui_maintenance.py:/app/ui_maintenance.py
-      - ./ui_quarantine.py:/app/ui_quarantine.py
-      - ./ui_settings.py:/app/ui_settings.py
-      - ./style.css:/app/style.css
-      - ./.streamlit:/app/.streamlit
-      - ./static:/app/static
-      - ./data:/app/data
-    command: >
-      streamlit run app.py
-      --server.runOnSave=true
-      --server.fileWatcherType=poll
-      --server.port=8501
-      --server.address=0.0.0.0
-      --server.headless=true
-      --browser.gatherUsageStats=false
+    keanexus:
+        build: .
+        container_name: keanexus
+        restart: unless-stopped
+        ports:
+            - "8502:8501"
+        env_file:
+            - .env
+        volumes:
+            - ./app.py:/app/app.py
+            - ./auth.py:/app/auth.py
+            - ./kea.py:/app/kea.py
+            - ./quarantine_client.py:/app/quarantine_client.py
+            - ./version.py:/app/version.py
+            - ./helpers.py:/app/helpers.py
+            - ./dashboard_data.py:/app/dashboard_data.py
+            - ./pool_history.py:/app/pool_history.py
+            - ./db.py:/app/db.py
+            - ./ui_login.py:/app/ui_login.py
+            - ./ui_dashboard.py:/app/ui_dashboard.py
+            - ./ui_leases.py:/app/ui_leases.py
+            - ./ui_ipam.py:/app/ui_ipam.py
+            - ./ui_reservations.py:/app/ui_reservations.py
+            - ./ui_maintenance.py:/app/ui_maintenance.py
+            - ./ui_quarantine.py:/app/ui_quarantine.py
+            - ./ui_settings.py:/app/ui_settings.py
+            - ./style.css:/app/style.css
+            - ./.streamlit:/app/.streamlit
+            - ./static:/app/static
+            - ./data:/app/data
+        command: >
+            streamlit run app.py
+            --server.runOnSave=true
+            --server.fileWatcherType=poll
+            --server.port=8501
+            --server.address=0.0.0.0
+            --server.headless=true
+            --browser.gatherUsageStats=false
 
-  keanexus-quarantine:
-    build:
-      context: .
-      dockerfile: quarantine_service/Dockerfile
-    container_name: keanexus-quarantine
-    restart: unless-stopped
-    # Host networking, not a bridge — ARP disruption and Kea's own DHCP
-    # broadcast handling both need real L2 access. NET_RAW/NET_ADMIN are
-    # scoped to this container only; KeaNexus and Kea itself stay unprivileged.
-    # See docs/quarantine-feature-design.md, open decisions #1 and #4.
-    network_mode: host
-    cap_add:
-      - NET_RAW
-      - NET_ADMIN
-    env_file:
-      - quarantine_service/.env
-    volumes:
-      - ./data:/app/data
-    # Opt-in only — never builds or starts unless explicitly requested:
-    #   docker compose --profile quarantine up
-    profiles:
-      - quarantine
+    keanexus-quarantine:
+        build:
+            context: .
+            dockerfile: quarantine_service/Dockerfile
+        container_name: keanexus-quarantine
+        restart: unless-stopped
+        # Host networking, not a bridge — ARP disruption and Kea's own DHCP
+        # broadcast handling both need real L2 access. NET_RAW/NET_ADMIN are
+        # scoped to this container only; KeaNexus and Kea itself stay unprivileged.
+        # See docs/quarantine-feature-design.md, open decisions #1 and #4.
+        network_mode: host
+        cap_add:
+            - NET_RAW
+            - NET_ADMIN
+        env_file:
+            - quarantine_service/.env
+        volumes:
+            - ./data:/app/data
+        # Opt-in only — never builds or starts unless explicitly requested:
+        #   docker compose --profile quarantine up
+        profiles:
+            - quarantine
