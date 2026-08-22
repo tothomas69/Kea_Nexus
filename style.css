@@ -25,9 +25,11 @@
 }
 
 /* --- Tab nav bar — fixed at top of the main content area ------------------
-   Streamlit's tabs are a React Aria tablist, not BaseWeb — there's no
-   data-baseweb attribute to hook here, only the ARIA role and stTab/stTabs
-   testids. Tabs sit flush against the blue rule below, so it reads as coming
+   Streamlit's tabs are BaseWeb (a <YB> Tabs with TabHighlight/TabBorder/
+   TabList overrides), reachable by both the ARIA role and stTab/stTabs
+   testids and by data-baseweb attributes. An earlier comment here claimed
+   the opposite, which is why the selection indicator below went on being
+   drawn. Tabs sit flush against the blue rule below, so it reads as coming
    directly off the tab shapes and running out to the page margins (left:210px
    to right:0) rather than as a separate strip floating under them — with the
    active tab interrupting it, see below. ---------------------------------- */
@@ -91,9 +93,15 @@
 	margin-bottom: -2px !important;
 }
 
-/* Suppress the tablist's own selection-indicator element — it draws a
-   default underline that would clash with the custom selected-tab look
-   above. */
+/* Suppress the tablist's own selection indicator. BaseWeb renders it as a
+   separate absolutely-positioned element (data-baseweb="tab-highlight")
+   sitting under the active tab, filled with the theme's primaryColor —
+   which is the same #0969da as this file's own rule, so it read as the rule
+   simply continuing under the active tab and no amount of restyling the tab
+   itself could remove it. The React Aria selector below matches nothing in
+   Streamlit 1.58 (verified against the shipped bundle); it stays only in
+   case a future version swaps the widget library back. */
+[data-baseweb="tab-highlight"],
 [data-testid="stTab"] .react-aria-SelectionIndicator {
 	display: none !important;
 }
