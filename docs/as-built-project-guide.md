@@ -42,7 +42,7 @@ keanexus/
 ├── helpers.py          — Cached data loaders, format utilities
 ├── db.py               — SQLite persistence layer (IPAM static records)
 ├── ui_login.py         — Login page: logo, username/password form
-├── ui_pool.py          — Pool tab: utilisation gauge, service health, lease summary
+├── ui_dashboard.py     — Dashboard tab: utilisation gauge, service health, lease summary
 ├── ui_leases.py        — Leases tab: HTML table with type classification
 ├── ui_ipam.py          — IPAM tab: full /24 subnet map + static entry management
 ├── ui_reservations.py  — Reservations tab: Kea config CRUD
@@ -176,7 +176,7 @@ Data persisted in Docker named volume `keanexus_data` mounted at `/app/data/`.
   cosmetic: without it, `st.tabs()` has no persisted selection and always resets
   to the first tab on any rerun. Several tabs trigger an explicit `st.rerun()`
   after an action (e.g. `ui_quarantine.py`'s Quarantine/Release buttons, and its
-  Add/Edit Device dialog's Save), which otherwise bounced the user to the Pool
+  Add/Edit Device dialog's Save), which otherwise bounced the user to the Dashboard
   tab with the previous tab's content still visible fading out underneath —
   `key=` makes the active tab persist across that rerun like any other keyed
   widget's session-state value
@@ -255,9 +255,9 @@ override_macs)` / `distinct_real_hostnames(leases, config)` — a Kea
 - `get_devices()`, `get_device(name)`, `upsert_device(...)`, `delete_device(name)`
 - `insert_quarantine_log_entry(...)`, `get_quarantine_log(friendly_name=None, limit=100)`
 
-### Pool Tab (`ui_pool.py`)
+### Dashboard Tab (`ui_dashboard.py`)
 
-- `render_pool(stats, config, status)` — 3-column card layout
+- `render_dashboard(stats, config, status)` — 3-column card layout
 - `_gauge(pct, used, total, avail)` — CSS conic-gradient donut ring; green <75%, amber 75–90%, red ≥90%
 - `_health_row(label, detail, up)` — service health row with status badge
 - `_metric_row(label, value)` — lease summary metric row

@@ -1,5 +1,6 @@
 """
-ui_pool.py - Pool utilization dashboard tab for KeaNexus.
+ui_dashboard.py - Dashboard tab for KeaNexus: pool utilisation, service health,
+lease summary.
 """
 
 from typing import Optional
@@ -78,7 +79,7 @@ def _metric_row(label: str, value, alert: bool = False, last: bool = False) -> s
 	)
 
 
-def render_pool(
+def render_dashboard(
 	stats: Optional[dict],
 	config: Optional[dict],
 	status: dict,

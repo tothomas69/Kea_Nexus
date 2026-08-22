@@ -84,7 +84,7 @@ class KeaClient:
 	def get_status(self) -> dict[str, ServiceStatus]:
 		"""
 		Check health and version for the kea-dhcp4 daemon.
-		Returns a dict with a "dhcp4" key for compatibility with ui_pool.py.
+		Returns a dict with a "dhcp4" key for compatibility with ui_dashboard.py.
 		The "ca" key is returned as a placeholder since there is no CA in Kea 3.0+.
 		"""
 
@@ -101,7 +101,7 @@ class KeaClient:
 			d4_r = {"result": -1, "text": str(e)}
 
 		return {
-			# No CA in Kea 3.0+ — placeholder keeps ui_pool.py health card working.
+			# No CA in Kea 3.0+ — placeholder keeps ui_dashboard.py health card working.
 			"ca": ServiceStatus(up=True, version="n/a", name="Kea API"),
 			"dhcp4": parse(d4_r, "DHCP Operational"),
 		}

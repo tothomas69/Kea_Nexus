@@ -13,11 +13,11 @@ from auth import SESSION_COOKIE_NAME, is_authenticated, logout, restore_session_
 from db import init_db
 from helpers import get_client, load_config, load_leases, load_pool_stats, load_status
 from kea import KeaError
+from ui_dashboard import render_dashboard
 from ui_ipam import render_ipam
 from ui_leases import render_leases
 from ui_login import render_login
 from ui_maintenance import render_maintenance
-from ui_pool import render_pool
 from ui_quarantine import render_quarantine
 from ui_reservations import render_reservations
 from ui_settings import render_settings
@@ -201,11 +201,11 @@ def main() -> None:
 	# Quarantine tab's st.rerun() after a Quarantine/Release action). Without
 	# it, st.tabs() has no persisted selection and always snaps back to the
 	# first tab on any rerun — from the user's side, clicking Quarantine
-	# would bounce them to Pool with the Quarantine tab's old content still
+	# would bounce them to Dashboard with the Quarantine tab's old content still
 	# fading out underneath.
-	tab_pool, tab_leases, tab_ipam, tab_res, tab_maint, tab_quarantine, tab_settings = st.tabs(
+	tab_dashboard, tab_leases, tab_ipam, tab_res, tab_maint, tab_quarantine, tab_settings = st.tabs(
 		[
-			"Pool",
+			"Dashboard",
 			"Leases",
 			"IPAM",
 			"Reservations",
@@ -215,8 +215,8 @@ def main() -> None:
 		],
 		key="main_tabs",
 	)
-	with tab_pool:
-		render_pool(stats, config, status)
+	with tab_dashboard:
+		render_dashboard(stats, config, status)
 	with tab_leases:
 		render_leases(leases, config)
 	with tab_ipam:
