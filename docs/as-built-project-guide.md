@@ -351,6 +351,13 @@ KPI tile row → gauge / service health / lease summary cards → utilisation tr
   curve, since readings are minutes apart and smoothing would draw values that
   were never measured; a transparent full-height rule per sample drives the
   crosshair and tooltip, because a 2px line is too small a hover target
+- Both bar charts pass `alt.Data(values=...)` rather than a DataFrame. Altair
+  turns a DataFrame into a _named_ dataset the spec only references, and Vega
+  evaluates the spec before that name resolves — logging "Infinite extent for
+  field count: [Infinity, -Infinity]" against an empty array on first paint.
+  Inline values have nothing to resolve, and `dashboard_data` already returns
+  JSON-shaped rows, so pandas is not in the path at all. The trend chart still
+  uses a DataFrame — it needs pandas for the UTC-to-local conversion
 - Both bar charts carry a value label past each bar's end via
   `_bar_value_labels`, never inside the bar — a short bar cannot fit one, and
   a label clipped by its own mark is worse than no label. The composition
