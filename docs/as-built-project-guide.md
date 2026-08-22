@@ -430,12 +430,19 @@ folded into the descriptions below rather than tracked as separate PR numbers.
 - `identity.py` — `resolve_target(kea, target, is_group)` resolves a `friendly_name`
   or `group_tag` against `device_registry`, then queries Kea's current leases by
   hostname (`KeaClient.get_leases_by_hostname`) to get the live MAC/IP.
-  `_matching_registry_entries` matches case-insensitively — `target` typically
-  arrives dictated via a Siri Shortcut, which capitalizes the first letter of
-  whatever was said regardless of how the device was actually registered. The
-  exact match is tried first (a fast, indexed lookup for the common case where
-  casing already matches); a case-insensitive scan over `get_devices()` only
-  runs as a fallback. Raises `DeviceNotRegisteredError` (mapped to HTTP 404).
+  `_matching_registry_entries` matches leniently, via `_normalized` — a target
+  arriving from a Siri Shortcut is mangled several ways at once: the iOS
+  keyboard capitalizes the first letter, dictation appends a trailing period,
+  autocorrect leaves a trailing space, and nobody says "underscore" out loud, so
+  `tommy_laptop` comes back as `Tommy Laptop.` `_normalized` reduces a name to
+  just its lowercased letters and digits, which makes all of those spellings
+  compare equal without a rule per mangling. The exact match is tried first (a
+  fast, indexed lookup for the common case, and it guarantees an
+  exactly-registered name is never shadowed by a different entry that normalizes
+  the same way); a normalized scan over `get_devices()` only runs as a fallback.
+  A target that normalizes to the empty string (pure punctuation) is rejected
+  outright rather than matched — an unset `group_tag` normalizes to `""` too, so
+  without that guard a target of `"."` would sweep up every ungrouped device. Raises `DeviceNotRegisteredError` (mapped to HTTP 404).
   For a single-device target,
   raises `DeviceNotOnNetworkError` (mapped to HTTP 409) if it has no current
   lease. For a group target, a device with no current lease is skipped rather
@@ -623,7 +630,7 @@ since they require a live Streamlit server and can't be unit-tested). That inclu
 | `tests/test_pihole.py`                      | `PiholeClient` session auth (caching, reuse, re-auth on expiry), CSRF header logic, error mapping, constructor overrides (base_url/password); `httpx` patched via `pihole_http_mock` fixture                                                                                                                                                                                                                                                                                                                                   |
 | `tests/test_quarantine_client.py`           | `trigger_quarantine`/`trigger_release` — request shape, auth header, is_group passthrough, missing-token error, connect error, HTTP error detail parsing; `httpx` patched via `quarantine_client_http_mock` fixture                                                                                                                                                                                                                                                                                                            |
 | `tests/test_quarantine_auth.py`             | `require_bearer_token` — missing config, missing/malformed header, wrong token, success                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| `tests/test_quarantine_identity.py`         | `resolve_target` — single device and group resolution, case-insensitive friendly_name/group_tag matching, unregistered target, no-lease case, last-seen refresh; `verify_identity_unchanged` — match, IP drift, MAC drift, lease gone — using `StubKeaClient`                                                                                                                                                                                                                                                                  |
+| `tests/test_quarantine_identity.py`         | `resolve_target` — single device and group resolution, case-insensitive friendly_name/group_tag matching, unregistered target, no-lease case, last-seen refresh; `verify_identity_unchanged` — match, IP drift, MAC drift, lease gone — using `StubKeaClient`. Target leniency is parametrized over every spelling iOS can produce (case, trailing period, trailing/leading space, spaces or hyphens for underscores), plus exact-match precedence and the punctuation-only guard                                              |
 | `tests/test_quarantine_kea_deny.py`         | `apply_drop_class` / `remove_drop_class` (pure config mutation), `deny_via_kea` / `undo_deny_via_kea` (via `StubKeaClient`)                                                                                                                                                                                                                                                                                                                                                                                                    |
 | `tests/test_quarantine_arp_disrupt.py`      | `send_poisoned_arp_reply` packet construction, `start_arp_disruption` / `stop_arp_disruption` loop lifecycle, idempotent restart, survives a failed send, no packets after stop — `sendp` always patched                                                                                                                                                                                                                                                                                                                       |
 | `tests/test_quarantine_pihole_block.py`     | `block_via_pihole` / `unblock_via_pihole` — group/regex creation vs reuse, unrelated groups ignored, client PUT/DELETE calls, using `StubPiholeClient`                                                                                                                                                                                                                                                                                                                                                                         |

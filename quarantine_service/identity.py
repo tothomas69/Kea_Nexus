@@ -80,27 +80,49 @@ def resolve_target(kea: KeaClient, target: str, is_group: bool) -> list[Resolved
 	return resolved_devices
 
 
+def _normalized(name: str) -> str:
+	"""Reduce a name to just its letters and digits, lowercased.
+
+	A target reaching this service from a Siri Shortcut arrives mangled in
+	several small ways at once: the iOS keyboard capitalizes the first
+	letter, dictation appends a trailing period, autocorrect leaves a
+	trailing space, and nobody says "underscore" out loud — so a device
+	registered as "tommy_laptop" comes back as "Tommy Laptop." Comparing on
+	letters and digits alone makes every one of those spellings equal
+	without needing a separate rule per mangling.
+	"""
+	return "".join(character for character in name.lower() if character.isalnum())
+
+
 def _matching_registry_entries(target: str, is_group: bool) -> list[dict]:
 	"""Return the device_registry rows matching target, by name or group tag.
 
-	Case-insensitive: target typically arrives dictated via a Siri Shortcut,
-	which capitalizes the first letter of whatever was said regardless of
-	how the friendly_name/group_tag was actually registered. The exact match
-	is tried first (a fast, indexed lookup for the common case where casing
-	already matches); a case-insensitive scan only runs as a fallback.
+	Matching is lenient about case, spacing, separators and trailing
+	punctuation — see _normalized for why. An exact match is always tried
+	first: it is a fast indexed lookup for the common case, and it
+	guarantees an exactly-registered name can never be shadowed by a
+	different entry that happens to normalize to the same thing.
 	"""
-	target_lower = target.lower()
+	normalized_target = _normalized(target)
+	if not normalized_target:
+		# Everything that carries meaning has been stripped away, so this
+		# would otherwise match any entry whose group_tag is blank.
+		raise DeviceNotRegisteredError(f"Target '{target}' contains no name to match on")
+
 	if not is_group:
 		device = get_device(target)
 		if device is None:
 			device = next(
-				(d for d in get_devices() if d["friendly_name"].lower() == target_lower), None
+				(d for d in get_devices() if _normalized(d["friendly_name"]) == normalized_target),
+				None,
 			)
 		if device is None:
 			raise DeviceNotRegisteredError(f"No device_registry entry for '{target}'")
 		return [device]
 
-	matches = [device for device in get_devices() if device["group_tag"].lower() == target_lower]
+	matches = [
+		device for device in get_devices() if _normalized(device["group_tag"]) == normalized_target
+	]
 	if not matches:
 		raise DeviceNotRegisteredError(f"No device_registry entries with group_tag '{target}'")
 	return matches
