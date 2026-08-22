@@ -61,3 +61,26 @@ class TestComposeMounts:
 		quietly stop covering anything."""
 		missing = {name for name in _NOT_REQUIRED_IN_KEANEXUS if not (_REPO_ROOT / name).exists()}
 		assert not missing, f"_NOT_REQUIRED_IN_KEANEXUS names files that no longer exist: {missing}"
+
+
+class TestComposeIsWellFormed:
+	"""The mount checks above use a regex, which happily matches lines in a file
+	Docker cannot parse. These catch that."""
+
+	def test_all_volume_entries_share_one_indentation(self):
+		"""A hand-edited line at the wrong indent makes the YAML invalid while
+		still matching the mount regex — exactly how a broken compose file got
+		committed once."""
+		indents = {
+			len(line) - len(line.lstrip(" "))
+			for line in _COMPOSE.read_text().splitlines()
+			if re.match(r"^\s*-\s+\./", line)
+		}
+		assert len(indents) == 1, (
+			f"volume entries use mixed indentation {sorted(indents)}; YAML needs one level"
+		)
+
+	def test_no_tabs_anywhere(self):
+		"""YAML forbids tabs for indentation outright, and this repo's prettier
+		config sets useTabs — so never let prettier format this file."""
+		assert "\t" not in _COMPOSE.read_text(), "docker-compose.yml contains a tab"

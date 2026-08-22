@@ -7,3 +7,6 @@ build/
 *.egg-info/
 coverage/
 .coverage
+
+# YAML forbids tabs, and .prettierrc sets useTabs — never let prettier near this.
+docker-compose.yml
