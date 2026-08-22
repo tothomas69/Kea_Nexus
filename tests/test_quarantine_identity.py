@@ -52,16 +52,54 @@ class TestResolveTargetSingleDevice:
 		with pytest.raises(DeviceNotOnNetworkError):
 			resolve_target(kea, "tommy_laptop", is_group=False)
 
-	def test_matches_case_insensitively(self, temp_db, stub_kea_client):
-		# Siri Shortcuts dictation capitalizes the first letter of whatever
-		# was said, regardless of how the device is actually registered.
+	@pytest.mark.parametrize(
+		"target",
+		[
+			"tommy_laptop",  # exactly as registered
+			"Tommy_laptop",  # iOS keyboard capitalizes the first letter
+			"TOMMY_LAPTOP",
+			"Tommy_laptop.",  # dictation appends a trailing period
+			"Tommy_laptop ",  # autocorrect leaves a trailing space
+			" tommy_laptop",
+			"Tommy Laptop",  # nobody says "underscore" out loud
+			"Tommy Laptop.",
+			"tommy-laptop",
+		],
+	)
+	def test_matches_however_ios_mangles_the_name(self, temp_db, stub_kea_client, target):
+		"""Every spelling a Siri Shortcut can plausibly hand this service for
+		a device registered as "tommy_laptop" must resolve to that device."""
 		db.upsert_device("tommy_laptop", hostname="tommy-kubuntu")
 		kea = stub_kea_client(
 			{"tommy-kubuntu": [{"hw-address": "aa:bb:cc:dd:ee:ff", "ip-address": "172.16.17.50"}]}
 		)
-		resolved = resolve_target(kea, "Tommy_laptop", is_group=False)
+		resolved = resolve_target(kea, target, is_group=False)
 		assert len(resolved) == 1
 		assert resolved[0].friendly_name == "tommy_laptop"
+
+	def test_exact_match_wins_over_a_normalized_one(self, temp_db, stub_kea_client):
+		"""Two names that normalize identically must not shadow each other —
+		an exactly-registered name always resolves to itself."""
+		db.upsert_device("Tommy Laptop", hostname="other-host")
+		db.upsert_device("tommy_laptop", hostname="tommy-kubuntu")
+		kea = stub_kea_client(
+			{
+				"tommy-kubuntu": [
+					{"hw-address": "aa:bb:cc:dd:ee:ff", "ip-address": "172.16.17.50"}
+				],
+				"other-host": [{"hw-address": "bb:bb:bb:bb:bb:bb", "ip-address": "172.16.17.51"}],
+			}
+		)
+		assert resolve_target(kea, "tommy_laptop", is_group=False)[0].hostname == "tommy-kubuntu"
+		assert resolve_target(kea, "Tommy Laptop", is_group=False)[0].hostname == "other-host"
+
+	def test_target_with_nothing_left_after_normalizing_is_rejected(self, temp_db, stub_kea_client):
+		"""Stripping punctuation must not turn junk into a wildcard that
+		matches the first registered device."""
+		db.upsert_device("tommy_laptop", hostname="tommy-kubuntu")
+		kea = stub_kea_client({})
+		with pytest.raises(DeviceNotRegisteredError):
+			resolve_target(kea, "...", is_group=False)
 
 
 class TestResolveTargetGroup:
@@ -97,14 +135,25 @@ class TestResolveTargetGroup:
 		with pytest.raises(DeviceNotRegisteredError):
 			resolve_target(kea, "nonexistent_group", is_group=True)
 
-	def test_matches_group_tag_case_insensitively(self, temp_db, stub_kea_client):
+	@pytest.mark.parametrize("target", ["kids", "Kids", "KIDS", "Kids.", "Kids ", " kids"])
+	def test_matches_group_tag_however_ios_mangles_it(self, temp_db, stub_kea_client, target):
 		db.upsert_device("tommy_laptop", hostname="tommy-kubuntu", group_tag="kids")
 		kea = stub_kea_client(
 			{"tommy-kubuntu": [{"hw-address": "aa:aa:aa:aa:aa:aa", "ip-address": "172.16.17.50"}]}
 		)
-		resolved = resolve_target(kea, "Kids", is_group=True)
+		resolved = resolve_target(kea, target, is_group=True)
 		assert len(resolved) == 1
 		assert resolved[0].friendly_name == "tommy_laptop"
+
+	def test_punctuation_only_group_target_does_not_match_ungrouped_devices(
+		self, temp_db, stub_kea_client
+	):
+		"""An unnamed group_tag normalizes to the empty string, so without a
+		guard a target of "." would sweep up every ungrouped device."""
+		db.upsert_device("ungrouped_pc", hostname="pc")
+		kea = stub_kea_client({})
+		with pytest.raises(DeviceNotRegisteredError):
+			resolve_target(kea, ".", is_group=True)
 
 	def test_one_device_missing_lease_is_skipped_not_fatal(self, temp_db, stub_kea_client):
 		db.upsert_device("tommy_laptop", hostname="tommy-kubuntu", group_tag="kids")

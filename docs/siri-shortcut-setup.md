@@ -68,6 +68,14 @@ In the Shortcuts app (exact menu wording may vary slightly by iOS version):
 7. Repeat for release, pointing at `/release` instead of `/quarantine`,
    named "Release Tommy's Laptop."
 
+**Names are matched leniently.** The `target` you put in the JSON body is
+matched against the registry on lowercased letters and digits only, so
+`tommy_laptop`, `Tommy_laptop`, `Tommy Laptop` and `Tommy Laptop.` all resolve
+to the same device — the iOS keyboard's automatic first-letter capitalization,
+a trailing space from autocorrect, and dictation's trailing period are all
+harmless. What still has to match is the letters themselves: `tommy_laptop` will
+not resolve `toms_laptop`.
+
 **For a whole group** instead of one device, use the same steps but set the
 JSON body to two fields: `target` → the group_tag (e.g. `kids`), and
 `is_group` (Boolean) → true. Name it something like "Quarantine the Kids."
