@@ -294,6 +294,17 @@ def _render_utilisation_history(samples: list[dict]) -> None:
 		)
 
 
+def _count_headroom(rows: list[dict]) -> int:
+	"""Upper bound for a count axis: the largest value plus room for its label.
+
+	Always at least 1, so an all-zero chart still gets a sensible axis instead
+	of a zero-width domain. Integer, so the axis ticks stay whole — a "0.5
+	leases" gridline is meaningless.
+	"""
+	largest = max((row["count"] for row in rows), default=0)
+	return max(int(largest * 1.25) + 1, 1)
+
+
 def _bar_value_labels(
 	base: alt.Chart, dx: int = 0, dy: int = 0, align: str = "center"
 ) -> alt.Chart:
@@ -331,7 +342,12 @@ def _render_expiry_chart(leases: list[dict]) -> None:
 	# JSON-shaped rows, so there is no reason to round-trip through pandas.
 	base = alt.Chart(alt.Data(values=buckets)).encode(
 		x=alt.X("bucket:N", title=None, sort=order, axis=alt.Axis(labelAngle=0)),
-		y=alt.Y("count:Q", title="Leases"),
+		y=alt.Y(
+			"count:Q",
+			title="Leases",
+			scale=alt.Scale(domain=[0, _count_headroom(buckets)]),
+			axis=alt.Axis(tickMinStep=1, format="d"),
+		),
 	)
 	bars = base.mark_bar(cornerRadiusEnd=4, size=28).encode(
 		color=alt.Color(
@@ -367,9 +383,17 @@ def _render_composition_chart(leases: list[dict], config: Optional[dict]) -> Non
 	# Inline values, same reasoning as the expiry chart above.
 	base = alt.Chart(alt.Data(values=composition)).encode(
 		y=alt.Y("type:N", title=None, sort=order),
-		# Headroom on the axis so a label past the longest bar isn't clipped
-		# by the plot edge.
-		x=alt.X("count:Q", title="Leases", scale=alt.Scale(nice=True, padding=18)),
+		# An explicit zero-anchored domain, NOT Scale(padding=...). Vega-Lite's
+		# scale padding expands the domain at both ends, so on a count axis it
+		# pushes the minimum below zero and the axis draws -1, -2 ticks for a
+		# quantity that cannot be negative. _count_headroom leaves room for the
+		# value label past the longest bar without touching the lower bound.
+		x=alt.X(
+			"count:Q",
+			title="Leases",
+			scale=alt.Scale(domain=[0, _count_headroom(composition)]),
+			axis=alt.Axis(tickMinStep=1, format="d"),
+		),
 	)
 	bars = base.mark_bar(color=_SERIES_1, cornerRadiusEnd=4, size=20).encode(
 		tooltip=[
