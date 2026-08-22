@@ -29,7 +29,8 @@ curl -X POST http://<netstack-ip>:8600/quarantine \
   -d '{"target": "tommy_laptop"}'
 ```
 
-A working call returns JSON with `resolved_devices` and `step_results`. Check
+A working call returns JSON with a plain-English `summary` field plus the
+diagnostic `resolved_devices` and `step_results`. Check
 the KeaNexus Quarantine tab's audit log afterward — you should see five new
 rows (`identity_resolution`, `kea`, `arp`, `pihole`, `nmap_refresh`). Then
 test release the same way against `/release`.
@@ -58,12 +59,47 @@ In the Shortcuts app (exact menu wording may vary slightly by iOS version):
         - `target` (Text) → `tommy_laptop` (the friendly_name from the registry)
 5. Rename the Shortcut to something you'd naturally say — "Quarantine
    Tommy's Laptop."
-6. Repeat for release, pointing at `/release` instead of `/quarantine`,
+6. Add two more actions after **Get Contents of URL** so the Shortcut ends
+   with a readable sentence instead of dumping raw JSON on screen (see
+   "Showing a friendly result" below):
+    - **Get Dictionary Value** → Get `Value` for `summary` in `Contents of URL`
+    - **Show Notification** (or **Show Alert**, or **Speak Text**) →
+      `Dictionary Value`
+7. Repeat for release, pointing at `/release` instead of `/quarantine`,
    named "Release Tommy's Laptop."
 
 **For a whole group** instead of one device, use the same steps but set the
 JSON body to two fields: `target` → the group_tag (e.g. `kids`), and
 `is_group` (Boolean) → true. Name it something like "Quarantine the Kids."
+
+## Showing a friendly result
+
+A Shortcut whose last action is **Get Contents of URL** displays whatever the
+API returned, which is a wall of JSON — accurate, and unreadable to anyone who
+didn't build it. The service returns a `summary` field for exactly this:
+
+```json
+{
+  "summary": "Kids Ipad and Xbox are off the internet.",
+  "target": "kids",
+  "action": "quarantine",
+  "resolved_devices": [...],
+  "step_results": [...]
+}
+```
+
+The wording covers a partial failure honestly rather than rounding it up to
+"done" — e.g. `"Kids Ipad is off the internet. Couldn't take Xbox off the
+internet — try again."` — so what the notification says always matches what
+actually happened. Underscores in a `friendly_name` become spaces and each
+word is capitalised, so register devices with names that read well that way
+(`kids_ipad` → "Kids Ipad").
+
+The `summary` sentence only reflects the three steps that actually take a
+device off the network (Kea, ARP, Pi-hole). The nmap fingerprint refresh is
+identity upkeep that runs in both directions, so an inconclusive scan won't
+report a failure to someone who just wants to know whether the wifi is off —
+the per-step detail is still in `step_results` for the KeaNexus tab.
 
 ## Wiring it up to Siri
 

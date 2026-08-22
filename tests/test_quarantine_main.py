@@ -16,7 +16,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import db
-from quarantine_service.main import app
+from quarantine_service.main import _human_summary, app
 
 
 @pytest.fixture
@@ -498,3 +498,101 @@ class TestLastQuarantinedStamp:
 		device = db.get_device("tommy_laptop")
 		assert device["group_tag"] == "kids"
 		assert device["notes"] == "school laptop"
+
+
+def _step_result(friendly_name: str, succeeded: bool = True, drifted: bool = False) -> dict:
+	"""A step_results entry as _resolve_and_log builds one, for the summary
+	tests below — fingerprint_refreshed is deliberately False throughout to
+	prove it never affects the human-facing sentence."""
+	return {
+		"friendly_name": friendly_name,
+		"kea_step_succeeded": succeeded,
+		"arp_step_succeeded": succeeded,
+		"pihole_step_succeeded": succeeded,
+		"fingerprint_refreshed": False,
+		"skipped_due_to_identity_drift": drifted,
+	}
+
+
+class TestHumanSummary:
+	def test_single_device_quarantine_reads_as_a_sentence(self):
+		summary = _human_summary("quarantine", [_step_result("tommy_laptop")])
+		assert summary == "Tommy Laptop is off the internet."
+
+	def test_single_device_release_reads_as_a_sentence(self):
+		summary = _human_summary("release", [_step_result("tommy_laptop")])
+		assert summary == "Tommy Laptop is back online."
+
+	def test_two_devices_are_joined_with_and(self):
+		summary = _human_summary("quarantine", [_step_result("kids_ipad"), _step_result("xbox")])
+		assert summary == "Kids Ipad and Xbox are off the internet."
+
+	def test_three_devices_use_commas_and_a_final_and(self):
+		summary = _human_summary(
+			"release",
+			[_step_result("kids_ipad"), _step_result("xbox"), _step_result("tommy_laptop")],
+		)
+		assert summary == "Kids Ipad, Xbox and Tommy Laptop are back online."
+
+	def test_failed_device_gets_its_own_sentence(self):
+		summary = _human_summary(
+			"quarantine", [_step_result("kids_ipad"), _step_result("xbox", succeeded=False)]
+		)
+		assert summary == (
+			"Kids Ipad is off the internet. Couldn't take Xbox off the internet — try again."
+		)
+
+	def test_identity_drift_counts_as_a_failure(self):
+		summary = _human_summary("release", [_step_result("xbox", drifted=True)])
+		assert summary == "Couldn't put Xbox back online — try again."
+
+	def test_inconclusive_fingerprint_does_not_read_as_failure(self):
+		"""fingerprint_refreshed is False in every _step_result above — the
+		nmap refresh is identity upkeep, not enforcement, so it must not
+		turn a fully-enforced device into a failure sentence."""
+		summary = _human_summary("quarantine", [_step_result("tommy_laptop")])
+		assert "Couldn't" not in summary
+
+	def test_no_resolved_devices_says_so_plainly(self):
+		summary = _human_summary("quarantine", [])
+		assert summary == "Nothing to do — nothing matching that name is on the network."
+
+
+class TestSummaryInResponse:
+	def test_quarantine_response_includes_summary(self, client, stub_kea_client):
+		db.upsert_device("tommy_laptop", hostname="tommy-kubuntu")
+		stub = stub_kea_client(
+			leases_by_hostname={
+				"tommy-kubuntu": [{"hw-address": "aa:bb:cc:dd:ee:ff", "ip-address": "172.16.17.50"}]
+			},
+			dhcp4_config={"subnet4": [{"reservations": [], "option-data": []}]},
+		)
+		with (
+			patch("quarantine_service.main._get_kea_client", return_value=stub),
+			patch("quarantine_service.main.start_arp_disruption"),
+			patch("quarantine_service.main.block_via_pihole"),
+			patch("quarantine_service.main.refresh_os_fingerprint", return_value=""),
+		):
+			response = client.post(
+				"/quarantine", json={"target": "tommy_laptop"}, headers=_auth_header()
+			)
+		assert response.json()["summary"] == "Tommy Laptop is off the internet."
+
+	def test_release_response_includes_summary(self, client, stub_kea_client):
+		db.upsert_device("tommy_laptop", hostname="tommy-kubuntu")
+		stub = stub_kea_client(
+			leases_by_hostname={
+				"tommy-kubuntu": [{"hw-address": "aa:bb:cc:dd:ee:ff", "ip-address": "172.16.17.50"}]
+			},
+			dhcp4_config={"subnet4": [{"reservations": [], "option-data": []}]},
+		)
+		with (
+			patch("quarantine_service.main._get_kea_client", return_value=stub),
+			patch("quarantine_service.main.stop_arp_disruption"),
+			patch("quarantine_service.main.unblock_via_pihole"),
+			patch("quarantine_service.main.refresh_os_fingerprint", return_value=""),
+		):
+			response = client.post(
+				"/release", json={"target": "tommy_laptop"}, headers=_auth_header()
+			)
+		assert response.json()["summary"] == "Tommy Laptop is back online."
