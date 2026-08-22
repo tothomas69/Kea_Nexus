@@ -183,9 +183,7 @@ def render_maintenance(leases: list[dict]) -> None:
 			if not found:
 				st.info("No leases found.")
 			else:
-				st.dataframe(
-					leases_to_df(found)[DISPLAY_COLS], use_container_width=True, hide_index=True
-				)
+				st.dataframe(leases_to_df(found)[DISPLAY_COLS], width="stretch", hide_index=True)
 		except KeaError as e:
 			st.error(str(e))
 
