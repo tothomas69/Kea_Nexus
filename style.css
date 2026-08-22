@@ -84,13 +84,32 @@
 	font-weight: 800 !important;
 	border-color: #0969da !important;
 	box-shadow: 0 -1px 3px rgba(0, 0, 0, 0.08) !important;
-	/* Interrupt the blue rule directly beneath the active tab, so the tab
-	   reads as joined to the content below it while the rule continues either
-	   side. The bottom border is the tab's own white, and the matching
-	   negative margin lets it extend down into the bar's 2px padding strip
-	   without changing the tab's height or nudging its neighbours. */
-	border-bottom: 2px solid #ffffff !important;
-	margin-bottom: -2px !important;
+}
+
+/* Interrupt the blue rule directly beneath the active tab, so the tab reads as
+   joined to the content below while the rule continues either side.
+   
+   Done with an absolutely-positioned overlay rather than a bottom border plus
+   negative margin, which was tried first and cannot work: BaseWeb's tab is a
+   fixed-height flex item (StyledTab sets an explicit height), so it never
+   stretches, and a negative bottom margin shrinks the flex line instead of
+   extending the tab down over the rule. Absolute positioning ignores flex
+   layout entirely. The overshoot top and bottom is deliberate — it guarantees
+   the 2px strip is covered whatever the exact tab height works out to, and the
+   tablist's own overflow:hidden clips the excess for free. z-index clears
+   BaseWeb's tab-highlight, which sits at z-index 1. */
+[data-testid="stTab"] {
+	position: relative !important;
+}
+[data-testid="stTab"][aria-selected="true"]::after {
+	content: "";
+	position: absolute;
+	left: -1px;
+	right: -1px;
+	bottom: -6px;
+	height: 8px;
+	background: #ffffff;
+	z-index: 2;
 }
 
 /* Suppress the tablist's own selection indicator. BaseWeb renders it as a
