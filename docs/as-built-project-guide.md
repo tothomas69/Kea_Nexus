@@ -40,10 +40,11 @@ keanexus/
 ├── pihole.py           — Pi-hole v6 REST API client (session auth); used by quarantine_service
 ├── quarantine_client.py — Thin client KeaNexus uses to call keanexus-quarantine's own API
 ├── helpers.py          — Cached data loaders, format utilities
+├── dashboard_data.py   — Pure metric/chart shaping for the Dashboard tab
 ├── pool_history.py     — Background sampler building the pool utilisation time series
 ├── db.py               — SQLite persistence layer (IPAM static records)
 ├── ui_login.py         — Login page: logo, username/password form
-├── ui_dashboard.py     — Dashboard tab: utilisation gauge, service health, lease summary
+├── ui_dashboard.py     — Dashboard tab: KPI tiles, gauge, service health, Altair charts
 ├── ui_leases.py        — Leases tab: HTML table with type classification
 ├── ui_ipam.py          — IPAM tab: full /24 subnet map + static entry management
 ├── ui_reservations.py  — Reservations tab: Kea config CRUD
@@ -289,10 +290,74 @@ override_macs)` / `distinct_real_hostnames(leases, config)` — a Kea
 - `insert_quarantine_log_entry(...)`, `get_quarantine_log(friendly_name=None, limit=100)`
 - `insert_pool_sample(...)`, `get_pool_samples(since=None, limit=10000)` (oldest-first, since every caller plots on a time axis), `prune_pool_samples(retention_days)`
 
+### Dashboard Data (`dashboard_data.py`)
+
+Pure shaping for every number the Dashboard shows — plain data in, plain data
+out, no Streamlit/Kea/SQLite. Lives outside `ui_dashboard.py` because `ui_*.py`
+needs a live Streamlit server and is excluded from coverage, so logic placed
+there would be untestable. 100% covered by `tests/test_dashboard_data.py`.
+
+- `lease_expiry_buckets(leases, now_epoch)` — counts active leases into the fixed
+  `EXPIRY_BUCKETS` (`< 1h`, `1–6h`, `6–24h`, `> 24h`). Declined leases excluded
+  (they hold an address but aren't a device on a renewal timer); already-expired
+  leases fall into the first bucket rather than being dropped, since a lease Kea
+  hasn't reclaimed is exactly what's worth seeing. Empty buckets are still
+  returned so the chart's axis doesn't reshape as data changes
+- `lease_composition(leases, config)` — counts by reservation type in fixed
+  `LEASE_TYPES` order, reusing `helpers.lease_type` so the Dashboard can never
+  drift from the Leases/IPAM tabs
+- `utilisation_points(samples, gap_seconds)` — pool samples to plottable points,
+  **inserting a None-valued point wherever consecutive samples are further apart
+  than `gap_seconds`** so Vega-Lite breaks the line. Drawing through a gap would
+  assert a measurement never taken — an overnight outage would read as steady
+  utilisation
+- `leases_issued_since(samples, window_hours, now, baseline_tolerance_seconds=3600)`
+  — new leases handed out, from the monotonic `cumulative-assigned-addresses`
+  counter. **Deliberately not computed from lease data**: a lease's `cltt` is the
+  client's _last_ transmission, rewritten on every renewal, so a device that
+  renews hourly would look brand new forever. Returns `None` rather than a
+  misleading figure in two cases — no sample old enough to measure against, and a
+  baseline sitting further before the cutoff than the tolerance allows (with a
+  real sampling gap the newest sample at-or-before the cutoff can be hours stale,
+  and reporting ten hours of leases as "the last hour" would be worse than
+  reporting nothing). A negative delta means Kea restarted and reset the counter;
+  that also returns `None`
+- `quarantined_count(devices)` — counts `is_quarantined`, never
+  `last_quarantined_at`, which is never cleared on release
+
 ### Dashboard Tab (`ui_dashboard.py`)
 
-- `render_dashboard(stats, config, status)` — 3-column card layout
+Render-only; all figures come from `dashboard_data.py`. Layout top to bottom:
+KPI tile row → gauge / service health / lease summary cards → utilisation trend
+→ expiry distribution + lease composition.
+
+- `render_dashboard(stats, config, status, leases=None)` — takes `leases` (added
+  for the charts) and reads `pool_samples`/`device_registry` from `db` directly
+- **Two rendering paths, deliberately.** Stat tiles, the gauge and health rows
+  stay hand-written HTML, consistent with the "HTML tables (not st.dataframe)"
+  and "CSS conic-gradient gauge" decisions. Charts are Altair (already a
+  Streamlit dependency — nothing added to `requirements.txt`), themed to the
+  app's monospace/palette, because hand-rolling axis ticks, binning and scales in
+  SVG buys nothing the existing convention was protecting
+- **Chart colours were validated, not chosen by eye.** `_SERIES_1` is the app's
+  own accent `#0969da` (passes lightness band, chroma floor, 3:1 contrast on the
+  white card surface). `_EXPIRY_RAMP` is a single-hue _ordinal_ ramp, because the
+  expiry buckets are an ordered scale rather than identities — assigned
+  darkest-first so the eye lands on the soonest-expiring bucket. Composition bars
+  are nominal, so every bar takes the same slot-1 hue rather than spending the
+  identity channel re-encoding bar length
+- Trend chart: single series so no legend; `%a %H:%M` axis labels because
+  `%H:%M` alone repeats every label across a multi-day window; no interpolation
+  curve, since readings are minutes apart and smoothing would draw values that
+  were never measured; a transparent full-height rule per sample drives the
+  crosshair and tooltip, because a 2px line is too small a hover target
+- Every chart has a "Show the numbers" expander — a table-view twin, so no value
+  is reachable only by reading a mark or hovering
+- Degrades rather than throwing: fewer than two samples shows an explanatory
+  caption instead of the chart; `leases_issued_since` returning `None` shows "—"
+  with a "needs more history" note
 - `_gauge(pct, used, total, avail)` — CSS conic-gradient donut ring; green <75%, amber 75–90%, red ≥90%
+- `_stat_tile(label, value, color, note)` — one KPI tile
 - `_health_row(label, detail, up)` — service health row with status badge
 - `_metric_row(label, value)` — lease summary metric row
 
@@ -663,6 +728,8 @@ since they require a live Streamlit server and can't be unit-tested). That inclu
 | `tests/test_db.py`                          | Full CRUD on `ipam_static`, `reservation_labels`, `device_registry`, and `quarantine_log` via `temp_db` fixture (SQLite in tmp dir)                                                                                                                                                                                                                                                                                                                                                                                            |
 | `tests/test_kea.py`                         | All `KeaClient` methods; `httpx` patched via `http_mock` fixture                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | `tests/test_helpers.py`                     | `fmt_ttl`, `chip`, `leases_to_df`, `build_reservation_type_sets`, `lease_type`, `build_hostname_override_sets`, `real_hostname`, `distinct_real_hostnames`, `lease_for_reservation` (pure functions only)                                                                                                                                                                                                                                                                                                                      |
+| `tests/test_dashboard_data.py`              | `lease_expiry_buckets` (bucket boundaries, expired leases, declined excluded, missing `valid-lft`), `lease_composition`, `utilisation_points` (gap breaking, declined counted as used, zero total), `leases_issued_since` (cumulative delta, stale baseline rejected, counter reset, insufficient history), `quarantined_count`                                                                                                                                                                                                |
+| `tests/test_ui_dashboard_render.py`         | Headless render via Streamlit's `AppTest` — page executes without raising, every section reaches the output, each chart has a table-view expander, missing stats shows an error not a crash, and an empty `pool_samples` degrades to a caption                                                                                                                                                                                                                                                                                 |
 | `tests/test_pihole.py`                      | `PiholeClient` session auth (caching, reuse, re-auth on expiry), CSRF header logic, error mapping, constructor overrides (base_url/password); `httpx` patched via `pihole_http_mock` fixture                                                                                                                                                                                                                                                                                                                                   |
 | `tests/test_quarantine_client.py`           | `trigger_quarantine`/`trigger_release` — request shape, auth header, is_group passthrough, missing-token error, connect error, HTTP error detail parsing; `httpx` patched via `quarantine_client_http_mock` fixture                                                                                                                                                                                                                                                                                                            |
 | `tests/test_quarantine_auth.py`             | `require_bearer_token` — missing config, missing/malformed header, wrong token, success                                                                                                                                                                                                                                                                                                                                                                                                                                        |

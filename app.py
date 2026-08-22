@@ -231,7 +231,7 @@ def main() -> None:
 		key="main_tabs",
 	)
 	with tab_dashboard:
-		render_dashboard(stats, config, status)
+		render_dashboard(stats, config, status, leases)
 	with tab_leases:
 		render_leases(leases, config)
 	with tab_ipam:
