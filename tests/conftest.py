@@ -29,10 +29,10 @@ def http_mock():
 class StubKeaClient:
 	"""Duck-typed stand-in for KeaClient for quarantine_service tests.
 
-	Only implements what quarantine_service actually calls — lease lookup by
-	hostname for identity resolution, and config get/save for the Kea deny
-	action. Avoids mocking httpx for tests that don't care about the HTTP
-	transport itself. saved_configs records every save_config call so tests
+	Implements what quarantine_service and the pool sampler actually call —
+	lease lookup by hostname for identity resolution, config get/save for the
+	Kea deny action, and the pool counters. Avoids mocking httpx for tests
+	that don't care about the HTTP transport itself. saved_configs records every save_config call so tests
 	can assert on what was actually pushed to Kea.
 	"""
 
@@ -40,15 +40,35 @@ class StubKeaClient:
 		self,
 		leases_by_hostname: Optional[dict[str, list[dict]]] = None,
 		dhcp4_config: Optional[dict] = None,
+		pool_stats: Optional[dict] = None,
 	):
 		self._leases_by_hostname = leases_by_hostname or {}
 		self._dhcp4_config = (
 			dhcp4_config if dhcp4_config is not None else {"subnet4": [{"reservations": []}]}
 		)
+		self._pool_stats = pool_stats or {}
 		self.saved_configs: list[dict] = []
 
 	def get_leases_by_hostname(self, hostname: str) -> list[dict]:
 		return self._leases_by_hostname.get(hostname, [])
+
+	def get_pool_stats(self) -> dict:
+		"""Mirror KeaClient.get_pool_stats, including its derived `available`.
+
+		Tests pass only the counters they care about; anything omitted
+		defaults to zero, and `available` is computed the same way the real
+		client computes it rather than being supplied by hand.
+		"""
+		total = self._pool_stats.get("total", 0)
+		assigned = self._pool_stats.get("assigned", 0)
+		declined = self._pool_stats.get("declined", 0)
+		return {
+			"total": total,
+			"assigned": assigned,
+			"declined": declined,
+			"available": max(total - assigned - declined, 0),
+			"cumulative": self._pool_stats.get("cumulative", 0),
+		}
 
 	def get_config(self) -> dict:
 		return self._dhcp4_config

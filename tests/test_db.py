@@ -3,6 +3,8 @@ test_db.py — Tests for db.py SQLite persistence layer.
 All tests use the temp_db fixture (conftest.py) to avoid touching /app/data/.
 """
 
+from datetime import datetime, timedelta, timezone
+
 import pytest
 
 import db
@@ -343,3 +345,93 @@ class TestGetQuarantineLog:
 	def test_zero_limit_raises(self, temp_db):
 		with pytest.raises(AssertionError):
 			db.get_quarantine_log(limit=0)
+
+
+class TestPoolSamples:
+	def test_insert_and_read_back(self, temp_db):
+		db.insert_pool_sample(total=200, assigned=40, declined=2, available=158, cumulative=900)
+		samples = db.get_pool_samples()
+		assert len(samples) == 1
+		assert samples[0]["total"] == 200
+		assert samples[0]["assigned"] == 40
+		assert samples[0]["declined"] == 2
+		assert samples[0]["available"] == 158
+		assert samples[0]["cumulative"] == 900
+
+	def test_sampled_at_is_stamped_as_utc(self, temp_db):
+		db.insert_pool_sample(total=1, assigned=0, declined=0, available=1, cumulative=0)
+		sampled_at = db.get_pool_samples()[0]["sampled_at"]
+		assert sampled_at.endswith("+00:00"), "sampled_at must be UTC-aware ISO8601"
+
+	def test_returned_oldest_first(self, temp_db):
+		for assigned in (1, 2, 3):
+			db.insert_pool_sample(
+				total=10,
+				assigned=assigned,
+				declined=0,
+				available=10 - assigned,
+				cumulative=assigned,
+			)
+		assert [s["assigned"] for s in db.get_pool_samples()] == [1, 2, 3]
+
+	def test_since_filters_older_samples(self, temp_db):
+		db.insert_pool_sample(total=10, assigned=1, declined=0, available=9, cumulative=1)
+		cutoff = db.get_pool_samples()[0]["sampled_at"]
+		db.insert_pool_sample(total=10, assigned=2, declined=0, available=8, cumulative=2)
+
+		recent = db.get_pool_samples(since=cutoff)
+		assert [s["assigned"] for s in recent] == [1, 2]
+
+		future = (datetime.now(timezone.utc) + timedelta(days=1)).isoformat()
+		assert db.get_pool_samples(since=future) == []
+
+	def test_respects_limit(self, temp_db):
+		for assigned in range(5):
+			db.insert_pool_sample(
+				total=10,
+				assigned=assigned,
+				declined=0,
+				available=10 - assigned,
+				cumulative=assigned,
+			)
+		assert len(db.get_pool_samples(limit=3)) == 3
+
+	def test_zero_limit_raises(self, temp_db):
+		with pytest.raises(AssertionError):
+			db.get_pool_samples(limit=0)
+
+	def test_negative_counter_raises(self, temp_db):
+		with pytest.raises(AssertionError):
+			db.insert_pool_sample(total=-1, assigned=0, declined=0, available=0, cumulative=0)
+
+	def test_prune_removes_only_old_samples(self, temp_db):
+		"""Written directly rather than via insert_pool_sample, which always
+		stamps 'now' — pruning can't be tested without an old row."""
+		old = (datetime.now(timezone.utc) - timedelta(days=45)).isoformat()
+		with db._connect() as conn:
+			conn.execute(
+				"""
+				INSERT INTO pool_samples (
+					sampled_at, total, assigned, declined, available, cumulative
+				)
+				VALUES (?, 10, 1, 0, 9, 1)
+				""",
+				(old,),
+			)
+			conn.commit()
+		db.insert_pool_sample(total=10, assigned=2, declined=0, available=8, cumulative=2)
+
+		assert len(db.get_pool_samples()) == 2
+		assert db.prune_pool_samples(retention_days=30) == 1
+		remaining = db.get_pool_samples()
+		assert len(remaining) == 1
+		assert remaining[0]["assigned"] == 2
+
+	def test_prune_with_nothing_old_removes_nothing(self, temp_db):
+		db.insert_pool_sample(total=10, assigned=1, declined=0, available=9, cumulative=1)
+		assert db.prune_pool_samples(retention_days=30) == 0
+		assert len(db.get_pool_samples()) == 1
+
+	def test_zero_retention_raises(self, temp_db):
+		with pytest.raises(AssertionError):
+			db.prune_pool_samples(retention_days=0)

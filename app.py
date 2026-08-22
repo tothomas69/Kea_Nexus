@@ -13,6 +13,7 @@ from auth import SESSION_COOKIE_NAME, is_authenticated, logout, restore_session_
 from db import init_db
 from helpers import get_client, load_config, load_leases, load_pool_stats, load_status
 from kea import KeaError
+from pool_history import start_pool_sampler
 from ui_dashboard import render_dashboard
 from ui_ipam import render_ipam
 from ui_leases import render_leases
@@ -37,6 +38,20 @@ st.markdown(f"<style>{_css}</style>", unsafe_allow_html=True)
 
 # --- Database initialisation --------------------------------------------------
 init_db()
+
+
+# --- Pool utilisation history -------------------------------------------------
+# Kea keeps no history of its own, so any utilisation trend chart is built from
+# readings this background loop takes — see pool_history.py, including why it
+# only starts once a browser session has connected. @st.cache_resource makes
+# Streamlit run this once per process rather than on every script rerun.
+@st.cache_resource
+def _start_pool_sampler() -> bool:
+	start_pool_sampler()
+	return True
+
+
+_start_pool_sampler()
 
 # --- Session cookie -------------------------------------------------------------
 # Backs login persistence across a page reload — see auth.py's module

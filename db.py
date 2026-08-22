@@ -5,7 +5,7 @@ Manages the local database for IPAM static address records.
 
 import sqlite3
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Iterator, Optional
 
@@ -83,6 +83,21 @@ def init_db() -> None:
 				label        TEXT NOT NULL
 			)
 		""")
+		conn.execute("""
+			CREATE TABLE IF NOT EXISTS pool_samples (
+				sample_id   INTEGER PRIMARY KEY AUTOINCREMENT,
+				sampled_at  TEXT NOT NULL,
+				total       INTEGER NOT NULL,
+				assigned    INTEGER NOT NULL,
+				declined    INTEGER NOT NULL,
+				available   INTEGER NOT NULL,
+				cumulative  INTEGER NOT NULL
+			)
+		""")
+		# Every read of this table is "the samples since <time>", so the
+		# ordering column earns an index — without it a 30-day window
+		# scans the whole table on every dashboard render.
+		conn.execute("CREATE INDEX IF NOT EXISTS idx_pool_samples_at ON pool_samples (sampled_at)")
 		conn.execute("""
 			CREATE TABLE IF NOT EXISTS quarantine_log (
 				log_id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -369,3 +384,74 @@ def get_quarantine_log(friendly_name: Optional[str] = None, limit: int = 100) ->
 				"SELECT * FROM quarantine_log ORDER BY log_id DESC LIMIT ?", (limit,)
 			).fetchall()
 	return [dict(row) for row in rows]
+
+
+def insert_pool_sample(
+	total: int, assigned: int, declined: int, available: int, cumulative: int
+) -> None:
+	"""Record one point-in-time reading of Kea's pool counters.
+
+	Kea only ever reports the present, so a utilisation trend has to be
+	accumulated from readings taken over time — this is that table's only
+	writer. sampled_at is stamped here as UTC so callers never reason
+	about timezones.
+	"""
+	assert total >= 0, "total must not be negative"
+	assert assigned >= 0, "assigned must not be negative"
+	assert declined >= 0, "declined must not be negative"
+	assert available >= 0, "available must not be negative"
+	assert cumulative >= 0, "cumulative must not be negative"
+	sampled_at = datetime.now(timezone.utc).isoformat()
+	with _connect() as conn:
+		conn.execute(
+			"""
+			INSERT INTO pool_samples (
+				sampled_at, total, assigned, declined, available, cumulative
+			)
+			VALUES (?, ?, ?, ?, ?, ?)
+			""",
+			(sampled_at, total, assigned, declined, available, cumulative),
+		)
+		conn.commit()
+
+
+def get_pool_samples(since: Optional[str] = None, limit: int = 10000) -> list[dict]:
+	"""Return pool samples oldest-first, optionally only those at or after
+	`since` (a UTC ISO8601 string).
+
+	Oldest-first because every caller plots these on a time axis; reversing
+	the list at each call site would be pure noise.
+	"""
+	assert limit >= 1, "limit must be at least 1"
+	with _connect() as conn:
+		if since:
+			rows = conn.execute(
+				"""
+				SELECT * FROM pool_samples
+				WHERE sampled_at >= ?
+				ORDER BY sampled_at ASC
+				LIMIT ?
+				""",
+				(since, limit),
+			).fetchall()
+		else:
+			rows = conn.execute(
+				"SELECT * FROM pool_samples ORDER BY sampled_at ASC LIMIT ?",
+				(limit,),
+			).fetchall()
+	return [dict(row) for row in rows]
+
+
+def prune_pool_samples(retention_days: int) -> int:
+	"""Delete samples older than retention_days. Returns the row count removed.
+
+	Unbounded sampling would grow this table forever — at the default
+	five-minute interval that is roughly 105k rows a year, for history
+	nobody looks at beyond the recent past.
+	"""
+	assert retention_days >= 1, "retention_days must be at least 1"
+	cutoff = (datetime.now(timezone.utc) - timedelta(days=retention_days)).isoformat()
+	with _connect() as conn:
+		cursor = conn.execute("DELETE FROM pool_samples WHERE sampled_at < ?", (cutoff,))
+		conn.commit()
+		return cursor.rowcount

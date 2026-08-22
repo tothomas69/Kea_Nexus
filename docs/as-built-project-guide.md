@@ -40,6 +40,7 @@ keanexus/
 ├── pihole.py           — Pi-hole v6 REST API client (session auth); used by quarantine_service
 ├── quarantine_client.py — Thin client KeaNexus uses to call keanexus-quarantine's own API
 ├── helpers.py          — Cached data loaders, format utilities
+├── pool_history.py     — Background sampler building the pool utilisation time series
 ├── db.py               — SQLite persistence layer (IPAM static records)
 ├── ui_login.py         — Login page: logo, username/password form
 ├── ui_dashboard.py     — Dashboard tab: utilisation gauge, service health, lease summary
@@ -225,6 +226,34 @@ override_macs)` / `distinct_real_hostnames(leases, config)` — a Kea
   override" (a lease exists, but `real_hostname` blanks it) — the fix differs
   between the two, so collapsing both to a bare dash would hide that
 
+### Pool History Sampler (`pool_history.py`)
+
+- Kea reports only the present — `stat-lease4-summary` answers "how full is the
+  pool right now" and keeps no history — so any utilisation trend has to be
+  accumulated from readings taken over time. This module is the only writer of
+  `db.pool_samples`
+- `start_pool_sampler()` starts one daemon thread per process, idempotent
+  (a second loop would double every sample). `app.py` calls it behind
+  `@st.cache_resource` so Streamlit runs it once per process rather than on
+  every script rerun. `stop_pool_sampler()` and `is_sampling()` exist for tests;
+  production never stops the loop, the daemon thread dies with the process
+- `take_sample_now(kea=None)` takes and stores one reading; returns False rather
+  than raising when Kea is unreachable, since that is an ordinary recoverable
+  condition for a sampler and the series should resume on its own
+- `_run_sampler_loop` catches every exception per pass — a sampler that dies on
+  one bad pass stops producing history silently, and nothing notices until
+  someone opens the chart and finds it frozen
+- **Known limitation:** Streamlit does not execute `app.py` until a browser
+  session connects (the same trap documented for `init_db()` under the
+  quarantine service), so after a container restart sampling does not resume
+  until somebody next opens KeaNexus. Once started it runs for the life of the
+  process regardless of whether anyone is watching — which is the property that
+  matters, and the reason this is a background thread rather than a sample taken
+  during page render. Consumers must treat gaps as gaps and never interpolate
+  across a period with no samples
+- Configured via `POOL_SAMPLE_INTERVAL_SECONDS` (default 300, floored at 1) and
+  `POOL_SAMPLE_RETENTION_DAYS` (default 30); each pass prunes older rows
+
 ### Database (`db.py`)
 
 - SQLite at `/app/data/keanexus.db`
@@ -244,6 +273,10 @@ override_macs)` / `distinct_real_hostnames(leases, config)` — a Kea
   the enforcement action actually taken (`True` on quarantine, `False` on
   release), not gated on individual step success — a partial failure is
   already visible in that action's own step-result checkmarks.
+- Table: `pool_samples` — time series of Kea's pool counters (sample_id PK
+  autoincrement, sampled_at, total, assigned, declined, available, cumulative),
+  written only by `pool_history.py`. Indexed on `sampled_at`, since every read is
+  "the samples since <time>" and an unindexed 30-day window scans the whole table
 - Table: `quarantine_log` — append-only audit trail (log_id PK autoincrement,
   friendly_name, action, step, succeeded, attempt_count, detail, occurred_at).
   Written by the `keanexus-quarantine` service (see below) on every enforcement
@@ -254,6 +287,7 @@ override_macs)` / `distinct_real_hostnames(leases, config)` — a Kea
   `delete_reservation_label(mac)` — mac_address is always lowercased before storage/lookup
 - `get_devices()`, `get_device(name)`, `upsert_device(...)`, `delete_device(name)`
 - `insert_quarantine_log_entry(...)`, `get_quarantine_log(friendly_name=None, limit=100)`
+- `insert_pool_sample(...)`, `get_pool_samples(since=None, limit=10000)` (oldest-first, since every caller plots on a time axis), `prune_pool_samples(retention_days)`
 
 ### Dashboard Tab (`ui_dashboard.py`)
 
@@ -595,6 +629,8 @@ All endpoints require `Authorization: Bearer <QUARANTINE_API_TOKEN>`.
 
 **Sidebar pinned open on desktop, collapsible on phones (`style.css`)** — This app hides Streamlit's whole `stHeader` bar, and Streamlit renders the re-open-sidebar arrow inside it, so collapsing the sidebar left no control to bring it back. The original fix pinned the sidebar open at every viewport by neutralising `[data-testid="stSidebar"][aria-expanded="false"]`. That is right on a desktop and wrong on a phone, where a fixed 210px panel covers most of the screen and can never be dismissed. The force-open rule is now scoped to `min-width: 768px`; below that a phone block restores Streamlit's own controls — the in-sidebar collapse button (normally only visible on hover, which touch screens don't do) and the header's re-open arrow, exposed by making the header an invisible click-through strip with pointer events re-enabled on that one button. The fixed tab bar drops its `left: 210px` offset on phones and scrolls sideways instead of squashing seven tabs.
 
+**Pool history sampled in-process, with gaps left as gaps** — A utilisation trend needs data Kea does not keep, so KeaNexus samples it itself. The sampler is a background thread in the Streamlit container rather than a sample taken during page render, because rendering-time sampling only records while a browser is open and would draw a flat line across every overnight gap — a chart that lies. The tradeoff is that Streamlit does not execute `app.py` until a session connects, so sampling does not resume after a container restart until somebody opens KeaNexus; once started it runs for the process's life regardless of who is watching. The two alternatives were rejected deliberately: the quarantine service's existing always-on loop is behind an optional Compose profile, so a core tab's history would silently be empty for anyone not running it, and a dedicated sampler container is more infrastructure than a home deployment warrants. Because gaps are therefore expected, nothing interpolates across them — `get_pool_samples` returns exactly the readings taken.
+
 **All times UTC internally** — Kea lease expiry timestamps are Unix epoch. Display formatting converts to human-readable durations via `fmt_ttl()`. `quarantine_log.occurred_at` is likewise stamped as UTC ISO8601 in `db.py`, not left to the caller.
 
 **Reservation labels decoupled from Kea's `hostname` field** — Kea's own docs confirm host-level reservation values (including `hostname`) always take priority: once a reservation sets `hostname`, Kea echoes that admin-typed string back on every lease for the device, permanently discarding whatever hostname the client itself requests. That made `device_registry` entries built from a reservation's hostname unable to ever match a live lease during quarantine identity resolution (`resolve_target` would raise `DeviceNotOnNetworkError` for a device that was clearly online), and made the Leases tab show a made-up label instead of the device's real name. Reservations created or edited via `ui_reservations.py` no longer send `hostname` to Kea at all — the admin-facing label lives in `db.reservation_labels` instead, keyed by MAC, so Kea always preserves the real DHCP-negotiated hostname on the lease. The tradeoff: a reservation's hostname can no longer drive Kea's own DDNS registration for that device, since Kea has nothing to register.
@@ -638,6 +674,7 @@ since they require a live Streamlit server and can't be unit-tested). That inclu
 | `tests/test_quarantine_retry.py`            | `run_with_retries` — first-attempt success, success-after-failures, exhausted-retries, custom `max_attempts`, one-row-per-step logging                                                                                                                                                                                                                                                                                                                                                                                         |
 | `tests/test_quarantine_main.py`             | FastAPI routes via `TestClient` — auth enforcement, 404/409 error mapping, all four enforcement steps wired correctly, group requests, pre-fire safety check skips a device whose identity drifted between resolution and enforcement, `/presence-check/{friendly_name}`, `is_quarantined`/`last_quarantined_at` stamping on quarantine vs. release; `_human_summary` sentence construction (single/multiple devices, partial failure, identity drift, inconclusive fingerprint) and its presence in both endpoints' responses |
 | `tests/test_quarantine_presence_check.py`   | `probe_device_now` — unregistered device, no current lease, Kea unreachable, no ARP reply, ARP reply stamps last-seen fields, default-constructed `KeaClient`; `_run_one_pass` probes every registered device                                                                                                                                                                                                                                                                                                                  |
+| `tests/test_pool_history.py`                | `take_sample_now` (writes a row, derives `available`, survives an unreachable Kea), sampler lifecycle (start records, idempotent start, stop, safe stop when never started, a failing pass does not kill the loop), and interval/retention env-var handling                                                                                                                                                                                                                                                                    |
 
 `conftest.py` provides `temp_db` (redirects `_DB_PATH` to a temp file), `http_mock`
 (patches `kea.httpx.Client`), `pihole_http_mock` (patches `pihole.httpx.Client`,
