@@ -294,6 +294,28 @@ def _render_utilisation_history(samples: list[dict]) -> None:
 		)
 
 
+def _bar_value_labels(
+	base: alt.Chart, dx: int = 0, dy: int = 0, align: str = "center"
+) -> alt.Chart:
+	"""Value labels sitting just past each bar's end.
+
+	Outside the bar, never inside it: a short bar cannot fit a label, and a
+	label clipped by its own mark is worse than no label. Labels wear a text
+	token rather than the bar's colour — the bar beside them already carries
+	the identity, and colouring the number too would make the text read as a
+	third encoding.
+	"""
+	return base.mark_text(
+		align=align,
+		baseline="middle",
+		dx=dx,
+		dy=dy,
+		font=_CHART_FONT,
+		fontSize=11,
+		color=_TITLE_COLOR,
+	).encode(text=alt.Text("count:Q", format="d"))
+
+
 def _render_expiry_chart(leases: list[dict]) -> None:
 	"""Lease expiry distribution — ordered buckets, so a single-hue ordinal
 	ramp rather than categorical hues; the x-axis labels carry identity, so
@@ -302,25 +324,23 @@ def _render_expiry_chart(leases: list[dict]) -> None:
 	frame = pd.DataFrame(buckets)
 	order = [b["bucket"] for b in buckets]
 
-	chart = (
-		alt.Chart(frame)
-		.mark_bar(cornerRadiusEnd=4, size=34)
-		.encode(
-			x=alt.X("bucket:N", title=None, sort=order, axis=alt.Axis(labelAngle=0)),
-			y=alt.Y("count:Q", title="Leases"),
-			color=alt.Color(
-				"bucket:N",
-				sort=order,
-				scale=alt.Scale(domain=order, range=_EXPIRY_RAMP),
-				legend=None,
-			),
-			tooltip=[
-				alt.Tooltip("bucket:N", title="Expires in"),
-				alt.Tooltip("count:Q", title="Leases"),
-			],
-		)
-		.properties(height=190)
+	base = alt.Chart(frame).encode(
+		x=alt.X("bucket:N", title=None, sort=order, axis=alt.Axis(labelAngle=0)),
+		y=alt.Y("count:Q", title="Leases"),
 	)
+	bars = base.mark_bar(cornerRadiusEnd=4, size=34).encode(
+		color=alt.Color(
+			"bucket:N",
+			sort=order,
+			scale=alt.Scale(domain=order, range=_EXPIRY_RAMP),
+			legend=None,
+		),
+		tooltip=[
+			alt.Tooltip("bucket:N", title="Expires in"),
+			alt.Tooltip("count:Q", title="Leases"),
+		],
+	)
+	chart = alt.layer(bars, _bar_value_labels(base, dy=-7)).properties(height=190)
 	st.markdown(_chart_heading("Expiring Within"), unsafe_allow_html=True)
 	st.altair_chart(_themed(chart), width="stretch")
 	with st.expander("Show the numbers"):
@@ -340,19 +360,19 @@ def _render_composition_chart(leases: list[dict], config: Optional[dict]) -> Non
 	frame = pd.DataFrame(composition)
 	order = [c["type"] for c in composition]
 
-	chart = (
-		alt.Chart(frame)
-		.mark_bar(color=_SERIES_1, cornerRadiusEnd=4, size=20)
-		.encode(
-			y=alt.Y("type:N", title=None, sort=order),
-			x=alt.X("count:Q", title="Leases"),
-			tooltip=[
-				alt.Tooltip("type:N", title="Type"),
-				alt.Tooltip("count:Q", title="Leases"),
-			],
-		)
-		.properties(height=190)
+	base = alt.Chart(frame).encode(
+		y=alt.Y("type:N", title=None, sort=order),
+		# Headroom on the axis so a label past the longest bar isn't clipped
+		# by the plot edge.
+		x=alt.X("count:Q", title="Leases", scale=alt.Scale(nice=True, padding=18)),
 	)
+	bars = base.mark_bar(color=_SERIES_1, cornerRadiusEnd=4, size=20).encode(
+		tooltip=[
+			alt.Tooltip("type:N", title="Type"),
+			alt.Tooltip("count:Q", title="Leases"),
+		]
+	)
+	chart = alt.layer(bars, _bar_value_labels(base, dx=7, align="left")).properties(height=190)
 	st.markdown(_chart_heading("Lease Composition"), unsafe_allow_html=True)
 	st.altair_chart(_themed(chart), width="stretch")
 	with st.expander("Show the numbers"):

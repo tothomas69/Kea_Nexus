@@ -351,6 +351,11 @@ KPI tile row → gauge / service health / lease summary cards → utilisation tr
   curve, since readings are minutes apart and smoothing would draw values that
   were never measured; a transparent full-height rule per sample drives the
   crosshair and tooltip, because a 2px line is too small a hover target
+- Both bar charts carry a value label past each bar's end via
+  `_bar_value_labels`, never inside the bar — a short bar cannot fit one, and
+  a label clipped by its own mark is worse than no label. The composition
+  chart's x-scale gets extra padding so the label past the longest bar isn't
+  clipped by the plot edge. Labels wear a text token, not the bar's colour
 - Every chart has a "Show the numbers" expander — a table-view twin, so no value
   is reachable only by reading a mark or hovering
 - Degrades rather than throwing: fewer than two samples shows an explanatory
