@@ -275,6 +275,80 @@ def _enforce_device(
 	return result
 
 
+def _display_name(friendly_name: str) -> str:
+	"""Registry keys are snake_case ("tommy_laptop"); this is the form a
+	person reads on a phone notification."""
+	return friendly_name.replace("_", " ").title()
+
+
+def _join_names(display_names: list[str]) -> str:
+	"""Joins names the way a person would say them out loud: one name alone,
+	two joined by "and", three or more comma-separated with a final "and"."""
+	if len(display_names) == 1:
+		return display_names[0]
+	return f"{', '.join(display_names[:-1])} and {display_names[-1]}"
+
+
+def _enforcement_succeeded(step_result: dict) -> bool:
+	"""Whether the three steps that actually take a device off the network
+	(or put it back on) all worked.
+
+	Deliberately ignores fingerprint_refreshed: the nmap refresh is identity
+	upkeep that runs in both directions, so a device whose scan came back
+	inconclusive is still fully quarantined. Counting it here would report
+	failure to someone who only wants to know whether the wifi is off.
+	"""
+	if step_result.get("skipped_due_to_identity_drift"):
+		return False
+	return bool(
+		step_result.get("kea_step_succeeded")
+		and step_result.get("arp_step_succeeded")
+		and step_result.get("pihole_step_succeeded")
+	)
+
+
+_SUCCESS_SENTENCES = {
+	"quarantine": "{names} {is_are} off the internet.",
+	"release": "{names} {is_are} back online.",
+}
+_FAILURE_SENTENCES = {
+	"quarantine": "Couldn't take {names} off the internet — try again.",
+	"release": "Couldn't put {names} back online — try again.",
+}
+_NOTHING_TO_DO_SENTENCE = "Nothing to do — nothing matching that name is on the network."
+
+
+def _sentence(template: str, friendly_names: list[str]) -> str:
+	return template.format(
+		names=_join_names([_display_name(name) for name in friendly_names]),
+		is_are="is" if len(friendly_names) == 1 else "are",
+	)
+
+
+def _human_summary(action: str, step_results: list[dict]) -> str:
+	"""One plain-English sentence describing what actually happened.
+
+	step_results is the honest record and stays in the response for the
+	KeaNexus UI and for debugging, but it is a list of dicts of booleans —
+	fine on a laptop, useless as the thing a Siri Shortcut shows on a phone
+	screen. This is the line to display or speak there instead. A mixed
+	outcome yields both sentences so a partial failure is never rounded up
+	into "done".
+	"""
+	if not step_results:
+		return _NOTHING_TO_DO_SENTENCE
+
+	succeeded = [s["friendly_name"] for s in step_results if _enforcement_succeeded(s)]
+	failed = [s["friendly_name"] for s in step_results if not _enforcement_succeeded(s)]
+
+	sentences = []
+	if succeeded:
+		sentences.append(_sentence(_SUCCESS_SENTENCES[action], succeeded))
+	if failed:
+		sentences.append(_sentence(_FAILURE_SENTENCES[action], failed))
+	return " ".join(sentences)
+
+
 def _resolve_and_log(request: QuarantineRequest, action: str) -> dict:
 	kea = _get_kea_client()
 	pihole_clients = _get_pihole_clients()
@@ -305,6 +379,9 @@ def _resolve_and_log(request: QuarantineRequest, action: str) -> dict:
 		step_results.append(_enforce_device(kea, pihole_clients, device, action))
 
 	return {
+		# First key deliberately: a Siri Shortcut that just dumps the
+		# response shows this line before any of the diagnostic detail.
+		"summary": _human_summary(action, step_results),
 		"target": request.target,
 		"action": action,
 		"resolved_devices": [_resolved_device_to_dict(device) for device in resolved_devices],
