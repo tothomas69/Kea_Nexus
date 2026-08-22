@@ -39,7 +39,7 @@ def _sample(minutes_after_base: int, cumulative: int = 0, **counters) -> dict:
 class TestLeaseExpiryBuckets:
 	def test_every_bucket_present_even_when_empty(self):
 		buckets = dd.lease_expiry_buckets([], _NOW_EPOCH)
-		assert [b["bucket"] for b in buckets] == ["< 1h", "1–6h", "6–24h", "> 24h"]
+		assert [b["bucket"] for b in buckets] == ["< 1h", "1–6h", "6–12h", "12–24h", "> 24h"]
 		assert all(b["count"] == 0 for b in buckets)
 
 	@pytest.mark.parametrize(
@@ -49,8 +49,12 @@ class TestLeaseExpiryBuckets:
 			(3599, "< 1h"),
 			(3600, "1–6h"),
 			(5 * 3600, "1–6h"),
-			(6 * 3600, "6–24h"),
-			(23 * 3600, "6–24h"),
+			(6 * 3600, "6–12h"),
+			(11 * 3600, "6–12h"),
+			# The split that matters: a 24h lease renews at 12h, so this
+			# boundary separates "renewing soon" from "just renewed".
+			(12 * 3600, "12–24h"),
+			(23 * 3600, "12–24h"),
 			(24 * 3600, "> 24h"),
 			(72 * 3600, "> 24h"),
 		],

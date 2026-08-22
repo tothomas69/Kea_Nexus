@@ -298,7 +298,10 @@ needs a live Streamlit server and is excluded from coverage, so logic placed
 there would be untestable. 100% covered by `tests/test_dashboard_data.py`.
 
 - `lease_expiry_buckets(leases, now_epoch)` — counts active leases into the fixed
-  `EXPIRY_BUCKETS` (`< 1h`, `1–6h`, `6–24h`, `> 24h`). Declined leases excluded
+  `EXPIRY_BUCKETS` (`< 1h`, `1–6h`, `6–12h`, `12–24h`, `> 24h`). The 12h split is
+  deliberate: a DHCP client renews at half its lease time, so with a common 24h
+  lease almost every healthy device lands in the 6–24h band — leaving it whole put
+  most of the network in one bar and said nothing about renewal timing. Declined leases excluded
   (they hold an address but aren't a device on a renewal timer); already-expired
   leases fall into the first bucket rather than being dropped, since a lease Kea
   hasn't reclaimed is exactly what's worth seeing. Empty buckets are still
