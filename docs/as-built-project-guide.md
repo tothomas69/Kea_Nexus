@@ -354,6 +354,11 @@ KPI tile row → gauge / service health / lease summary cards → utilisation tr
   curve, since readings are minutes apart and smoothing would draw values that
   were never measured; a transparent full-height rule per sample drives the
   crosshair and tooltip, because a 2px line is too small a hover target
+- Both count axes use an explicit zero-anchored domain from `_count_headroom`,
+  never `Scale(padding=...)`. Vega-Lite's scale padding expands the domain at
+  _both_ ends, so on a count axis it pushes the minimum below zero and the axis
+  draws `-1`/`-2` ticks for a quantity that cannot be negative. `tickMinStep=1`
+  keeps ticks whole — a "0.5 leases" gridline is meaningless
 - Both bar charts pass `alt.Data(values=...)` rather than a DataFrame. Altair
   turns a DataFrame into a _named_ dataset the spec only references, and Vega
   evaluates the spec before that name resolves — logging "Infinite extent for
