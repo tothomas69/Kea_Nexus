@@ -92,13 +92,22 @@
 	background-color: #b4bec8 !important;
 }
 
-/* Force sidebar open even when Streamlit marks it collapsed */
-[data-testid="stSidebar"][aria-expanded="false"] {
-	transform: none !important;
-	display: block !important;
-	visibility: visible !important;
-	width: 210px !important;
-	min-width: 210px !important;
+/* Force the sidebar open even when Streamlit marks it collapsed — desktop
+   widths only. Streamlit renders the re-open arrow inside
+   [data-testid="stHeader"], which this file hides wholesale at the top, so
+   on a desktop browser collapsing the sidebar was a one-way trip with no
+   control left to bring it back. On a phone the tradeoff inverts: a pinned
+   210px panel covers most of a ~390px screen, so there the sidebar has to
+   be able to slide away — the phone block at the bottom of this file
+   restores Streamlit's own collapse/expand controls instead of pinning it. */
+@media (min-width: 768px) {
+	[data-testid="stSidebar"][aria-expanded="false"] {
+		transform: none !important;
+		display: block !important;
+		visibility: visible !important;
+		width: 210px !important;
+		min-width: 210px !important;
+	}
 }
 
 [data-testid="stSidebar"] > div:first-child {
@@ -449,4 +458,58 @@
 
 [data-tooltip]:hover::after {
 	opacity: 1;
+}
+
+/* --- Phone layout (< 768px) -----------------------------------------------
+   Everything above assumes a desktop browser: a permanently-open 210px
+   sidebar, with the main content and the fixed tab bar both starting to the
+   right of it. On a phone that leaves roughly a thumb's width for actual
+   content, so here the sidebar goes back to being a collapsible overlay and
+   the tab bar reclaims the full width. ------------------------------------ */
+@media (max-width: 767px) {
+	/* The collapse control sits in the sidebar's own header, but Streamlit
+	   only flips it from visibility:hidden to visible while the pointer is
+	   hovering the sidebar. A touch screen never hovers, so without this
+	   there is no way to close the sidebar once it is open. */
+	[data-testid="stSidebarCollapseButton"] {
+		visibility: visible !important;
+	}
+
+	/* The matching re-open arrow lives inside stHeader, which is
+	   display:none at the top of this file. Bring the header back as an
+	   invisible, click-through strip so only that one button is reachable.
+	   stHeader is position:absolute, so this costs no layout space, but its
+	   inner toolbar sets pointer-events:auto across the full width — left
+	   alone it would swallow every tap in the top ~60px of the screen,
+	   including the tab bar underneath. Hence pointer-events:none on both
+	   header and toolbar, re-enabled on the one button that needs it. */
+	[data-testid="stHeader"] {
+		display: flex !important;
+		background: transparent !important;
+		pointer-events: none !important;
+	}
+	[data-testid="stToolbar"] {
+		pointer-events: none !important;
+	}
+	[data-testid="stExpandSidebarButton"] {
+		pointer-events: auto !important;
+	}
+
+	/* The header's other occupants would otherwise become visible along
+	   with it — none of them belong in this app's chrome. */
+	[data-testid="stStatusWidget"],
+	[data-testid="stAppDeployButton"],
+	[data-testid="stMainMenu"] {
+		display: none !important;
+	}
+
+	/* Full width now that the sidebar is an overlay rather than a column
+	   beside the content, with room at the left for the re-open arrow, and
+	   scrolling sideways rather than squashing seven tabs into 390px. */
+	[data-testid="stTabs"] [role="tablist"] {
+		left: 0 !important;
+		padding-left: 2.75rem !important;
+		padding-right: 0.5rem !important;
+		overflow-x: auto !important;
+	}
 }
