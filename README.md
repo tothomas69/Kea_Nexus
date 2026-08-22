@@ -85,7 +85,7 @@ and a Pi-hole local DNS record pointing at NPM (`172.16.17.212`).
 | `auth.py`                | Login / session authentication                         |
 | `helpers.py`             | Cached data loaders (`@st.cache_data`) and utilities   |
 | `db.py`                  | SQLite persistence layer for IPAM static records       |
-| `ui_pool.py`             | Pool tab                                               |
+| `ui_dashboard.py`        | Dashboard tab                                          |
 | `ui_leases.py`           | Leases tab                                             |
 | `ui_ipam.py`             | IPAM tab                                               |
 | `ui_reservations.py`     | Reservations tab                                       |
