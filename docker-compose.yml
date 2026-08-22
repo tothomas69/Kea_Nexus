@@ -21,8 +21,8 @@ services:
             - ./db.py:/app/db.py
             - ./ui_login.py:/app/ui_login.py
             - ./ui_dashboard.py:/app/ui_dashboard.py
-      - ./ui_docs.py:/app/ui_docs.py
-      - ./docs_library.py:/app/docs_library.py
+            - ./ui_docs.py:/app/ui_docs.py
+            - ./docs_library.py:/app/docs_library.py
             - ./ui_leases.py:/app/ui_leases.py
             - ./ui_ipam.py:/app/ui_ipam.py
             - ./ui_reservations.py:/app/ui_reservations.py
@@ -32,7 +32,7 @@ services:
             - ./style.css:/app/style.css
             - ./.streamlit:/app/.streamlit
             - ./static:/app/static
-      - ./docs:/app/docs
+            - ./docs:/app/docs
             - ./data:/app/data
         command: >
             streamlit run app.py
