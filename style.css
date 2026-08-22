@@ -87,9 +87,21 @@
 
 /* --- Sidebar -------------------------------------------------------------- */
 [data-testid="stSidebar"] {
+	background-color: #b4bec8 !important;
+}
+
+/* Pin the width only while the sidebar is expanded. Streamlit collapses by
+   animating min-width and max-width to 0 (alongside a translateX of the
+   sidebar's width), so pinning those unconditionally with !important — as
+   this rule used to — overrides the 0 and leaves the panel occupying 210px
+   of layout even when Streamlit considers it collapsed. The transform still
+   slides it out of sight, so the visible result is a 210px empty gutter and
+   content that never reclaims the space: the collapse appears to do nothing.
+   Scoping to [aria-expanded="true"] leaves Streamlit's collapsed geometry
+   untouched. */
+[data-testid="stSidebar"][aria-expanded="true"] {
 	min-width: 210px !important;
 	max-width: 210px !important;
-	background-color: #b4bec8 !important;
 }
 
 /* Force the sidebar open even when Streamlit marks it collapsed — desktop
@@ -106,7 +118,10 @@
 		display: block !important;
 		visibility: visible !important;
 		width: 210px !important;
+		/* Both, not just min-width: Streamlit sets max-width to 0 on collapse
+		   too, and the base rule above no longer covers the collapsed state. */
 		min-width: 210px !important;
+		max-width: 210px !important;
 	}
 }
 
