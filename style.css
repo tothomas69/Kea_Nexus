@@ -25,13 +25,12 @@
 }
 
 /* --- Tab nav bar — fixed at top of the main content area ------------------
-   Which widget library backs these tabs DEPENDS ON THE STREAMLIT VERSION,
-   so both are targeted below. Streamlit 1.58 renders BaseWeb tabs
-   (data-baseweb="tab-highlight"); the version running in the deployed
-   container renders React Aria ones instead (data-rac attributes,
-   react-aria-* ids, and a .react-aria-SelectionIndicator child inside each
-   tab) — confirmed from the live DOM. requirements.txt pins only
-   streamlit>=1.40.0, so a rebuild can move between them. Tabs sit flush against the blue rule below, so it reads as coming
+   Streamlit 1.62 (pinned in requirements.txt) renders these as React Aria
+   tabs: data-rac attributes, react-aria-* ids, and a
+   .react-aria-SelectionIndicator child inside each tab. Streamlit 1.58
+   rendered BaseWeb tabs instead (data-baseweb="tab-highlight"), so both are
+   still targeted below — that difference is exactly why the version is now
+   pinned rather than floated. Tabs sit flush against the blue rule below, so it reads as coming
    directly off the tab shapes and running out to the page margins (left:210px
    to right:0) rather than as a separate strip floating under them — with the
    active tab interrupting it, see below. ---------------------------------- */
@@ -115,13 +114,13 @@
 }
 
 /* Suppress the tablist's own selection indicator, whichever library drew it.
-   React Aria renders it as a .react-aria-SelectionIndicator child of the tab;
-   BaseWeb renders a separate absolutely-positioned data-baseweb="tab-highlight"
-   element under the active tab. Both are filled from the theme's primaryColor
-   — the same #0969da this file uses for the bar's own rule — so either one
-   reads as the rule simply continuing under the active tab. Keep both
-   selectors: only one matches on any given Streamlit version, and which one
-   is not pinned. */
+   React Aria (1.62) styles it as position:absolute; bottom:0; left:0;
+   width:100%; height:2px inside each tab, transparent until the tab carries
+   [data-selected], at which point it takes the theme's primaryColor. BaseWeb
+   (1.58) instead renders a separate data-baseweb="tab-highlight" element.
+   Either way the fill is the same #0969da this file uses for the bar's own
+   rule, so an unsuppressed indicator reads as the rule simply continuing
+   under the active tab. */
 [data-baseweb="tab-highlight"],
 [data-testid="stTab"] .react-aria-SelectionIndicator {
 	display: none !important;
