@@ -27,10 +27,10 @@
 /* --- Tab nav bar — fixed at top of the main content area ------------------
    Streamlit's tabs are a React Aria tablist, not BaseWeb — there's no
    data-baseweb attribute to hook here, only the ARIA role and stTab/stTabs
-   testids. No bottom padding on the bar itself — tabs sit flush against the
-   blue border-bottom below so the line reads as coming directly off the tab
-   shapes and running out to the page margins (left:210px to right:0),
-   rather than as a separate strip floating under them. --------------------- */
+   testids. Tabs sit flush against the blue rule below, so it reads as coming
+   directly off the tab shapes and running out to the page margins (left:210px
+   to right:0) rather than as a separate strip floating under them — with the
+   active tab interrupting it, see below. ---------------------------------- */
 [data-testid="stTabs"] [role="tablist"] {
 	position: fixed !important;
 	top: 0.75rem !important;
@@ -39,9 +39,15 @@
 	z-index: 999 !important;
 	background: #eaecf0 !important;
 	border: none !important;
-	border-bottom: 2px solid #0969da !important;
+	/* The blue rule is an inset shadow rather than a border-bottom, and the bar
+	   carries 2px of bottom padding to hold it. A border sits outside the
+	   padding box, where the active tab cannot reach it without a negative
+	   margin that the phone rule's overflow-x:auto would then clip. Inset,
+	   the rule lives inside the padding box, so the active tab can paint over
+	   its own slice of it — see the aria-selected rule below. */
+	box-shadow: inset 0 -2px 0 #0969da !important;
 	border-radius: 0 !important;
-	padding: 3px 1.5rem 0 1.5rem !important;
+	padding: 3px 1.5rem 2px 1.5rem !important;
 	gap: 4px !important;
 }
 
@@ -76,6 +82,13 @@
 	font-weight: 800 !important;
 	border-color: #0969da !important;
 	box-shadow: 0 -1px 3px rgba(0, 0, 0, 0.08) !important;
+	/* Interrupt the blue rule directly beneath the active tab, so the tab
+	   reads as joined to the content below it while the rule continues either
+	   side. The bottom border is the tab's own white, and the matching
+	   negative margin lets it extend down into the bar's 2px padding strip
+	   without changing the tab's height or nudging its neighbours. */
+	border-bottom: 2px solid #ffffff !important;
+	margin-bottom: -2px !important;
 }
 
 /* Suppress the tablist's own selection-indicator element — it draws a
