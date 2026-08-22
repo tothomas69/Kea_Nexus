@@ -321,10 +321,15 @@ def _render_expiry_chart(leases: list[dict]) -> None:
 	ramp rather than categorical hues; the x-axis labels carry identity, so
 	nothing here is encoded by colour alone."""
 	buckets = lease_expiry_buckets(leases, utc_now().timestamp())
-	frame = pd.DataFrame(buckets)
 	order = [b["bucket"] for b in buckets]
 
-	base = alt.Chart(frame).encode(
+	# alt.Data(values=...) rather than a DataFrame: Altair turns a DataFrame
+	# into a *named* dataset the spec only references, and Vega evaluates the
+	# spec before that name resolves — logging "Infinite extent for field
+	# count: [Infinity, -Infinity]" against an empty array on first paint.
+	# Inline values have nothing to resolve. dashboard_data already returns
+	# JSON-shaped rows, so there is no reason to round-trip through pandas.
+	base = alt.Chart(alt.Data(values=buckets)).encode(
 		x=alt.X("bucket:N", title=None, sort=order, axis=alt.Axis(labelAngle=0)),
 		y=alt.Y("count:Q", title="Leases"),
 	)
@@ -357,10 +362,10 @@ def _render_composition_chart(leases: list[dict], config: Optional[dict]) -> Non
 	slot-1 hue rather than spending the identity channel re-encoding bar
 	length. Horizontal, because the type names are long."""
 	composition = lease_composition(leases, config)
-	frame = pd.DataFrame(composition)
 	order = [c["type"] for c in composition]
 
-	base = alt.Chart(frame).encode(
+	# Inline values, same reasoning as the expiry chart above.
+	base = alt.Chart(alt.Data(values=composition)).encode(
 		y=alt.Y("type:N", title=None, sort=order),
 		# Headroom on the axis so a label past the longest bar isn't clipped
 		# by the plot edge.
