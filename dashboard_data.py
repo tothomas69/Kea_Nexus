@@ -19,10 +19,17 @@ from helpers import build_reservation_type_sets, lease_type
 # Ordered soonest-expiring first, so the ordinal colour ramp reads in the same
 # direction as the buckets. Upper bound is exclusive and in seconds; the final
 # bucket is open-ended.
+#
+# 6–24h is split at 12h deliberately. A DHCP client renews at half its lease
+# time, so with the common 24h lease almost every healthy device sits somewhere
+# in that band — leaving it whole put most of the network in one bar and said
+# nothing about renewal timing. The split separates "renewing soon" from
+# "just renewed."
 EXPIRY_BUCKETS: list[tuple[str, Optional[int]]] = [
 	("< 1h", 3600),
 	("1–6h", 6 * 3600),
-	("6–24h", 24 * 3600),
+	("6–12h", 12 * 3600),
+	("12–24h", 24 * 3600),
 	("> 24h", None),
 ]
 

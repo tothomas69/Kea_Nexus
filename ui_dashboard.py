@@ -44,7 +44,7 @@ from dashboard_data import (
 #                    monotone lightness, adjacent-step separation, single-hue
 #                    spread, and the 2:1 light-end floor (2.50:1).
 _SERIES_1 = "#0969da"
-_EXPIRY_RAMP = ["#104281", "#256abf", "#3987e5", "#6da7ec"]
+_EXPIRY_RAMP = ["#0d366b", "#184f95", "#256abf", "#3987e5", "#6da7ec"]
 
 _CHART_FONT = "monospace"
 _GRID_COLOR = "#f0f2f5"
@@ -333,7 +333,7 @@ def _render_expiry_chart(leases: list[dict]) -> None:
 		x=alt.X("bucket:N", title=None, sort=order, axis=alt.Axis(labelAngle=0)),
 		y=alt.Y("count:Q", title="Leases"),
 	)
-	bars = base.mark_bar(cornerRadiusEnd=4, size=34).encode(
+	bars = base.mark_bar(cornerRadiusEnd=4, size=28).encode(
 		color=alt.Color(
 			"bucket:N",
 			sort=order,
