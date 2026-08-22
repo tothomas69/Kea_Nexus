@@ -104,27 +104,6 @@
 	max-width: 210px !important;
 }
 
-/* Force the sidebar open even when Streamlit marks it collapsed — desktop
-   widths only. Streamlit renders the re-open arrow inside
-   [data-testid="stHeader"], which this file hides wholesale at the top, so
-   on a desktop browser collapsing the sidebar was a one-way trip with no
-   control left to bring it back. On a phone the tradeoff inverts: a pinned
-   210px panel covers most of a ~390px screen, so there the sidebar has to
-   be able to slide away — the phone block at the bottom of this file
-   restores Streamlit's own collapse/expand controls instead of pinning it. */
-@media (min-width: 768px) {
-	[data-testid="stSidebar"][aria-expanded="false"] {
-		transform: none !important;
-		display: block !important;
-		visibility: visible !important;
-		width: 210px !important;
-		/* Both, not just min-width: Streamlit sets max-width to 0 on collapse
-		   too, and the base rule above no longer covers the collapsed state. */
-		min-width: 210px !important;
-		max-width: 210px !important;
-	}
-}
-
 [data-testid="stSidebar"] > div:first-child {
 	padding: 0.1rem 0.75rem 1rem;
 }
@@ -475,55 +454,66 @@
 	opacity: 1;
 }
 
+/* --- Sidebar controls -----------------------------------------------------
+   The sidebar collapses at every viewport, so both controls have to be
+   reachable at every viewport. Streamlit hides each of them in its own way
+   and this file used to hide them further, which left the panel pinned open
+   as the only workable state. ---------------------------------------------- */
+
+/* Collapse (‹‹), in the sidebar's own header. Streamlit only flips it from
+   visibility:hidden to visible while the pointer hovers the sidebar — a touch
+   screen never hovers, and on a desktop a control that only exists on hover is
+   a control most people never find. Always visible. */
+[data-testid="stSidebarCollapseButton"] {
+	visibility: visible !important;
+}
+
+/* Re-open (››), rendered inside stHeader — which this file hides wholesale at
+   the top, so collapsing used to be a one-way trip. Bring the header back as
+   an invisible, click-through strip: it is position:absolute, so this costs no
+   layout space. Its inner toolbar sets pointer-events:auto across the full
+   width, though, and left alone would swallow every click in the top ~60px of
+   the page, tab bar included — hence pointer-events:none on both header and
+   toolbar, re-enabled on the one button that needs it. */
+[data-testid="stHeader"] {
+	display: flex !important;
+	background: transparent !important;
+	pointer-events: none !important;
+}
+[data-testid="stToolbar"] {
+	pointer-events: none !important;
+}
+[data-testid="stExpandSidebarButton"] {
+	pointer-events: auto !important;
+}
+
+/* The header's other occupants would otherwise become visible along with it —
+   none of them belong in this app's chrome. */
+[data-testid="stStatusWidget"],
+[data-testid="stAppDeployButton"],
+[data-testid="stToolbarActions"],
+[data-testid="stMainMenu"] {
+	display: none !important;
+}
+
+/* The tab bar is position:fixed, so it cannot reflow with the content when the
+   sidebar collapses — its offset has to follow the sidebar's state explicitly,
+   or a collapsed sidebar leaves a 210px gap to the left of the tabs. The
+   padding-left keeps the tabs clear of the re-open arrow sitting in that
+   corner. */
+body:has([data-testid="stSidebar"][aria-expanded="false"]) [data-testid="stTabs"] [role="tablist"] {
+	left: 0 !important;
+	padding-left: 2.75rem !important;
+}
+
 /* --- Phone layout (< 768px) -----------------------------------------------
-   Everything above assumes a desktop browser: a permanently-open 210px
-   sidebar, with the main content and the fixed tab bar both starting to the
-   right of it. On a phone that leaves roughly a thumb's width for actual
-   content, so here the sidebar goes back to being a collapsible overlay and
-   the tab bar reclaims the full width. ------------------------------------ */
+   The sidebar is in-flow at every width (Streamlit keeps it position:relative),
+   so on a ~390px screen an expanded 210px panel leaves roughly a thumb's width
+   for content — collapsing matters far more here than on a desktop, but the
+   mechanism is the same one above. What is genuinely phone-specific is the tab
+   bar: seven tabs never fit, so let them scroll sideways rather than squash. */
 @media (max-width: 767px) {
-	/* The collapse control sits in the sidebar's own header, but Streamlit
-	   only flips it from visibility:hidden to visible while the pointer is
-	   hovering the sidebar. A touch screen never hovers, so without this
-	   there is no way to close the sidebar once it is open. */
-	[data-testid="stSidebarCollapseButton"] {
-		visibility: visible !important;
-	}
-
-	/* The matching re-open arrow lives inside stHeader, which is
-	   display:none at the top of this file. Bring the header back as an
-	   invisible, click-through strip so only that one button is reachable.
-	   stHeader is position:absolute, so this costs no layout space, but its
-	   inner toolbar sets pointer-events:auto across the full width — left
-	   alone it would swallow every tap in the top ~60px of the screen,
-	   including the tab bar underneath. Hence pointer-events:none on both
-	   header and toolbar, re-enabled on the one button that needs it. */
-	[data-testid="stHeader"] {
-		display: flex !important;
-		background: transparent !important;
-		pointer-events: none !important;
-	}
-	[data-testid="stToolbar"] {
-		pointer-events: none !important;
-	}
-	[data-testid="stExpandSidebarButton"] {
-		pointer-events: auto !important;
-	}
-
-	/* The header's other occupants would otherwise become visible along
-	   with it — none of them belong in this app's chrome. */
-	[data-testid="stStatusWidget"],
-	[data-testid="stAppDeployButton"],
-	[data-testid="stMainMenu"] {
-		display: none !important;
-	}
-
-	/* Full width now that the sidebar is an overlay rather than a column
-	   beside the content, with room at the left for the re-open arrow, and
-	   scrolling sideways rather than squashing seven tabs into 390px. */
 	[data-testid="stTabs"] [role="tablist"] {
-		left: 0 !important;
-		padding-left: 2.75rem !important;
 		padding-right: 0.5rem !important;
 		overflow-x: auto !important;
 	}
