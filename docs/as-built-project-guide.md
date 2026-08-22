@@ -495,19 +495,18 @@ ip)`. Blocking works by assigning the device's current IP to a dedicated
   v6 REST API and community references, not verified against a live instance** —
   check the `/clients` and `/groups` request/response shapes against this Pi-hole's
   own self-hosted docs at `http://pi.hole/api/docs` before relying on it.
-
-                                                                                                                                                    **Writes to both primary and secondary Pi-hole instances.** Discovered during
-                                                                                                                                                    deployment that the two Pi-hole instances on this network (172.16.17.212 primary,
-                                                                                                                                                    172.16.17.252 secondary on the TerraMaster NAS) are fully independent — no
-                                                                                                                                                    Nebula/Gravity/Orbital Sync between them — so blocking only the primary would
-                                                                                                                                                    leave a real gap if a device's DNS ever gets served by the secondary. `main.py`'s
-                                                                                                                                                    `_get_pihole_clients()` always includes the primary and adds the secondary only
-                                                                                                                                                    when `PIHOLE_SECONDARY_API_URL` is set; `_apply_pihole_step` writes to each with
-                                                                                                                                                    its own independent retry and its own audit log row (`pihole_primary` /
-                                                                                                                                                    `pihole_secondary` steps), so a partial failure on one instance is visible rather
-                                                                                                                                                    than collapsed into one ambiguous result. `PiholeClient.__init__` accepts optional
-                                                                                                                                                    `base_url`/`password` overrides (falling back to env vars) specifically to support
-                                                                                                                                                    constructing a second client pointed at the secondary instance.
+  **Writes to both primary and secondary Pi-hole instances.** Discovered during
+  deployment that the two Pi-hole instances on this network (172.16.17.212 primary,
+  172.16.17.252 secondary on the TerraMaster NAS) are fully independent — no
+  Nebula/Gravity/Orbital Sync between them — so blocking only the primary would
+  leave a real gap if a device's DNS ever gets served by the secondary. `main.py`'s
+  `_get_pihole_clients()` always includes the primary and adds the secondary only
+  when `PIHOLE_SECONDARY_API_URL` is set; `_apply_pihole_step` writes to each with
+  its own independent retry and its own audit log row (`pihole_primary` /
+  `pihole_secondary` steps), so a partial failure on one instance is visible rather
+  than collapsed into one ambiguous result. `PiholeClient.__init__` accepts optional
+  `base_url`/`password` overrides (falling back to env vars) specifically to support
+  constructing a second client pointed at the secondary instance.
 
 - `nmap_fingerprint.py` — `refresh_os_fingerprint(friendly_name, target_ip)` shells
   out to `nmap -O --osscan-guess` (no meaningful pure-Python equivalent exists for
@@ -529,7 +528,7 @@ ip)`. Blocking works by assigning the device's current IP to a dedicated
   `docker-compose.yml`, scoped to this container only — KeaNexus and Kea itself stay
   unprivileged. Configured via `quarantine_service/.env` (see `.env.example` for
   required vars: `KEA_API_URL`, `KEA_API_USER`, `KEA_API_PASSWORD`,
-  `PIHOLE_API_URL`, `PIHOLE_API_PASSWORD`, `QUARANTINE_API_TOKEN`; optional
+  `PIHOLE_API_URL`, `PIHOLE_API_PASSWORD`, `QUARANTINE_API_TOKEN`; optional <!-- pragma: allowlist secret -->
   `ARP_INTERFACE`, `PIHOLE_SECONDARY_API_URL`, `PIHOLE_SECONDARY_API_PASSWORD`)
 
 ## API Endpoints
