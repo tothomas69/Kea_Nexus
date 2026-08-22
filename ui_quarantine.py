@@ -372,15 +372,11 @@ def _render_device_table(devices: list[dict], leases: list[dict], config: dict |
 			f'<span style="{cell_meta}">{_format_local_time(device["last_quarantined_at"])}</span>',
 			unsafe_allow_html=True,
 		)
-		if cols[7].button(
-			"Quarantine", key=f"quarantine_go_{friendly_name}", use_container_width=True
-		):
+		if cols[7].button("Quarantine", key=f"quarantine_go_{friendly_name}", width="stretch"):
 			_trigger_action(friendly_name, "quarantine")
-		if cols[8].button(
-			"Release", key=f"quarantine_release_{friendly_name}", use_container_width=True
-		):
+		if cols[8].button("Release", key=f"quarantine_release_{friendly_name}", width="stretch"):
 			_trigger_action(friendly_name, "release")
-		if cols[9].button("Edit", key=f"quarantine_edit_{friendly_name}", use_container_width=True):
+		if cols[9].button("Edit", key=f"quarantine_edit_{friendly_name}", width="stretch"):
 			_edit_dialog(friendly_name, leases, config)
 
 

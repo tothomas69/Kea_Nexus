@@ -127,7 +127,7 @@ def render_sidebar(
 
 	logo_path = Path(__file__).parent / "static" / "keanexus_logo.png"
 	if logo_path.exists():
-		st.sidebar.image(str(logo_path), use_container_width=True)
+		st.sidebar.image(str(logo_path), width="stretch")
 
 	if stats and config:
 		kea = get_client()
@@ -162,7 +162,7 @@ def render_sidebar(
 	)
 
 	st.sidebar.markdown('<div style="margin-top:8px"></div>', unsafe_allow_html=True)
-	if st.sidebar.button("Sign out", key="sign_out_button", use_container_width=True):
+	if st.sidebar.button("Sign out", key="sign_out_button", width="stretch"):
 		logout()
 		# .delete() raises KeyError if the cookie hasn't synced into the
 		# component's internal cache yet — guard rather than crash sign-out.
