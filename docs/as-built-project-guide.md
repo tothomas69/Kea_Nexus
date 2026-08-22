@@ -41,6 +41,8 @@ keanexus/
 ├── quarantine_client.py — Thin client KeaNexus uses to call keanexus-quarantine's own API
 ├── helpers.py          — Cached data loaders, format utilities
 ├── dashboard_data.py   — Pure metric/chart shaping for the Dashboard tab
+├── docs_library.py     — Allowlist + reader for the operator docs shown in-app
+├── ui_docs.py          — Docs sidebar entry and the article dialog
 ├── pool_history.py     — Background sampler building the pool utilisation time series
 ├── db.py               — SQLite persistence layer (IPAM static records)
 ├── ui_login.py         — Login page: logo, username/password form
@@ -254,6 +256,29 @@ override_macs)` / `distinct_real_hostnames(leases, config)` — a Kea
   across a period with no samples
 - Configured via `POOL_SAMPLE_INTERVAL_SECONDS` (default 300, floored at 1) and
   `POOL_SAMPLE_RETENTION_DAYS` (default 30); each pass prunes older rows
+
+### In-App Docs (`docs_library.py`, `ui_docs.py`)
+
+- A **Docs** expander near the bottom of the sidebar lists operator-facing
+  articles; clicking one opens it in a wide modal (`st.dialog`). The sidebar is
+  210px, enough for titles and nowhere near enough for articles full of code
+  blocks and tables — so the sidebar is navigation only
+- `docs_library.ARTICLES` is the allowlist: currently Siri Shortcut Setup and
+  Quarantine Design. The as-built guide and PRD are developer notes and stay out
+  of the app deliberately
+- **`read_article` refuses anything not in `ARTICLES`, before any path is
+  built.** The filename arrives from a UI control, so joining it onto the docs
+  directory would be a path-traversal hole in a page one login away from the
+  internet; the article set is known at build time, so there is no reason to
+  accept arbitrary paths. Covered by tests for `../.env`, absolute paths and
+  unlisted docs
+- `available_articles()` hides an article whose file is missing, so a deployment
+  that missed the `./docs` bind-mount offers nothing rather than entries that
+  fail on click
+- The button lives in the sidebar and the dialog opens from `main()`, wired
+  through one session-state key that is cleared on read — Streamlit gives no
+  callback for the reader dismissing a modal, so it must not reopen on the next
+  rerun
 
 ### Database (`db.py`)
 
@@ -755,6 +780,8 @@ since they require a live Streamlit server and can't be unit-tested). That inclu
 | `tests/test_kea.py`                         | All `KeaClient` methods; `httpx` patched via `http_mock` fixture                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | `tests/test_helpers.py`                     | `fmt_ttl`, `chip`, `leases_to_df`, `build_reservation_type_sets`, `lease_type`, `build_hostname_override_sets`, `real_hostname`, `distinct_real_hostnames`, `lease_for_reservation` (pure functions only)                                                                                                                                                                                                                                                                                                                      |
 | `tests/test_dashboard_data.py`              | `lease_expiry_buckets` (bucket boundaries, expired leases, declined excluded, missing `valid-lft`), `lease_composition`, `utilisation_points` (gap breaking, declined counted as used, zero total), `leases_issued_since` (cumulative delta, stale baseline rejected, counter reset, insufficient history), `quarantined_count`                                                                                                                                                                                                |
+| `tests/test_docs_library.py`                | Article allowlist (listed files exist, developer docs excluded, missing file hidden) and `read_article` rejecting path traversal, absolute paths and unlisted names                                                                                                                                                                                                                                                                                                                                                            |
+| `tests/test_ui_docs_render.py`              | Headless render via `AppTest` — one button per article, clicking one opens the dialog with the article's body, nothing opens without a click                                                                                                                                                                                                                                                                                                                                                                                   |
 | `tests/test_docker_compose_mounts.py`       | Every `./x:/app/x` mount source in `docker-compose.yml` exists on disk, and every repo-root module is mounted (minus a checked exclusion list) — catches a rename or addition that would leave the container running stale code                                                                                                                                                                                                                                                                                                |
 | `tests/test_ui_quarantine_render.py`        | Headless render via `AppTest` — renders with devices registered and with an empty registry, row buttons present, a quarantined row uses the alert colour, and a malformed `last_seen_at` doesn't crash the table                                                                                                                                                                                                                                                                                                               |
 | `tests/test_ui_dashboard_render.py`         | Headless render via Streamlit's `AppTest` — page executes without raising, every section reaches the output, each chart has a table-view expander, missing stats shows an error not a crash, and an empty `pool_samples` degrades to a caption                                                                                                                                                                                                                                                                                 |

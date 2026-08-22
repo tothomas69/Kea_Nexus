@@ -15,6 +15,7 @@ from helpers import get_client, load_config, load_leases, load_pool_stats, load_
 from kea import KeaError
 from pool_history import start_pool_sampler
 from ui_dashboard import render_dashboard
+from ui_docs import render_docs_nav, render_open_article
 from ui_ipam import render_ipam
 from ui_leases import render_leases
 from ui_login import render_login
@@ -161,7 +162,12 @@ def render_sidebar(
 		unsafe_allow_html=True,
 	)
 
-	st.sidebar.markdown('<div style="margin-top:8px"></div>', unsafe_allow_html=True)
+	render_docs_nav()
+
+	# Deliberately larger than the gaps between the info rows above: Sign out
+	# is destructive and shouldn't sit flush against a docs link someone is
+	# scanning down through.
+	st.sidebar.markdown('<div style="margin-top:22px"></div>', unsafe_allow_html=True)
 	if st.sidebar.button("Sign out", key="sign_out_button", width="stretch"):
 		logout()
 		# .delete() raises KeyError if the cookie hasn't synced into the
@@ -211,6 +217,8 @@ def main() -> None:
 	status = load_status(kea)
 
 	render_sidebar(stats, config, status, cookie_manager)
+	# After the sidebar, so the button that requests an article has already run.
+	render_open_article()
 
 	# key= makes Streamlit remember the active tab across a rerun (e.g. the
 	# Quarantine tab's st.rerun() after a Quarantine/Release action). Without
