@@ -559,3 +559,56 @@ body:has([data-testid="stSidebar"][aria-expanded="false"]) [data-testid="stTabs"
 		overflow-x: auto !important;
 	}
 }
+
+/* --- Sidebar Docs expander -------------------------------------------------
+   Streamlit's expander is a bordered, rounded card — the border sits on the
+   <details>, with the <summary> padded inside it. At 210px, against this
+   sidebar's flat centred rows and full-width Sign out button, that reads as a
+   stray box floating on the panel rather than part of it.
+
+   Strip the card and restyle the summary to match _sidebar_item's typography
+   in app.py (10px uppercase monospace, letter-spaced, centred, with the same
+   1px divider the info rows use), so Docs reads as another sidebar row that
+   happens to open. Scoped to the sidebar so expanders in the main content
+   area — the Quarantine tab's step legend, the charts' "Show the numbers" —
+   keep Streamlit's default card look. ------------------------------------- */
+[data-testid="stSidebar"] [data-testid="stExpander"] details {
+	border: none !important;
+	border-radius: 0 !important;
+	background: transparent !important;
+	border-top: 1px solid #e8ecf0 !important;
+}
+[data-testid="stSidebar"] [data-testid="stExpander"] summary {
+	padding: 8px 0 !important;
+	background: transparent !important;
+	justify-content: center !important;
+}
+/* Only the label — the summary's other child is the chevron icon, which is
+   font-rendered and would shrink with it. */
+[data-testid="stSidebar"] [data-testid="stExpander"] summary [data-testid="stMarkdownContainer"] p {
+	font-family: monospace !important;
+	font-size: 10px !important;
+	font-weight: 700 !important;
+	color: #57606a !important;
+	text-transform: uppercase !important;
+	letter-spacing: 0.06em !important;
+	margin: 0 !important;
+}
+[data-testid="stSidebar"] [data-testid="stExpanderDetails"] {
+	padding: 2px 0 6px !important;
+}
+/* Article links read as list entries, not as peers of the Sign out button. */
+[data-testid="stSidebar"] [data-testid="stExpanderDetails"] button {
+	font-family: monospace !important;
+	font-size: 11px !important;
+	font-weight: 400 !important;
+	padding: 3px 6px !important;
+	min-height: 0 !important;
+	border: none !important;
+	background: transparent !important;
+	color: #0969da !important;
+}
+[data-testid="stSidebar"] [data-testid="stExpanderDetails"] button:hover {
+	background: #dde4ea !important;
+	color: #0550ae !important;
+}
