@@ -17,6 +17,7 @@ import pytest
 
 from quarantine_client import (
 	QuarantineServiceError,
+	trigger_liveness_sweep,
 	trigger_presence_check,
 	trigger_quarantine,
 	trigger_release,
@@ -141,3 +142,47 @@ class TestTriggerPresenceCheck:
 
 		with pytest.raises(QuarantineServiceError, match="Cannot reach"):
 			trigger_presence_check("tommy_pc")
+
+
+class TestTriggerLivenessSweep:
+	def test_posts_addresses_and_returns_responders(self, quarantine_client_http_mock, monkeypatch):
+		monkeypatch.setenv("QUARANTINE_SERVICE_URL", "http://172.16.17.5:8600")
+		monkeypatch.setenv("QUARANTINE_SERVICE_TOKEN", "test-token")
+		quarantine_client_http_mock.post.return_value = _make_response(
+			{"checked": 2, "responding": ["172.16.17.10"]}
+		)
+
+		result = trigger_liveness_sweep(["172.16.17.10", "172.16.17.11"])
+
+		assert result == ["172.16.17.10"]
+		call = quarantine_client_http_mock.post.call_args
+		assert call.args[0] == "http://172.16.17.5:8600/liveness-sweep"
+		assert call.kwargs["json"] == {"ip_addresses": ["172.16.17.10", "172.16.17.11"]}
+		assert call.kwargs["headers"] == {"Authorization": "Bearer test-token"}
+
+	def test_empty_list_short_circuits_without_a_request(
+		self, quarantine_client_http_mock, monkeypatch
+	):
+		monkeypatch.setenv("QUARANTINE_SERVICE_TOKEN", "test-token")
+
+		assert trigger_liveness_sweep([]) == []
+		quarantine_client_http_mock.post.assert_not_called()
+
+	def test_missing_responding_key_returns_empty(self, quarantine_client_http_mock, monkeypatch):
+		monkeypatch.setenv("QUARANTINE_SERVICE_TOKEN", "test-token")
+		quarantine_client_http_mock.post.return_value = _make_response({"checked": 1})
+
+		assert trigger_liveness_sweep(["172.16.17.10"]) == []
+
+	def test_missing_token_raises(self, monkeypatch):
+		monkeypatch.delenv("QUARANTINE_SERVICE_TOKEN", raising=False)
+
+		with pytest.raises(QuarantineServiceError, match="not configured"):
+			trigger_liveness_sweep(["172.16.17.10"])
+
+	def test_unreachable_service_raises(self, quarantine_client_http_mock, monkeypatch):
+		monkeypatch.setenv("QUARANTINE_SERVICE_TOKEN", "test-token")
+		quarantine_client_http_mock.post.side_effect = httpx.ConnectError("refused")
+
+		with pytest.raises(QuarantineServiceError, match="Cannot reach"):
+			trigger_liveness_sweep(["172.16.17.10"])

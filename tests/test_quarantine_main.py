@@ -16,6 +16,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import db
+from quarantine_service.liveness import MAX_SWEEP_ADDRESSES
 from quarantine_service.main import _human_summary, app
 
 
@@ -596,3 +597,64 @@ class TestSummaryInResponse:
 				"/release", json={"target": "tommy_laptop"}, headers=_auth_header()
 			)
 		assert response.json()["summary"] == "Tommy Laptop is back online."
+
+
+class TestLivenessSweepEndpoint:
+	"""POST /liveness-sweep — stateless ARP sweep behind the Leases tab's
+	"Check who's online" button. quarantine_service.main.sweep is patched
+	throughout; the sweep itself is covered by test_quarantine_liveness.py.
+	"""
+
+	def test_requires_auth(self, client):
+		resp = client.post("/liveness-sweep", json={"ip_addresses": ["172.16.17.10"]})
+		assert resp.status_code == 401
+
+	def test_returns_responding_addresses_sorted(self, client):
+		with patch("quarantine_service.main.sweep", return_value={"172.16.17.20", "172.16.17.10"}):
+			resp = client.post(
+				"/liveness-sweep",
+				json={"ip_addresses": ["172.16.17.10", "172.16.17.20", "172.16.17.30"]},
+				headers=_auth_header(),
+			)
+
+		assert resp.status_code == 200
+		assert resp.json() == {"checked": 3, "responding": ["172.16.17.10", "172.16.17.20"]}
+
+	def test_passes_requested_addresses_through_to_the_sweep(self, client):
+		with patch("quarantine_service.main.sweep", return_value=set()) as mock_sweep:
+			client.post(
+				"/liveness-sweep",
+				json={"ip_addresses": ["172.16.17.10", "172.16.17.11"]},
+				headers=_auth_header(),
+			)
+
+		mock_sweep.assert_called_once_with(["172.16.17.10", "172.16.17.11"])
+
+	def test_checked_count_is_distinct_addresses(self, client):
+		with patch("quarantine_service.main.sweep", return_value=set()):
+			resp = client.post(
+				"/liveness-sweep",
+				json={"ip_addresses": ["172.16.17.10", "172.16.17.10"]},
+				headers=_auth_header(),
+			)
+
+		assert resp.json()["checked"] == 1
+
+	def test_empty_request_is_allowed(self, client):
+		with patch("quarantine_service.main.sweep", return_value=set()):
+			resp = client.post("/liveness-sweep", json={"ip_addresses": []}, headers=_auth_header())
+
+		assert resp.status_code == 200
+		assert resp.json() == {"checked": 0, "responding": []}
+
+	def test_rejects_more_addresses_than_the_cap_without_sweeping(self, client):
+		"""The cap is enforced at the route so a hostile or malformed request
+		is refused before a single packet leaves the host."""
+		too_many = [f"10.0.{i // 256}.{i % 256}" for i in range(MAX_SWEEP_ADDRESSES + 1)]
+		with patch("quarantine_service.main.sweep") as mock_sweep:
+			resp = client.post(
+				"/liveness-sweep", json={"ip_addresses": too_many}, headers=_auth_header()
+			)
+
+		assert resp.status_code == 413
+		mock_sweep.assert_not_called()

@@ -32,6 +32,7 @@ from quarantine_service.identity import (
 	verify_identity_unchanged,
 )
 from quarantine_service.kea_deny import deny_via_kea, undo_deny_via_kea
+from quarantine_service.liveness import MAX_SWEEP_ADDRESSES, sweep
 from quarantine_service.nmap_fingerprint import refresh_os_fingerprint
 from quarantine_service.pihole_block import block_via_pihole, unblock_via_pihole
 from quarantine_service.presence_check import probe_device_now, start_presence_check_loop
@@ -78,6 +79,10 @@ def _start_presence_check_on_startup() -> None:
 class QuarantineRequest(BaseModel):
 	target: str
 	is_group: bool = False
+
+
+class LivenessSweepRequest(BaseModel):
+	ip_addresses: list[str]
 
 
 def _get_kea_client() -> KeaClient:
@@ -419,3 +424,28 @@ def presence_check(friendly_name: str) -> dict:
 	loop's next pass (see presence_check.py)."""
 	seen = probe_device_now(friendly_name)
 	return {"friendly_name": friendly_name, "seen": seen}
+
+
+@app.post("/liveness-sweep", dependencies=[Depends(require_bearer_token)])
+def liveness_sweep(request: LivenessSweepRequest) -> dict:
+	"""ARP-probe a caller-supplied list of addresses and report which answered.
+
+	Stateless — unlike /presence-check this writes nothing to the registry
+	and the addresses need not belong to registered devices. Backs the
+	Leases tab's "Check who's online" button, which passes the IPs of the
+	leases it's currently showing (see liveness.py for why ARP rather than
+	ICMP, and why this can't run inside KeaNexus's own container).
+	"""
+	if len(request.ip_addresses) > MAX_SWEEP_ADDRESSES:
+		raise HTTPException(
+			status_code=413,
+			detail=f"At most {MAX_SWEEP_ADDRESSES} addresses per sweep, "
+			f"got {len(request.ip_addresses)}.",
+		)
+
+	responding = sweep(request.ip_addresses)
+	return {
+		"checked": len(set(request.ip_addresses)),
+		# Sorted for a stable response; the sweep itself returns an unordered set.
+		"responding": sorted(responding),
+	}
