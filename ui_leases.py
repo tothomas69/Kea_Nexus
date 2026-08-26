@@ -19,8 +19,15 @@ from helpers import (
 	real_hostname,
 )
 from kea import KeaClient, KeaError
+from quarantine_client import QuarantineServiceError, trigger_liveness_sweep
 
 LOOKUP_COLS = ["IP", "Hostname", "MAC", "Expires", "Status"]
+
+# Session-state keys for the liveness sweep. Kept as module constants because
+# both the button handler and the renderer below read them, and a typo in one
+# of two string literals would silently render an always-empty result.
+_LIVE_IPS_KEY = "leases_live_ips"
+_LIVE_CHECKED_AT_KEY = "leases_live_checked_at"
 
 
 # --- HTML table rendering ----------------------------------------------------
@@ -34,6 +41,11 @@ _TD = (
 	"padding:8px 12px;font-family:monospace;font-size:13px;"
 	"color:#1f2328;border-bottom:1px solid #f0f2f5;white-space:nowrap"
 )
+
+# Same green the row-state chip already uses for an active lease, so "online"
+# reads as one colour across the tab rather than introducing a second green.
+_LIVE_TEXT_COLOR = "#1a7f37"
+_TD_LIVE = _TD.replace("color:#1f2328", f"color:{_LIVE_TEXT_COLOR};font-weight:600")
 
 _TYPE_STYLE: dict[str, tuple[str, str]] = {
 	"fixed": ("#ddf4ff", "#0550ae"),
@@ -67,8 +79,18 @@ def _lease_table(
 	name_hosts: set,
 	override_ips: set,
 	override_macs: set,
+	live_ips: Optional[set[str]] = None,
 ) -> str:
+	"""Render the lease table. Rows whose IP is in `live_ips` are drawn in
+	green — a device that answered the most recent ARP sweep.
+
+	`live_ips` of None means no sweep has been run this session, which is
+	deliberately distinct from an empty set (a sweep ran and nothing
+	answered): the first says nothing about liveness, the second says every
+	lease looked dead.
+	"""
 	now = int(_time.time())
+	live_ips = live_ips or set()
 	cols = ["#", "IP", "Hostname", "MAC", "Expires", "Type"]
 	header = "".join(f'<th style="{_TH}">{c}</th>' for c in cols)
 
@@ -80,15 +102,16 @@ def _lease_table(
 		ttl = lease.get("cltt", 0) + lease.get("valid-lft", 86400) - now
 		ltype = lease_type(lease, fixed_ips, reserved_macs, name_hosts)
 		hn = real_hostname(lease, override_ips, override_macs) or "—"
+		td = _TD_LIVE if ip in live_ips else _TD
 
 		rows.append(
 			f"<tr>"
-			f'<td style="{_TD}">{_row_chip(i, state)}</td>'
-			f'<td style="{_TD}">{ip}</td>'
-			f'<td style="{_TD}">{hn}</td>'
-			f'<td style="{_TD}">{html_safe_mac(mac)}</td>'
-			f'<td style="{_TD}">{fmt_ttl(ttl)}</td>'
-			f'<td style="{_TD}">{_type_chip(ltype)}</td>'
+			f'<td style="{td}">{_row_chip(i, state)}</td>'
+			f'<td style="{td}">{ip}</td>'
+			f'<td style="{td}">{hn}</td>'
+			f'<td style="{td}">{html_safe_mac(mac)}</td>'
+			f'<td style="{td}">{fmt_ttl(ttl)}</td>'
+			f'<td style="{td}">{_type_chip(ltype)}</td>'
 			f"</tr>"
 		)
 
@@ -155,6 +178,61 @@ def edit_lease_dialog(lease: dict) -> None:
 			st.rerun()
 
 
+# --- Liveness sweep ----------------------------------------------------------
+
+
+def _run_liveness_sweep(ip_addresses: list[str]) -> None:
+	"""ARP-sweep every lease address and stash the responders in session state.
+
+	The sweep itself runs in keanexus-quarantine, which is on the LAN's L2
+	segment and so can use ARP — see quarantine_client.trigger_liveness_sweep.
+	Errors are shown rather than raised: an unreachable optional service is an
+	ordinary condition here, and it must not take the whole Leases tab down.
+	"""
+	try:
+		with st.spinner("ARP-sweeping the network..."):
+			responding = trigger_liveness_sweep([ip for ip in ip_addresses if ip])
+	except QuarantineServiceError as e:
+		st.error(f"Liveness check failed: {e}")
+		return
+
+	st.session_state[_LIVE_IPS_KEY] = set(responding)
+	st.session_state[_LIVE_CHECKED_AT_KEY] = _time.time()
+
+
+def _age_label(seconds: float) -> str:
+	if seconds < 60:
+		return "just now"
+	if seconds < 3600:
+		return f"{int(seconds // 60)}m ago"
+	return f"{int(seconds // 3600)}h ago"
+
+
+def _render_liveness_caption(live_ips: Optional[set[str]], total_leases: int) -> None:
+	"""Explain what the green rows mean, and how old that answer is.
+
+	Without the age, a sweep from an hour ago looks exactly like one from a
+	second ago — and a device that has since been switched off would still
+	be showing green.
+	"""
+	if live_ips is None:
+		st.caption(
+			"Kea only knows which addresses are *leased*, not which devices are "
+			"actually powered on — a lease outlives the device by hours. "
+			"**Check who's online** ARP-sweeps every lease and turns the "
+			"responding rows green."
+		)
+		return
+
+	checked_at = st.session_state.get(_LIVE_CHECKED_AT_KEY, _time.time())
+	age = _age_label(_time.time() - checked_at)
+	st.caption(
+		f"**{len(live_ips)} of {total_leases}** leases answered ARP ({age}) — "
+		f"shown in green. The rest hold a lease but didn't respond, so the "
+		f"device is most likely powered off or has left the network."
+	)
+
+
 # --- Main render -------------------------------------------------------------
 
 
@@ -168,11 +246,19 @@ def render_leases(leases: list[dict], config: Optional[dict] = None) -> None:
 		key=lambda lease: KeaClient.ip_to_int(lease.get("ip-address", "0.0.0.0")),
 	)
 
-	fc, cc = st.columns([5, 1])
+	# Captured before the filter narrows the list: a sweep covers every lease
+	# regardless of what's on screen, so its result stays valid as the user
+	# types in the filter box rather than going stale on each keystroke.
+	all_lease_ips = [lease.get("ip-address", "") for lease in sorted_leases]
+
+	fc, bc, cc = st.columns([4, 1.6, 1])
 	with fc:
 		q = st.text_input(
 			"Filter", placeholder="IP, hostname or MAC...", label_visibility="collapsed"
 		)
+	with bc:
+		if st.button("Check who's online", key="leases_liveness_chipblue"):
+			_run_liveness_sweep(all_lease_ips)
 	with cc:
 		st.markdown(
 			f"<div style='text-align:right;padding-top:8px;color:#6e7681;"
@@ -190,12 +276,21 @@ def render_leases(leases: list[dict], config: Optional[dict] = None) -> None:
 			or q_lower in (lease.get("hw-address") or "").lower()
 		]
 
+	live_ips = st.session_state.get(_LIVE_IPS_KEY)
+
 	st.markdown(
 		_lease_table(
-			sorted_leases, fixed_ips, reserved_macs, name_hosts, override_ips, override_macs
+			sorted_leases,
+			fixed_ips,
+			reserved_macs,
+			name_hosts,
+			override_ips,
+			override_macs,
+			live_ips,
 		),
 		unsafe_allow_html=True,
 	)
+	_render_liveness_caption(live_ips, len(all_lease_ips))
 
 	st.divider()
 
@@ -231,7 +326,13 @@ def render_leases(leases: list[dict], config: Optional[dict] = None) -> None:
 				else:
 					st.markdown(
 						_lease_table(
-							found, fixed_ips, reserved_macs, name_hosts, override_ips, override_macs
+							found,
+							fixed_ips,
+							reserved_macs,
+							name_hosts,
+							override_ips,
+							override_macs,
+							st.session_state.get(_LIVE_IPS_KEY),
 						),
 						unsafe_allow_html=True,
 					)

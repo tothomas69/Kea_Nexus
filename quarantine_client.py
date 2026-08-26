@@ -21,6 +21,7 @@ Environment variables:
 """
 
 import os
+from typing import Optional
 
 import httpx
 from dotenv import load_dotenv
@@ -38,6 +39,11 @@ _REQUEST_TIMEOUT_SECONDS = 180.0
 # Kea lease lookup — nowhere near as slow as full enforcement, so it gets
 # its own much shorter timeout rather than inheriting the 180s above.
 _PRESENCE_CHECK_TIMEOUT_SECONDS = 10.0
+
+# A sweep is one batched ARP send plus a single server-side wait for
+# replies, regardless of how many addresses were asked about — so it needs
+# only a little more headroom than that wait, not the enforcement timeout.
+_LIVENESS_SWEEP_TIMEOUT_SECONDS = 30.0
 
 
 class QuarantineServiceError(Exception):
@@ -60,26 +66,26 @@ def trigger_presence_check(friendly_name: str) -> dict:
 	5-minute loop, so a freshly added/edited device doesn't sit with blank
 	Last MAC/Last IP/Last Seen in the Quarantine tab until the loop's next pass.
 	"""
-	token = _token()
-	if not token:
-		raise QuarantineServiceError(
-			"QUARANTINE_SERVICE_TOKEN is not configured in KeaNexus's own .env"
-		)
+	return _post(f"/presence-check/{friendly_name}", None, _PRESENCE_CHECK_TIMEOUT_SECONDS)
 
-	try:
-		with httpx.Client(timeout=_PRESENCE_CHECK_TIMEOUT_SECONDS) as client:
-			resp = client.post(
-				f"{_base_url()}/presence-check/{friendly_name}",
-				headers={"Authorization": f"Bearer {token}"},
-			)
-		resp.raise_for_status()
-	except httpx.ConnectError as exc:
-		raise QuarantineServiceError(f"Cannot reach keanexus-quarantine at {_base_url()}") from exc
-	except httpx.HTTPStatusError as exc:
-		detail = _error_detail(exc)
-		raise QuarantineServiceError(f"HTTP {exc.response.status_code}: {detail}") from exc
 
-	return resp.json()
+def trigger_liveness_sweep(ip_addresses: list[str]) -> list[str]:
+	"""Call POST /liveness-sweep and return the subset of `ip_addresses` that
+	answered an ARP probe.
+
+	Backs the Leases tab's "Check who's online" button. The sweep has to run
+	in keanexus-quarantine rather than here because that service uses
+	network_mode: host and so shares the LAN's L2 segment, while KeaNexus
+	sits on the default bridge network where ARP reaches nothing — see
+	quarantine_service/liveness.py.
+	"""
+	if not ip_addresses:
+		return []
+
+	payload = _post(
+		"/liveness-sweep", {"ip_addresses": ip_addresses}, _LIVENESS_SWEEP_TIMEOUT_SECONDS
+	)
+	return payload.get("responding", [])
 
 
 def _base_url() -> str:
@@ -91,6 +97,16 @@ def _token() -> str:
 
 
 def _call(path: str, target: str, is_group: bool) -> dict:
+	return _post(path, {"target": target, "is_group": is_group}, _REQUEST_TIMEOUT_SECONDS)
+
+
+def _post(path: str, json_body: Optional[dict], timeout_seconds: float) -> dict:
+	"""POST to the quarantine service and return the decoded JSON body.
+
+	Every endpoint here needs the same four things — the bearer token, the
+	base URL, an unreachable-service error and an HTTP-error detail parse —
+	so they live here once rather than once per endpoint wrapper.
+	"""
 	token = _token()
 	if not token:
 		raise QuarantineServiceError(
@@ -98,10 +114,10 @@ def _call(path: str, target: str, is_group: bool) -> dict:
 		)
 
 	try:
-		with httpx.Client(timeout=_REQUEST_TIMEOUT_SECONDS) as client:
+		with httpx.Client(timeout=timeout_seconds) as client:
 			resp = client.post(
 				f"{_base_url()}{path}",
-				json={"target": target, "is_group": is_group},
+				json=json_body,
 				headers={"Authorization": f"Bearer {token}"},
 			)
 		resp.raise_for_status()
