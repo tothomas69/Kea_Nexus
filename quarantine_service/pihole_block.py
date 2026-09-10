@@ -57,6 +57,29 @@ def unblock_via_pihole(pihole: PiholeClient, ip_address: str) -> None:
 			raise
 
 
+def list_blocked_ip_addresses(pihole: PiholeClient) -> list[str]:
+	"""Every client IP currently assigned to the quarantine group.
+
+	The Pi-hole side of the reconciliation check in reconcile.py. Returns an
+	empty list when the group doesn't exist — nothing has ever been blocked
+	on this instance, so there is nothing to reconcile.
+
+	Pi-hole is queried per instance rather than once: the two run fully
+	independently with no sync between them, so an override can exist on one
+	and not the other. That asymmetry is itself worth surfacing.
+	"""
+	group_id = _find_group_by_name(pihole)
+	if group_id is None:
+		return []
+
+	response = pihole.request("GET", "/clients")
+	return [
+		client["client"]
+		for client in response.get("clients", [])
+		if group_id in (client.get("groups") or []) and client.get("client")
+	]
+
+
 def _ensure_quarantine_group(pihole: PiholeClient) -> int:
 	"""Return the quarantine group's ID, creating the group if it doesn't exist."""
 	existing_group_id = _find_group_by_name(pihole)

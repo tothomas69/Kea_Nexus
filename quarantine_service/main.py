@@ -36,6 +36,7 @@ from quarantine_service.liveness import MAX_SWEEP_ADDRESSES, sweep
 from quarantine_service.nmap_fingerprint import refresh_os_fingerprint
 from quarantine_service.pihole_block import block_via_pihole, unblock_via_pihole
 from quarantine_service.presence_check import probe_device_now, start_presence_check_loop
+from quarantine_service.reconcile import find_orphaned_enforcement, log_orphan_report
 from quarantine_service.retry import run_with_retries
 
 # Without this, Python's root logger sits at its default WARNING level and
@@ -44,6 +45,8 @@ from quarantine_service.retry import run_with_retries
 # it ever reaches `docker logs` — uvicorn configures its own request-logging
 # loggers, not the application's.
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="keanexus-quarantine")
 
@@ -61,6 +64,29 @@ def _create_schema_on_startup() -> None:
 	EXISTS), so this is safe to run alongside KeaNexus's own call to it.
 	"""
 	init_db()
+
+
+@app.on_event("startup")
+def _check_for_orphaned_enforcement_on_startup() -> None:
+	"""Report any enforcement that no longer has a quarantined registry owner.
+
+	Startup is the right moment: it's the one point where the service is
+	guaranteed to look at the world fresh, and an orphan created while it was
+	down (a row deleted straight out of the DB, a release that failed silently)
+	has no other opportunity to be noticed. Read-only and non-fatal by design —
+	see reconcile.py for why nothing here clears anything automatically.
+
+	Runs before the presence loop starts so the report reflects state as found,
+	not state after a probe pass has begun refreshing last_seen breadcrumbs.
+	"""
+	try:
+		report = find_orphaned_enforcement(_get_kea_client(), _get_labeled_pihole_clients())
+		log_orphan_report(report)
+	except Exception:
+		# Deliberately broad: this is a diagnostic that must never prevent the
+		# service from starting. A quarantine feature that won't boot because
+		# its self-check tripped is worse than one with an unnoticed orphan.
+		logger.exception("Orphan check failed to run; continuing startup.")
 
 
 @app.on_event("startup")
@@ -88,6 +114,19 @@ class LivenessSweepRequest(BaseModel):
 def _get_kea_client() -> KeaClient:
 	"""Factory, not a module-level singleton, so tests can patch it per-call."""
 	return KeaClient()
+
+
+def _get_labeled_pihole_clients() -> dict[str, PiholeClient]:
+	"""Every Pi-hole instance keyed by the label used in quarantine_log steps.
+
+	Same construction as _get_pihole_clients, but keyed rather than ordered:
+	reconcile.py reports *which* instance still carries a stranded block, and
+	the two are independent enough that "secondary only" is a real state.
+	Keys match the pihole_primary/pihole_secondary step names so a report and
+	the audit log refer to the same thing by the same name.
+	"""
+	clients = dict(zip(["primary", "secondary"], _get_pihole_clients()))
+	return clients
 
 
 def _get_pihole_clients() -> list[PiholeClient]:
@@ -414,6 +453,28 @@ def release(request: QuarantineRequest) -> dict:
 def status(friendly_name: str) -> dict:
 	"""Return recent quarantine log entries for a single device."""
 	return {"friendly_name": friendly_name, "log": get_quarantine_log(friendly_name)}
+
+
+@app.get("/orphans", dependencies=[Depends(require_bearer_token)])
+def orphans() -> dict:
+	"""Report enforcement with no quarantined registry owner.
+
+	Same check the startup handler logs, exposed on demand so the Quarantine
+	tab can surface it without anyone reading container logs. Read-only —
+	clearing an orphan is a separate, deliberate action.
+
+	`unreachable` being non-empty means the check was incomplete, which is
+	not the same as finding nothing. Callers should say so rather than
+	rendering a clean bill of health.
+	"""
+	report = find_orphaned_enforcement(_get_kea_client(), _get_labeled_pihole_clients())
+	return {
+		"has_orphans": report.has_orphans,
+		"total_count": report.total_count,
+		"kea_mac_addresses": report.kea_mac_addresses,
+		"pihole_ip_addresses": report.pihole_ip_addresses,
+		"unreachable": report.unreachable,
+	}
 
 
 @app.post("/presence-check/{friendly_name}", dependencies=[Depends(require_bearer_token)])

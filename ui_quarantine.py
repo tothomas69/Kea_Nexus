@@ -27,6 +27,7 @@ from db import (
 from helpers import distinct_real_hostnames, html_safe_mac
 from quarantine_client import (
 	QuarantineServiceError,
+	fetch_orphaned_enforcement,
 	trigger_presence_check,
 	trigger_quarantine,
 	trigger_release,
@@ -473,6 +474,49 @@ def _render_manual_cleanup_reference() -> None:
 		)
 
 
+def _render_orphan_banner() -> None:
+	"""Warn about enforcement that no longer has a quarantined registry owner.
+
+	An orphan is enforcement still live in Kea or Pi-hole with no registry
+	row pointing at it — the device stays blocked and nothing in this tab
+	would otherwise show it, because the tab renders the registry and the
+	orphan is precisely what left the registry. That gap cost a device two
+	days offline; see docs/quarantine-troubleshooting.md.
+
+	Best-effort: the quarantine service being down is not a reason to break
+	the whole tab, and the same check is logged on service startup anyway.
+	"""
+	try:
+		report = fetch_orphaned_enforcement()
+	except QuarantineServiceError:
+		return
+
+	# An incomplete check is not a clean one — say so rather than staying
+	# silent and implying everything was verified.
+	for failure in report.get("unreachable", []):
+		st.info(f"Orphan check incomplete — {failure}")
+
+	if not report.get("has_orphans"):
+		return
+
+	lines = [
+		f"- Kea DROP class on `{mac}` — this device gets no DHCP lease"
+		for mac in report.get("kea_mac_addresses", [])
+	]
+	for label, ips in (report.get("pihole_ip_addresses") or {}).items():
+		lines += [
+			f"- Pi-hole ({label}) block on `{ip}` — this device can't resolve DNS" for ip in ips
+		]
+
+	st.error(
+		f"**{report['total_count']} piece(s) of enforcement have no owner in this "
+		"registry.** Whatever devices these belong to are blocked, and releasing "
+		"them from this tab won't help — there's no entry left to release.\n\n"
+		+ "\n".join(lines)
+		+ "\n\nClear them with the commands under **Manual cleanup** above."
+	)
+
+
 def _summarize_step_results(action_label: str, result: dict) -> tuple[bool, str]:
 	"""Turn keanexus-quarantine's response into a short pass/fail summary.
 
@@ -673,6 +717,7 @@ def render_quarantine(leases: list[dict], config: dict | None) -> None:
 	with cleanup_col:
 		_render_manual_cleanup_reference()
 
+	_render_orphan_banner()
 	_render_pending_action_result()
 
 	if st.button("Add Device", key="quarantine_add_device"):

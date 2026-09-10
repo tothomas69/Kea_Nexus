@@ -88,6 +88,16 @@ def trigger_liveness_sweep(ip_addresses: list[str]) -> list[str]:
 	return payload.get("responding", [])
 
 
+def fetch_orphaned_enforcement() -> dict:
+	"""Call GET /orphans — enforcement with no quarantined registry owner.
+
+	Backs the Quarantine tab's orphan banner. Read-only and quick (one Kea
+	config read plus one client list per Pi-hole), so it gets the short
+	timeout rather than the enforcement one.
+	"""
+	return _get("/orphans", _PRESENCE_CHECK_TIMEOUT_SECONDS)
+
+
 def _base_url() -> str:
 	return os.getenv("QUARANTINE_SERVICE_URL", "http://localhost:8600").rstrip("/")
 
@@ -100,8 +110,28 @@ def _call(path: str, target: str, is_group: bool) -> dict:
 	return _post(path, {"target": target, "is_group": is_group}, _REQUEST_TIMEOUT_SECONDS)
 
 
+def _get(path: str, timeout_seconds: float) -> dict:
+	"""GET from the quarantine service and return the decoded JSON body.
+
+	Separate from _post rather than a method parameter on it: every other
+	endpoint here is a POST that changes something, and keeping the read-only
+	call visibly distinct makes it obvious at the call site which is which.
+	"""
+	return _request("GET", path, None, timeout_seconds)
+
+
 def _post(path: str, json_body: Optional[dict], timeout_seconds: float) -> dict:
 	"""POST to the quarantine service and return the decoded JSON body.
+
+	Every endpoint here needs the same four things — the bearer token, the
+	base URL, an unreachable-service error and an HTTP-error detail parse —
+	so they live here once rather than once per endpoint wrapper.
+	"""
+	return _request("POST", path, json_body, timeout_seconds)
+
+
+def _request(method: str, path: str, json_body: Optional[dict], timeout_seconds: float) -> dict:
+	"""Issue an authenticated request and return the decoded JSON body.
 
 	Every endpoint here needs the same four things — the bearer token, the
 	base URL, an unreachable-service error and an HTTP-error detail parse —
@@ -115,11 +145,20 @@ def _post(path: str, json_body: Optional[dict], timeout_seconds: float) -> dict:
 
 	try:
 		with httpx.Client(timeout=timeout_seconds) as client:
-			resp = client.post(
-				f"{_base_url()}{path}",
-				json=json_body,
-				headers={"Authorization": f"Bearer {token}"},
-			)
+			# Dispatched rather than sent via client.request(): a GET carries no
+			# body at all, and calling the verb-specific method keeps that
+			# distinction explicit instead of relying on json=None to mean it.
+			if method == "GET":
+				resp = client.get(
+					f"{_base_url()}{path}",
+					headers={"Authorization": f"Bearer {token}"},
+				)
+			else:
+				resp = client.post(
+					f"{_base_url()}{path}",
+					json=json_body,
+					headers={"Authorization": f"Bearer {token}"},
+				)
 		resp.raise_for_status()
 	except httpx.ConnectError as exc:
 		raise QuarantineServiceError(f"Cannot reach keanexus-quarantine at {_base_url()}") from exc

@@ -77,6 +77,25 @@ def remove_drop_class(dhcp4_config: dict, mac_address: str) -> dict:
 	return dhcp4_config
 
 
+def list_drop_class_mac_addresses(dhcp4_config: dict) -> list[str]:
+	"""Every MAC currently carrying the DROP class, lowercased.
+
+	This is the enforcement side of the reconciliation check in
+	reconcile.py. Kea's config is the only durable record of which devices
+	are being denied DHCP, and it holds no reference back to the registry
+	entry that put them there — reading it out is the only way to notice a
+	DROP entry whose owner no longer exists.
+	"""
+	subnet = _find_subnet(dhcp4_config)
+	reservations = subnet.get("reservations") or []
+	return [
+		(reservation.get("hw-address") or "").lower()
+		for reservation in reservations
+		if _DROP_CLASS in (reservation.get("client-classes") or [])
+		and reservation.get("hw-address")
+	]
+
+
 def _find_subnet(dhcp4_config: dict) -> dict:
 	"""Return the first subnet4 entry. This deployment has exactly one."""
 	subnets = dhcp4_config.get("subnet4") or []
