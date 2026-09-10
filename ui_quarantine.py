@@ -116,6 +116,19 @@ _LOG_COL_HEADERS = [
 
 _ACTION_RESULT_KEY = "quarantine_last_action_result"
 
+# Per-device count of failed auto-release attempts made from the Delete
+# button, so the dialog can offer a manual override once the automatic
+# path has clearly stopped helping. Keyed by friendly_name — two devices
+# failing to release shouldn't share a counter.
+_DELETE_RELEASE_ATTEMPTS_KEY = "quarantine_delete_release_attempts"
+
+# How many times the Delete button will try to auto-release before offering
+# a force-delete escape hatch. Note this is *on top of* run_with_retries'
+# own 3 attempts per enforcement step inside the service — the inner
+# retries absorb transient blips, these outer ones give the operator a
+# chance to fix something (a downed Pi-hole, say) and try again.
+_MAX_DELETE_RELEASE_ATTEMPTS = 3
+
 
 def _render_grid_header(widths: list[float], headers: list[str]) -> None:
 	col_template = " ".join(f"{w}fr" for w in widths)
@@ -126,6 +139,112 @@ def _render_grid_header(widths: list[float], headers: list[str]) -> None:
 		f"{cells}</div>",
 		unsafe_allow_html=True,
 	)
+
+
+def _failed_release_attempts(friendly_name: str) -> int:
+	"""How many times auto-release has failed for this device in this session."""
+	return st.session_state.get(_DELETE_RELEASE_ATTEMPTS_KEY, {}).get(friendly_name, 0)
+
+
+def _record_failed_release_attempt(friendly_name: str) -> int:
+	"""Increment and return this device's failed auto-release count."""
+	attempts = st.session_state.setdefault(_DELETE_RELEASE_ATTEMPTS_KEY, {})
+	attempts[friendly_name] = attempts.get(friendly_name, 0) + 1
+	return attempts[friendly_name]
+
+
+def _clear_release_attempts(friendly_name: str) -> None:
+	st.session_state.get(_DELETE_RELEASE_ATTEMPTS_KEY, {}).pop(friendly_name, None)
+
+
+def _delete_registry_entry(friendly_name: str) -> None:
+	"""Drop the registry row and reset its auto-release bookkeeping."""
+	delete_device(friendly_name)
+	_clear_release_attempts(friendly_name)
+	st.rerun()
+
+
+def _delete_with_auto_release(friendly_name: str, existing: dict) -> None:
+	"""Delete a registry entry, releasing the device first if it's quarantined.
+
+	Enforcement state lives outside this database — a DROP class entry in
+	Kea's config, a client override on each Pi-hole, an ARP disruption
+	thread in the service's memory — and the only index back to all three is
+	the device_registry row. Deleting that row while the device is still
+	quarantined orphans every one of them: /release can no longer resolve
+	the target, so the device stays off the network permanently with nothing
+	in the UI pointing at it.
+
+	That isn't hypothetical. "Tommy PC" was deleted while quarantined on
+	2026-09-07 and stayed fully cut off until the DROP class was found by
+	hand in kea-dhcp4.conf two days later.
+
+	So: release first, verify it actually worked, and only then delete. A
+	release that reports any failed step does not count — partial success
+	is exactly how enforcement gets stranded.
+	"""
+	if not existing.get("is_quarantined"):
+		_delete_registry_entry(friendly_name)
+		return
+
+	with st.spinner(f"Releasing {friendly_name} before delete… this can take a while."):
+		try:
+			result = trigger_release(friendly_name)
+			release_succeeded, message = _summarize_step_results("Release", result)
+		except QuarantineServiceError as exc:
+			release_succeeded, message = False, f"Release failed for {friendly_name}: {exc}"
+
+	if release_succeeded:
+		_delete_registry_entry(friendly_name)
+		return
+
+	# Deliberately no st.rerun() here: a rerun inside an st.dialog closes it,
+	# which would throw away the failure message the operator needs to read.
+	# Recording the attempt now means _render_delete_controls, which runs
+	# further down this same pass, already sees the incremented count.
+	_record_failed_release_attempt(friendly_name)
+	st.error(message)
+
+
+def _render_delete_controls(friendly_name: str, existing: dict) -> None:
+	"""Delete button, plus a force-delete override once auto-release has
+	repeatedly failed.
+
+	The override exists because a device can become genuinely unreleasable —
+	Pi-hole down, device off the network, service unreachable — and the
+	registry shouldn't become impossible to clean up because of it. It's
+	deliberately not the default path: it takes an explicit confirmation and
+	only appears after the automatic route has been given a fair chance.
+	"""
+	attempts = _failed_release_attempts(friendly_name)
+	is_quarantined = bool(existing.get("is_quarantined"))
+
+	if is_quarantined and attempts == 0:
+		st.caption(
+			"This device is quarantined — Delete will release it first, and will "
+			"refuse to delete if the release doesn't fully succeed."
+		)
+
+	if attempts >= _MAX_DELETE_RELEASE_ATTEMPTS:
+		st.error(
+			f"Auto-release has failed {attempts} times for **{friendly_name}**. "
+			"Deleting now will leave its Kea DROP entry, Pi-hole block and ARP "
+			"disruption in place with nothing tracking them — you'd have to clear "
+			"them by hand. Fix the underlying failure and retry if you can."
+		)
+		confirmed = st.checkbox(
+			"I understand this orphans enforcement, delete anyway",
+			key=f"force_delete_confirm_{friendly_name}",
+		)
+		if st.button("Force Delete", key=f"force_delete_{friendly_name}", disabled=not confirmed):
+			_delete_registry_entry(friendly_name)
+	elif attempts > 0:
+		remaining = _MAX_DELETE_RELEASE_ATTEMPTS - attempts
+		st.warning(
+			f"Release didn't fully succeed ({attempts} of "
+			f"{_MAX_DELETE_RELEASE_ATTEMPTS} attempts). Entry not deleted. "
+			f"{remaining} more attempt(s) before a manual override is offered."
+		)
 
 
 @st.dialog("Device Registry Entry")
@@ -224,11 +343,17 @@ def _edit_dialog(
 				st.rerun()
 	with c2:
 		if existing and st.button("Delete", key="dialog_delete"):
-			delete_device(friendly_name)
-			st.rerun()
+			_delete_with_auto_release(friendly_name, existing)
 	with c3:
 		if st.button("Cancel", key="dialog_cancel"):
 			st.rerun()
+
+	# Rendered outside the three-column row: the quarantined-device caption,
+	# the retry warning and the force-delete override all need to persist
+	# across the rerun that follows a failed attempt, so they're driven by
+	# session_state rather than by the button click itself.
+	if existing:
+		_render_delete_controls(friendly_name, existing)
 
 
 _ENFORCEMENT_STEPS = [
@@ -264,6 +389,88 @@ def _render_enforcement_step_legend() -> None:
 	with st.expander("What do Kea / ARP / Pi-hole / Fingerprint mean?"):
 		for name, explanation in _ENFORCEMENT_STEPS:
 			st.markdown(f"**{name}** — {explanation}")
+
+
+def _render_manual_cleanup_reference() -> None:
+	"""Shell commands for undoing enforcement by hand when the service can't.
+
+	Kept on the tab permanently rather than only inside a failure message:
+	the moment you need these is the moment the UI is least able to help,
+	and reconstructing them from scratch under pressure is how a stranded
+	device stays stranded. Placeholders are deliberate — substitute the MAC
+	and IP from the device's row in the table above.
+	"""
+	with st.expander("Manual cleanup — if a device can't be released"):
+		st.caption(
+			"Run on the Docker host. Substitute the device's MAC and IP from "
+			"its row above. Work top to bottom — each block undoes one "
+			"enforcement layer, and all three have to go."
+		)
+
+		st.markdown("**1. Kea DROP class** — blocks DHCP silently, persists to disk")
+		st.code(
+			"# Find it (empty output means nothing to clean up)\n"
+			"docker exec kea-dhcp4 grep -n -B4 -A4 '\"DROP\"' /etc/kea/kea-dhcp4.conf\n\n"
+			"# Back up before editing\n"
+			"docker exec kea-dhcp4 cp /etc/kea/kea-dhcp4.conf \\\n"
+			"  /etc/kea/kea-dhcp4.conf.bak-$(date +%Y%m%d-%H%M%S)\n\n"
+			"# Clear DROP on the client-classes line the grep reported (LINE_NO)\n"
+			"docker exec kea-dhcp4 sed -i 'LINE_NOs/\\[ \"DROP\" \\]/[ ]/' \\\n"
+			"  /etc/kea/kea-dhcp4.conf\n\n"
+			"# Validate BEFORE restarting - bad JSON takes DHCP down for everyone\n"
+			"docker exec kea-dhcp4 kea-dhcp4 -t /etc/kea/kea-dhcp4.conf\n\n"
+			"docker restart kea-dhcp4",
+			language="bash",
+		)
+
+		st.markdown("**2. ARP disruption** — in-memory thread, severs layer 2")
+		st.code(
+			"# Threads are memory-only, so a restart clears every active one.\n"
+			"# Note this also silently releases any device legitimately\n"
+			"# quarantined right now.\n"
+			"docker restart keanexus-quarantine",
+			language="bash",
+		)
+
+		st.markdown("**3. Pi-hole client override** — blocks DNS on both instances")
+		st.code(
+			'docker exec keanexus-quarantine python3 -c "\n'
+			"import os\n"
+			"from pihole import PiholeClient\n"
+			"for url, pw in [\n"
+			"    (os.environ.get('PIHOLE_API_URL',''),\n"
+			"     os.environ.get('PIHOLE_API_PASSWORD','')),\n"
+			"    (os.environ.get('PIHOLE_SECONDARY_API_URL',''),\n"
+			"     os.environ.get('PIHOLE_SECONDARY_API_PASSWORD','')),\n"
+			"]:\n"
+			"    if not url: continue\n"
+			"    try:\n"
+			"        PiholeClient(base_url=url, password=pw).request(\n"
+			"            'DELETE', '/clients/DEVICE_IP')\n"
+			"        print(url, 'cleared')\n"
+			"    except Exception as e:\n"
+			"        print(url, 'ERR', e)\n"
+			'"',
+			language="bash",
+		)
+
+		st.markdown("**4. On the device itself**")
+		st.code(
+			"# Windows, as Administrator - clears the poisoned ARP entry and\n"
+			"# the cached DNS failures left behind by steps 2 and 3\n"
+			"arp -d *\n"
+			"ipconfig /release\n"
+			"ipconfig /renew\n"
+			"ipconfig /flushdns\n"
+			"ping 8.8.8.8",
+			language="bash",
+		)
+
+		st.caption(
+			"Test with `ping 8.8.8.8`, not a hostname — that separates a routing "
+			"failure from a DNS one. Note the gateway may not answer ICMP even "
+			"when routing is perfectly healthy."
+		)
 
 
 def _summarize_step_results(action_label: str, result: dict) -> tuple[bool, str]:
@@ -457,7 +664,14 @@ def render_quarantine(leases: list[dict], config: dict | None) -> None:
 		"Quarantine/Release call keanexus-quarantine's own API directly — "
 		"see docs/quarantine-feature-design.md."
 	)
-	_render_enforcement_step_legend()
+	# Side by side: "what does this do" and "how do I undo it by hand" are
+	# the two questions this tab gets asked, and neither deserves to push
+	# the device table further down the page than the other.
+	legend_col, cleanup_col = st.columns(2)
+	with legend_col:
+		_render_enforcement_step_legend()
+	with cleanup_col:
+		_render_manual_cleanup_reference()
 
 	_render_pending_action_result()
 

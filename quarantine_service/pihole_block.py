@@ -16,10 +16,11 @@ duration of a quarantine.
 
 from typing import Optional
 
-from pihole import PiholeClient
+from pihole import PiholeClient, PiholeError
 
 _GROUP_NAME = "keanexus_quarantine"
 _DENY_ALL_REGEX = "(.*)"
+_HTTP_NOT_FOUND = 404
 
 
 def block_via_pihole(pihole: PiholeClient, ip_address: str) -> None:
@@ -39,8 +40,21 @@ def unblock_via_pihole(pihole: PiholeClient, ip_address: str) -> None:
 	Deleting the client entry entirely reverts the device to Pi-hole's
 	normal Default-group behavior, rather than leaving an empty override
 	behind.
+
+	A 404 means Pi-hole had no client override for this IP, which is
+	exactly the state this function exists to produce — so it counts as
+	success, not failure. Deletes are idempotent by nature and the only
+	honest question is whether the override is gone afterwards. Treating
+	it as an error instead meant every release of a device that was never
+	blocked (or was already unblocked) burned three retries and wrote a
+	false `succeeded: 0` row into quarantine_log — noise that masked real
+	Pi-hole failures for weeks.
 	"""
-	pihole.request("DELETE", f"/clients/{ip_address}")
+	try:
+		pihole.request("DELETE", f"/clients/{ip_address}")
+	except PiholeError as exc:
+		if exc.status_code != _HTTP_NOT_FOUND:
+			raise
 
 
 def _ensure_quarantine_group(pihole: PiholeClient) -> int:

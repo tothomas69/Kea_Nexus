@@ -20,6 +20,7 @@ _DOCS_DIRECTORY = Path(__file__).resolve().parent / "docs"
 ARTICLES: list[tuple[str, str]] = [
 	("Siri Shortcut Setup", "siri-shortcut-setup.md"),
 	("Quarantine Design", "quarantine-feature-design.md"),
+	("Quarantine Troubleshooting", "quarantine-troubleshooting.md"),
 ]
 
 _ALLOWED_FILENAMES = {filename for _, filename in ARTICLES}
