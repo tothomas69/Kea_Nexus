@@ -1,0 +1,8 @@
+# Orwell 1/3 — the em-dash, the most reliable tell of model-written prose.
+extends: existence
+message: "Em-dash. Use a comma, colon, or full stop."
+level: error
+nonword: true
+tokens:
+  - '—'
+  - ' -- '

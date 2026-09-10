@@ -1,0 +1,25 @@
+# Orwell 3/3 — preamble openers and summary closers.
+# Gowers: "Be short, be simple, be human." Start with the point.
+extends: existence
+message: "Filler opener/closer: '%s'. Cut it and start with the point."
+level: warning
+ignorecase: true
+tokens:
+  - "in conclusion"
+  - "to summarize"
+  - "to sum up"
+  - "in summary"
+  - "overall,"
+  - "ultimately,"
+  - "great question"
+  - "certainly!"
+  - "absolutely!"
+  - "of course!"
+  - "i hope this helps"
+  - "let's dive in"
+  - "let's explore"
+  - "without further ado"
+  - "as we've seen"
+  - "as mentioned above"
+  - "it goes without saying"
+  - "needless to say"

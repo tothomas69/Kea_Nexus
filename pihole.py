@@ -30,7 +30,18 @@ load_dotenv()
 
 
 class PiholeError(Exception):
-	"""Raised when a Pi-hole API call fails or the server is unreachable."""
+	"""Raised when a Pi-hole API call fails or the server is unreachable.
+
+	Carries the HTTP status code when the failure came from a response
+	rather than from an unreachable host, so callers can branch on *why*
+	the call failed instead of pattern-matching the message text. status_code
+	is None for connection failures and auth problems — there was no
+	meaningful per-request status in those cases.
+	"""
+
+	def __init__(self, message: str, status_code: Optional[int] = None) -> None:
+		super().__init__(message)
+		self.status_code = status_code
 
 
 class PiholeClient:
@@ -108,7 +119,8 @@ class PiholeClient:
 			raise PiholeError(f"Cannot reach Pi-hole at {self.base_url}") from exc
 		except httpx.HTTPStatusError as exc:
 			raise PiholeError(
-				f"Pi-hole returned HTTP {exc.response.status_code}: {exc.response.text}"
+				f"Pi-hole returned HTTP {exc.response.status_code}: {exc.response.text}",
+				status_code=exc.response.status_code,
 			) from exc
 
 		if not resp.content:

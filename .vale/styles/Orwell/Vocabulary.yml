@@ -1,0 +1,57 @@
+# Orwell 2/3 — words far more common in model output than human writing.
+# "Never use a long word where a short one will do."
+extends: existence
+message: "'%s' is LLM dialect. Use a plainer word or cut it."
+level: warning
+ignorecase: true
+tokens:
+  - delve
+  - delves
+  - delving
+  - leverage
+  - leverages
+  - leveraging
+  - robust
+  - tapestry
+  - crucial
+  - pivotal
+  - seamless
+  - seamlessly
+  - streamline
+  - streamlined
+  - holistic
+  - synergy
+  - paradigm
+  - landscape
+  - realm
+  - navigate
+  - navigating
+  - underscore
+  - underscores
+  - foster
+  - fostering
+  - facilitate
+  - facilitates
+  - utilize
+  - utilizes
+  - utilizing
+  - additionally
+  - furthermore
+  - moreover
+  - multifaceted
+  - nuanced
+  - testament
+  - vibrant
+  - embark
+  - elevate
+  - unlock
+  - game-changer
+  - cutting-edge
+  - state-of-the-art
+  - "it's worth noting"
+  - "it is worth noting"
+  - "it's important to note"
+  - "it is important to note"
+  - "in today's"
+  - "in the ever-evolving"
+  - "at the end of the day"

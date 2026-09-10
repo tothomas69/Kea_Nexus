@@ -287,6 +287,90 @@ registered device on a timer** (`presence_check.py`, default every 5 min,
   plain `CREATE TABLE IF NOT EXISTS` doesn't retrofit columns onto an
   existing table.
 
+## Incident 2026-09-07 — Orphaned Enforcement ("Tommy PC")
+
+A Windows PC was quarantined from the KeaNexus UI on 2026-09-07. Its
+`device_registry` row was deleted afterwards, while it was still
+quarantined. It stayed fully off the network for two days and nothing in the
+UI pointed at it.
+
+**Why deleting the row was enough to strand it.** Every enforcement layer
+lives outside this database — a DROP class entry in Kea's config, a client
+override on each Pi-hole, a thread in the service's memory. The only index
+back to all three is the `device_registry` row, because `/release` resolves
+its target through `identity.resolve_target`. Delete the row and there is no
+longer anything to resolve: `/release` returns 404 before it reaches a single
+enforcement step. Nothing else in the system holds a pointer to that MAC.
+
+The enforcement was durable in a way the identity was not. Kea's DROP
+persisted through every restart because `save_config()` calls `config-write`.
+The ARP thread happened to survive because the container had been up since
+2026-08-26, spanning the quarantine. The Pi-hole overrides persisted because
+they live on the Pi-holes.
+
+**What made it hard to diagnose.** The three layers fail differently and the
+symptoms stack. Kea's DROP produced no DHCP lease; a manual static IP was
+assigned as a workaround, which did nothing because ARP disruption operates
+below DHCP. The ARP thread then made the device look like a routing failure.
+Only after both were cleared did the Pi-hole block become visible as a pure
+DNS failure. Each fix revealed the next problem rather than resolving the
+symptom, which repeatedly suggested the previous fix hadn't worked.
+
+Two details cost real time and are now in the troubleshooting runbook: the
+gateway does not answer ICMP even when healthy, so "can't ping the gateway"
+proved nothing; and `quarantine_log` is keyed on `friendly_name`, so the
+orphan was only findable by a name that no longer existed anywhere else.
+
+**Second defect found alongside it.** `unblock_via_pihole` issued
+`DELETE /clients/{ip}` and treated Pi-hole's 404 as an error. A delete that
+finds nothing has already achieved its goal, but every release of a device
+without an existing override burned three retries and wrote `succeeded: 0` to
+the log — on both instances, on every release since the feature shipped. Real
+Pi-hole failures were indistinguishable from that constant noise.
+
+### Changes made
+
+- **Delete now releases first.** `ui_quarantine._delete_with_auto_release`
+  calls `/release` for a quarantined device and verifies every step
+  succeeded before removing the row. Any failed step aborts the delete.
+  Partial success does not count — that is precisely how enforcement gets
+  stranded.
+- **Force-delete escape hatch.** After 3 failed auto-release attempts a
+  manual override appears, gated behind an explicit confirmation. A device
+  can become genuinely unreleasable (Pi-hole down, device off the network)
+  and the registry must not become impossible to clean up. Note this is on
+  top of `run_with_retries`' own 3 attempts per step.
+- **`PiholeError` carries `status_code`.** `unblock_via_pihole` treats 404 as
+  success. Matching on the status rather than the message text so a reworded
+  error can't silently break the check.
+- **Manual cleanup reference in the UI.** The Quarantine tab now carries the
+  commands for undoing all three layers by hand — the moment you need them is
+  the moment the UI is least able to help.
+
+### Still open
+
+**Nothing reconciles enforcement against the registry.** A DROP entry in
+Kea's config with no `is_quarantined` owner is invisible until someone
+notices a device is offline and goes looking by hand. The same applies to
+Pi-hole client overrides in the `keanexus_quarantine` group. A startup check
+comparing both against the registry would have surfaced this in seconds
+instead of an hour of manual forensics.
+
+Decided approach: log on startup regardless, and surface orphans in the
+Quarantine tab with a clear action. Deliberately **not** auto-clearing — if
+the registry is ever empty or unreadable at startup, every legitimate
+quarantine would look like an orphan and get released. "Release everything"
+is the worst available failure mode for a feature whose job is keeping
+devices off the network.
+
+**Identity resolution takes `leases[0]` unchecked.** `identity.py` uses the
+first lease returned for a hostname without testing for multiple matches, and
+`verify_identity_unchanged` re-checks against the same ambiguous value — so
+the guard cannot detect the ambiguity it was written to protect against. Not
+a factor in this incident (the hostname returned exactly one lease), but it
+is the known docked-laptop / dual-NIC case, where one physical device holds
+two simultaneous leases.
+
 ## Out of Scope (for now)
 
 - Alexa integration — dropped in favor of Siri Shortcuts only

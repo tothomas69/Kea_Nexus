@@ -25,18 +25,34 @@ Implementation is complete when:
 
 ### Quality Gate
 
-The quality gate runs as a **git pre-commit hook** (`.githooks/pre-commit`), not after every Claude edit:
+Quality gates run as **git hooks**, not after every Claude edit. Two tiers:
+
+**pre-commit** (`.git/hooks/pre-commit`) - fast, every commit:
 
 - Ruff formats and lints staged Python files (formatting fixes are auto-restaged)
-- pytest runs the full test suite and enforces 80% coverage
+- Bandit scans staged Python for security anti-patterns
+- import-linter enforces architecture contracts when `.importlinter` exists
+- Vale lints staged Markdown for mechanical plain-English rules (em-dashes, LLM vocabulary, filler)
 - detect-secrets scans for new secrets against `.secrets.baseline`
-- Commit is blocked on lint errors, test failures, or new secrets
+- Commit is blocked on any failure
 
-The hook is committed to `.githooks/` and activated per-clone with:
+**pre-push** (`.git/hooks/pre-push`) - slow, once per push:
 
-```
-make setup
-```
+- Full test suite with 80% minimum coverage (the Definition of Done)
+- pip-audit for known-vulnerable dependencies (warns, does not block)
+
+### Prose
+
+Two shared skills live in `~/.claude/skills`. They are mutually exclusive; never apply both to one text:
+
+- `simple-english` for READMEs, runbooks, docstrings, error messages, anything a tired reader must not misread
+- `plain-english` for prose with a voice: essays, posts, long-form writing
+
+### Do Not Run Checks Unprompted
+
+**NEVER run `ruff`, `pytest`, or the coverage report on your own initiative.** Not after an edit, not to "verify," not to satisfy the Definition of Done. Ruff runs automatically in the pre-commit hook; pytest and coverage run once, at the end of a task, when the user says so.
+
+If you believe a check is needed, **ask first** and wait for approval. The Definition of Done describes what the user will verify before merge, not a loop for you to run after every change.
 
 ### As-Built Project Guide Maintenance
 
