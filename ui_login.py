@@ -14,6 +14,28 @@ from auth import SESSION_COOKIE_NAME, attempt_login, session_token
 # so this is the closest practical approximation. See auth.py's docstring.
 _SESSION_COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24
 
+# The cookie is written on the run after login, not during it. CookieManager
+# only writes a cookie when its component actually renders in the browser,
+# and the st.rerun() that follows a successful login discards that run's
+# output first, so a cookie set right before the rerun never reached the
+# browser and every reload logged the user out.
+_PENDING_COOKIE_KEY = "_session_cookie_pending"
+
+
+def write_pending_session_cookie(cookie_manager: stx.CookieManager) -> None:
+	"""Write the session cookie once, on the first full page run after login.
+
+	Called from app.py's main() after the authentication gate. An empty token
+	means KEANEXUS_SECRET is unset: the login still works for this session, it
+	just won't survive a page reload.
+	"""
+	if not st.session_state.pop(_PENDING_COOKIE_KEY, False):
+		return
+	token = session_token()
+	if not token:
+		return
+	cookie_manager.set(SESSION_COOKIE_NAME, token, max_age=_SESSION_COOKIE_MAX_AGE_SECONDS)
+
 
 def render_login(cookie_manager: stx.CookieManager) -> None:
 	"""Render the login page. Calls st.rerun() on successful authentication."""
@@ -34,13 +56,7 @@ def render_login(cookie_manager: stx.CookieManager) -> None:
 
 		if st.button("Sign in", type="primary", width="stretch"):
 			if attempt_login(username.strip(), password):
-				# An empty token means KEANEXUS_SECRET is unset; the login still
-				# works for this session, it just won't survive a page reload.
-				token = session_token()
-				if token:
-					cookie_manager.set(
-						SESSION_COOKIE_NAME, token, max_age=_SESSION_COOKIE_MAX_AGE_SECONDS
-					)
+				st.session_state[_PENDING_COOKIE_KEY] = True
 				st.rerun()
 			else:
 				st.error("Invalid username or password.")

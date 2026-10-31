@@ -24,7 +24,7 @@ from ui_dashboard import render_dashboard
 from ui_docs import render_docs_nav, render_open_article
 from ui_ipam import render_ipam
 from ui_leases import render_leases
-from ui_login import render_login
+from ui_login import render_login, write_pending_session_cookie
 from ui_maintenance import render_maintenance
 from ui_quarantine import render_quarantine
 from ui_reservations import render_reservations
@@ -75,6 +75,7 @@ _start_pool_sampler()
 # Session-scoped (not module-scoped) so a genuinely fresh session always
 # gets its own single grace-stop, rather than sharing state across sessions.
 _COOKIE_SYNC_FLAG = "_cookie_sync_attempted"
+_COOKIE_DELETE_PENDING_FLAG = "_cookie_delete_pending"
 
 
 def _cookie_manager() -> stx.CookieManager:
@@ -179,18 +180,35 @@ def render_sidebar(
 	st.sidebar.markdown('<div style="margin-top:22px"></div>', unsafe_allow_html=True)
 	if st.sidebar.button("Sign out", key="sign_out_button", width="stretch"):
 		logout()
-		# .delete() raises KeyError if the cookie hasn't synced into the
-		# component's internal cache yet — guard rather than crash sign-out.
-		if SESSION_COOKIE_NAME in cookie_manager.cookies:
-			cookie_manager.delete(SESSION_COOKIE_NAME)
+		# The cookie is deleted on the next run (see _delete_cookie_after_sign_out),
+		# not here: CookieManager only acts when its component renders, and this
+		# st.rerun() discards the current run's output first. Deleting here left
+		# the cookie in place, so a reload after Sign out signed straight back in.
+		st.session_state[_COOKIE_DELETE_PENDING_FLAG] = True
 		st.rerun()
 
 
 # --- Main ---------------------------------------------------------------------
 
 
+def _delete_cookie_after_sign_out(cookie_manager: stx.CookieManager) -> bool:
+	"""Delete the session cookie on the first run after Sign out.
+
+	Returns True if a sign-out was just processed, so main() skips restoring
+	the session from the very cookie being deleted.
+	"""
+	if not st.session_state.pop(_COOKIE_DELETE_PENDING_FLAG, False):
+		return False
+	# .delete() raises KeyError if the cookie hasn't synced into the
+	# component's internal cache yet — guard rather than crash sign-out.
+	if SESSION_COOKIE_NAME in cookie_manager.cookies:
+		cookie_manager.delete(SESSION_COOKIE_NAME)
+	return True
+
+
 def main() -> None:
 	cookie_manager = _cookie_manager()
+	just_signed_out = _delete_cookie_after_sign_out(cookie_manager)
 
 	# A page reload starts a fresh Streamlit session (blank session_state) —
 	# restore it from the session cookie before falling back to the login
@@ -203,7 +221,7 @@ def main() -> None:
 	# session via _COOKIE_SYNC_FLAG, never on every run — waits for that
 	# round trip instead of racing it. A genuinely cookie-less visitor still
 	# reaches the login page normally on the rerun that follows.
-	if not is_authenticated():
+	if not is_authenticated() and not just_signed_out:
 		all_cookies = cookie_manager.get_all()
 		if not all_cookies and not st.session_state.get(_COOKIE_SYNC_FLAG):
 			st.session_state[_COOKIE_SYNC_FLAG] = True
@@ -213,6 +231,8 @@ def main() -> None:
 	if not is_authenticated():
 		render_login(cookie_manager)
 		return
+
+	write_pending_session_cookie(cookie_manager)
 
 	kea = get_client()
 	leases = []

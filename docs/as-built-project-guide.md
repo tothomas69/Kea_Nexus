@@ -134,13 +134,24 @@ Data persisted in Docker named volume `keanexus_data` mounted at `/app/data/`.
   most once per session (not called unconditionally on every empty result)
   so a genuinely cookie-less visitor still reaches the login page normally
   rather than getting stuck
-- `ui_login.py`'s `render_login(cookie_manager)` sets the cookie via
-  `cookie_manager.set(...)` on successful login, with a 24h rolling expiry —
-  the CookieManager library always attaches an expiry (no true zero-expiry
-  "clears only when the browser closes" option), so this is the closest
-  practical approximation. Sign-out (`app.py`'s `render_sidebar`) deletes it,
-  guarded against `KeyError` since `.delete()` raises if the cookie hasn't
-  synced into the component's internal cache yet
+- **The cookie is written and deleted one run later, never right before an
+  `st.rerun()`.** `CookieManager` only acts when its component actually renders
+  in the browser, and `st.rerun()` discards the current run's output first. Both
+  login and Sign out used to call the cookie method and then rerun immediately,
+  so the cookie was never written (every reload logged the user out) and never
+  deleted (a reload after Sign out signed straight back in). Confirmed in a
+  headless browser against the old code; both bugs predate multi-user. Now:
+  `ui_login.py`'s `render_login` only sets `_session_cookie_pending` and reruns,
+  and `write_pending_session_cookie(cookie_manager)`, called from `main()` right
+  after the authentication gate, writes the cookie on that next full run. Sign
+  out (`app.py`'s `render_sidebar`) sets `_cookie_delete_pending` and reruns;
+  `_delete_cookie_after_sign_out` deletes it on the next run, and `main()` skips
+  cookie restore on that run so it can't sign back in from the cookie it is
+  deleting. The delete stays guarded against `KeyError`, since `.delete()`
+  raises if the cookie hasn't synced into the component's cache yet
+- The cookie has a 24h rolling expiry — the CookieManager library always
+  attaches an expiry (no true zero-expiry "clears only when the browser closes"
+  option), so this is the closest practical approximation
 
 ### Kea Client (`kea.py`)
 
