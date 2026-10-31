@@ -1,6 +1,6 @@
 """
 db.py — SQLite persistence layer for KeaNexus.
-Manages the local database for IPAM static address records.
+Manages the local database for IPAM static address records and app users.
 """
 
 import sqlite3
@@ -108,6 +108,22 @@ def init_db() -> None:
 				attempt_count  INTEGER NOT NULL,
 				detail         TEXT NOT NULL DEFAULT '',
 				occurred_at    TEXT NOT NULL
+			)
+		""")
+		# Usernames compare case-insensitively so "Tom" and "tom" can't become
+		# two accounts. session_version is bumped on any change that should
+		# end existing logins (password, role, disable); the session cookie
+		# carries the version it was issued under, so a stale cookie stops
+		# validating without a server-side session store.
+		conn.execute("""
+			CREATE TABLE IF NOT EXISTS users (
+				username         TEXT PRIMARY KEY COLLATE NOCASE,
+				password_hash    TEXT NOT NULL,
+				role             TEXT NOT NULL CHECK (role IN ('admin', 'viewer')),
+				session_version  INTEGER NOT NULL DEFAULT 1,
+				is_disabled      INTEGER NOT NULL DEFAULT 0,
+				created_at       TEXT NOT NULL,
+				last_login_at    TEXT NOT NULL DEFAULT ''
 			)
 		""")
 		conn.commit()
@@ -455,3 +471,101 @@ def prune_pool_samples(retention_days: int) -> int:
 		cursor = conn.execute("DELETE FROM pool_samples WHERE sampled_at < ?", (cutoff,))
 		conn.commit()
 		return cursor.rowcount
+
+
+# --- Users -----------------------------------------------------------------------
+# Storage only. Password hashing and verification live in auth.py so this
+# module never handles a plaintext password.
+
+USER_ROLES = ("admin", "viewer")
+
+
+def _now_iso() -> str:
+	return datetime.now(timezone.utc).isoformat()
+
+
+def count_users() -> int:
+	with _connect() as conn:
+		return conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+
+
+def count_active_admins() -> int:
+	"""Used to refuse any change that would leave nobody able to manage users."""
+	with _connect() as conn:
+		return conn.execute(
+			"SELECT COUNT(*) FROM users WHERE role = 'admin' AND is_disabled = 0"
+		).fetchone()[0]
+
+
+def get_user(username: str) -> Optional[dict]:
+	with _connect() as conn:
+		row = conn.execute("SELECT * FROM users WHERE username = ?", (username,)).fetchone()
+	return dict(row) if row else None
+
+
+def list_users() -> list[dict]:
+	"""All users without their password hashes; the UI never needs them."""
+	with _connect() as conn:
+		rows = conn.execute(
+			"SELECT username, role, is_disabled, created_at, last_login_at"
+			" FROM users ORDER BY username COLLATE NOCASE"
+		).fetchall()
+	return [dict(row) for row in rows]
+
+
+def insert_user(username: str, password_hash: str, role: str) -> None:
+	"""Raises sqlite3.IntegrityError if the username exists (any letter case)."""
+	assert role in USER_ROLES, f"unknown role: {role}"
+	with _connect() as conn:
+		conn.execute(
+			"INSERT INTO users (username, password_hash, role, created_at) VALUES (?, ?, ?, ?)",
+			(username, password_hash, role, _now_iso()),
+		)
+		conn.commit()
+
+
+# Each change below also bumps session_version, which ends that user's
+# existing logins (see the users table comment in init_db). The queries are
+# spelled out per function rather than built from a shared template so no SQL
+# is ever assembled from strings. Each returns False if no such user exists.
+
+
+def update_password_hash(username: str, password_hash: str) -> bool:
+	with _connect() as conn:
+		cursor = conn.execute(
+			"UPDATE users SET password_hash = ?, session_version = session_version + 1"
+			" WHERE username = ?",
+			(password_hash, username),
+		)
+		conn.commit()
+		return cursor.rowcount == 1
+
+
+def set_user_role(username: str, role: str) -> bool:
+	assert role in USER_ROLES, f"unknown role: {role}"
+	with _connect() as conn:
+		cursor = conn.execute(
+			"UPDATE users SET role = ?, session_version = session_version + 1 WHERE username = ?",
+			(role, username),
+		)
+		conn.commit()
+		return cursor.rowcount == 1
+
+
+def set_user_disabled(username: str, is_disabled: bool) -> bool:
+	with _connect() as conn:
+		cursor = conn.execute(
+			"UPDATE users SET is_disabled = ?, session_version = session_version + 1"
+			" WHERE username = ?",
+			(int(is_disabled), username),
+		)
+		conn.commit()
+		return cursor.rowcount == 1
+
+
+def record_login(username: str) -> None:
+	with _connect() as conn:
+		conn.execute(
+			"UPDATE users SET last_login_at = ? WHERE username = ?", (_now_iso(), username)
+		)
+		conn.commit()
