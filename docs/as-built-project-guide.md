@@ -53,6 +53,7 @@ keanexus/
 ├── ui_maintenance.py   — Maintenance tab: DHCP enable/disable, wipe leases
 ├── ui_quarantine.py    — Quarantine tab: device registry CRUD + read-only audit log
 ├── ui_settings.py      — Settings tab: subnet/pool/lease on one row, DHCP options in a 2x2 grid
+├── ui_users.py         — Users panel (Settings → Users, admins only): add, edit, disable logins
 ├── style.css           — Global CSS overrides for Streamlit internals
 ├── Makefile            — Developer setup (`make setup`) and test runner (`make test`)
 ├── static/             — Static assets (keanexus_logo.png)
@@ -236,6 +237,9 @@ Data persisted in Docker named volume `keanexus_data` mounted at `/app/data/`.
   tab with the previous tab's content still visible fading out underneath —
   `key=` makes the active tab persist across that rerun like any other keyed
   widget's session-state value
+- `_render_settings_tab(config)` — admins get `DHCP` and `Users` sub-tabs
+  (`st.tabs(..., key="settings_tabs")`, keyed for the same rerun reason as
+  `main_tabs`); viewers get the DHCP settings alone, with no Users tab at all
 
 ### Helpers (`helpers.py`)
 
@@ -582,6 +586,29 @@ current_label)` (includes Delete). Deleting a reservation, or changing its MAC
   separate Status column. Exists because `last_quarantined_at` alone can't
   answer "is this quarantined right now" — it's never cleared on release
 - `_render_log_table(entries)` — renders the 50 most recent `quarantine_log` rows
+
+### Users Panel (`ui_users.py`)
+
+- `render_users()` — the Settings tab's Users sub-tab, admins only. One table row
+  per login (username, role chip, active/disabled, last login in local time) with
+  an Edit button, plus `+ Add`
+- Collects input only. Every rule (password length, last active admin, no
+  disabling yourself) is enforced by `auth.py`'s `create_user` / `change_role` /
+  `reset_password` / `set_disabled`, and their `UserManagementError` message is
+  what the dialog shows. Keeps the rules unit-tested, since `ui_*.py` is excluded
+  from coverage
+- `_add_user_dialog()` / `_edit_user_dialog(user)`. Edit changes role and password
+  in one Save, and has a Disable/Enable button. The password pair is checked
+  (match and length) **before** anything is saved, so a combined role and
+  password edit can't save the role and then refuse the password
+- Each dialog re-checks `is_admin()` itself: a dialog survives reruns, and the
+  admin's own role could change from another session while it is open
+- Editing your own account shows a warning first, because a role or password
+  change bumps `session_version` and ends your current session too
+- Dialog errors are drawn below the button row, not inside a button column,
+  where they were squeezed to a third of the dialog width
+- Success uses the stash-then-rerun pattern (`_PENDING_NOTICE_KEY`), the same as
+  `ui_quarantine.py`, because `st.rerun()` wipes anything drawn in that run
 
 ### keanexus-quarantine Service (`quarantine_service/`)
 

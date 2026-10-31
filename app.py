@@ -12,6 +12,7 @@ import streamlit as st
 from auth import (
 	SESSION_COOKIE_NAME,
 	bootstrap_admin_from_env,
+	is_admin,
 	is_authenticated,
 	logout,
 	restore_session_from_cookie,
@@ -29,6 +30,7 @@ from ui_maintenance import render_maintenance
 from ui_quarantine import render_quarantine
 from ui_reservations import render_reservations
 from ui_settings import render_settings
+from ui_users import render_users
 from version import APP_VERSION
 
 # --- Page config (must be first Streamlit call) -------------------------------
@@ -280,7 +282,23 @@ def main() -> None:
 	with tab_quarantine:
 		render_quarantine(leases, config)
 	with tab_settings:
+		_render_settings_tab(config)
+
+
+def _render_settings_tab(config) -> None:
+	"""Settings tab. Admins get DHCP and Users sub-tabs; viewers see DHCP only.
+
+	The sub-tab key keeps the selected sub-tab across the st.rerun() each
+	Users dialog does after a save, the same reason main_tabs has a key.
+	"""
+	if not is_admin():
 		render_settings(config)
+		return
+	tab_dhcp, tab_users = st.tabs(["DHCP", "Users"], key="settings_tabs")
+	with tab_dhcp:
+		render_settings(config)
+	with tab_users:
+		render_users()
 
 
 if __name__ == "__main__":

@@ -29,6 +29,7 @@ services:
             - ./ui_maintenance.py:/app/ui_maintenance.py
             - ./ui_quarantine.py:/app/ui_quarantine.py
             - ./ui_settings.py:/app/ui_settings.py
+            - ./ui_users.py:/app/ui_users.py
             - ./style.css:/app/style.css
             - ./.streamlit:/app/.streamlit
             - ./static:/app/static
