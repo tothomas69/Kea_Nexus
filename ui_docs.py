@@ -31,12 +31,12 @@ def _article_dialog(filename: str) -> None:
 
 
 def render_docs_nav() -> None:
-	"""The sidebar's Docs section: one button per available article."""
+	"""The sidebar's Documentation section: one button per available article."""
 	articles = available_articles()
 	if not articles:
 		return
 
-	with st.sidebar.expander("Docs"):
+	with st.sidebar.expander("Documentation"):
 		for title, filename in articles:
 			if st.button(title, key=f"docs_open_{filename}", width="stretch"):
 				st.session_state[_OPEN_ARTICLE_KEY] = filename

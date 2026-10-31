@@ -566,17 +566,19 @@ body:has([data-testid="stSidebar"][aria-expanded="false"]) [data-testid="stTabs"
    sidebar's flat centred rows and full-width Sign out button, that reads as a
    stray box floating on the panel rather than part of it.
 
-   Strip the card and restyle the summary to match _sidebar_item's typography
-   in app.py (10px uppercase monospace, letter-spaced, centred, with the same
-   1px divider the info rows use), so Docs reads as another sidebar row that
-   happens to open. Scoped to the sidebar so expanders in the main content
-   area — the Quarantine tab's step legend, the charts' "Show the numbers" —
-   keep Streamlit's default card look. ------------------------------------- */
+   Strip the card and restyle the summary in _sidebar_item's style from app.py
+   (uppercase monospace, letter-spaced, centred), so Documentation reads as
+   another sidebar row that happens to open. Its label is a step larger than
+   the 10px info labels because it is the one row here you act on, not just
+   read. No top border of its own: the API Mode row directly above already
+   draws a divider under itself, and a second one here stacked into a double
+   line. Scoped to the sidebar so expanders in the main content area — the
+   Quarantine tab's step legend, the charts' "Show the numbers" — keep
+   Streamlit's default card look. ------------------------------------------ */
 [data-testid="stSidebar"] [data-testid="stExpander"] details {
 	border: none !important;
 	border-radius: 0 !important;
 	background: transparent !important;
-	border-top: 1px solid #e8ecf0 !important;
 }
 [data-testid="stSidebar"] [data-testid="stExpander"] summary {
 	padding: 8px 0 !important;
@@ -587,7 +589,7 @@ body:has([data-testid="stSidebar"][aria-expanded="false"]) [data-testid="stTabs"
    font-rendered and would shrink with it. */
 [data-testid="stSidebar"] [data-testid="stExpander"] summary [data-testid="stMarkdownContainer"] p {
 	font-family: monospace !important;
-	font-size: 10px !important;
+	font-size: 12px !important;
 	font-weight: 700 !important;
 	color: #57606a !important;
 	text-transform: uppercase !important;

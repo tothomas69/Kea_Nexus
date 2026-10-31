@@ -42,7 +42,7 @@ keanexus/
 ├── helpers.py          — Cached data loaders, format utilities
 ├── dashboard_data.py   — Pure metric/chart shaping for the Dashboard tab
 ├── docs_library.py     — Allowlist + reader for the operator docs shown in-app
-├── ui_docs.py          — Docs sidebar entry and the article dialog
+├── ui_docs.py          — Documentation sidebar entry and the article dialog
 ├── pool_history.py     — Background sampler building the pool utilisation time series
 ├── db.py               — SQLite persistence layer (IPAM static records, users, registry, logs)
 ├── ui_login.py         — Login page: logo, username/password form
@@ -311,7 +311,7 @@ override_macs)` / `distinct_real_hostnames(leases, config)` — a Kea
 
 ### In-App Docs (`docs_library.py`, `ui_docs.py`)
 
-- A **Docs** expander near the bottom of the sidebar lists operator-facing
+- A **Documentation** expander near the bottom of the sidebar lists operator-facing
   articles; clicking one opens it in a wide modal (`st.dialog`). The sidebar is
   210px, enough for titles and nowhere near enough for articles full of code
   blocks and tables — so the sidebar is navigation only
