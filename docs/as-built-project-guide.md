@@ -52,7 +52,7 @@ keanexus/
 ├── ui_reservations.py  — Reservations tab: Kea config CRUD
 ├── ui_maintenance.py   — Maintenance tab: DHCP enable/disable, wipe leases
 ├── ui_quarantine.py    — Quarantine tab: device registry CRUD + read-only audit log
-├── ui_settings.py      — Settings tab
+├── ui_settings.py      — Settings tab: subnet/pool/lease on one row, DHCP options in a 2x2 grid
 ├── style.css           — Global CSS overrides for Streamlit internals
 ├── Makefile            — Developer setup (`make setup`) and test runner (`make test`)
 ├── static/             — Static assets (keanexus_logo.png)

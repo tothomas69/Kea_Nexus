@@ -235,74 +235,68 @@ def render_settings(config: dict | None) -> None:
 
 	st.caption("Subnet-level DHCP settings. Changes apply immediately to new leases.")
 
-	# Subnet CIDR is read-only — warn the user why they can't edit it
-	st.text_input(
-		"Subnet (read-only)",
-		value=current_subnet_cidr,
-		disabled=True,
-		help="Changing the subnet CIDR requires a Kea service restart and cannot be applied via the API alone.",
-	)
-
-	st.divider()
-
-	# Pool range — two columns side by side
-	st.markdown("**Address Pool Range**")
-	pool_col1, pool_col2 = st.columns(2)
-	with pool_col1:
+	# Four short fields share one row and the four DHCP options sit in a 2x2
+	# grid, rather than one full-width field per row. Every value here is an
+	# IP address or a small number, so full width was mostly empty space and
+	# pushed Save off the bottom of a laptop screen.
+	st.markdown("**Subnet & pool**")
+	subnet_col, pool_start_col, pool_end_col, lease_col = st.columns(4)
+	with subnet_col:
+		st.text_input(
+			"Subnet (read-only)",
+			value=current_subnet_cidr,
+			disabled=True,
+			help="Changing the subnet CIDR requires a Kea service restart and cannot be applied via the API alone.",
+		)
+	with pool_start_col:
 		new_pool_start = st.text_input(
 			"Pool start",
 			value=current_pool_start,
 			placeholder="172.16.17.100",
 		)
-	with pool_col2:
+	with pool_end_col:
 		new_pool_end = st.text_input(
 			"Pool end",
 			value=current_pool_end,
 			placeholder="172.16.17.200",
 		)
+	with lease_col:
+		# Stored in seconds, shown in hours
+		new_lease_hours = st.number_input(
+			"Lease (hours)",
+			min_value=MIN_LEASE_HOURS,
+			max_value=MAX_LEASE_HOURS,
+			value=int(current_lease_hours),
+			step=1,
+			help="How long a client holds an IP before it must renew. Existing leases keep their original expiry.",
+		)
 
-	st.divider()
-
-	# Lease length — stored in seconds, shown in hours
-	new_lease_hours = st.number_input(
-		"Lease length (hours)",
-		min_value=MIN_LEASE_HOURS,
-		max_value=MAX_LEASE_HOURS,
-		value=int(current_lease_hours),
-		step=1,
-		help="How long a client holds an IP before it must renew. Existing leases keep their original expiry.",
-	)
-
-	st.divider()
-
-	# DHCP options
-	st.markdown("**DHCP Options delivered to clients**")
-
-	new_gateway = st.text_input(
-		"Default gateway (option 3)",
-		value=current_gateway,
-		placeholder="172.16.17.1",
-	)
-
-	new_dns = st.text_input(
-		"DNS servers (option 6)",
-		value=current_dns,
-		placeholder="1.1.1.1, 8.8.8.8",
-		help="Comma-separated list of DNS server IPs.",
-	)
-
-	new_domain = st.text_input(
-		"Domain name (option 15)",
-		value=current_domain,
-		placeholder="cyberwraith.net",
-	)
-
-	new_ntp = st.text_input(
-		"NTP servers (option 42)",
-		value=current_ntp,
-		placeholder="172.16.17.1",
-		help="Comma-separated list of NTP server IPs.",
-	)
+	st.markdown("**DHCP options delivered to clients**")
+	left_col, right_col = st.columns(2)
+	with left_col:
+		new_gateway = st.text_input(
+			"Default gateway (option 3)",
+			value=current_gateway,
+			placeholder="172.16.17.1",
+		)
+		new_dns = st.text_input(
+			"DNS servers (option 6)",
+			value=current_dns,
+			placeholder="1.1.1.1, 8.8.8.8",
+			help="Comma-separated list of DNS server IPs.",
+		)
+	with right_col:
+		new_domain = st.text_input(
+			"Domain name (option 15)",
+			value=current_domain,
+			placeholder="cyberwraith.net",
+		)
+		new_ntp = st.text_input(
+			"NTP servers (option 42)",
+			value=current_ntp,
+			placeholder="172.16.17.1",
+			help="Comma-separated list of NTP server IPs.",
+		)
 
 	st.divider()
 
