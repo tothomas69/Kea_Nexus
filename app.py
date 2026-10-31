@@ -9,7 +9,13 @@ from typing import Optional
 import extra_streamlit_components as stx
 import streamlit as st
 
-from auth import SESSION_COOKIE_NAME, is_authenticated, logout, restore_session_from_cookie
+from auth import (
+	SESSION_COOKIE_NAME,
+	bootstrap_admin_from_env,
+	is_authenticated,
+	logout,
+	restore_session_from_cookie,
+)
 from db import init_db
 from helpers import get_client, load_config, load_leases, load_pool_stats, load_status
 from kea import KeaError
@@ -39,6 +45,9 @@ st.markdown(f"<style>{_css}</style>", unsafe_allow_html=True)
 
 # --- Database initialisation --------------------------------------------------
 init_db()
+# Turns the old single env-var login into the first admin account on an
+# empty users table; a no-op on every later start. See auth.py.
+bootstrap_admin_from_env()
 
 
 # --- Pool utilisation history -------------------------------------------------

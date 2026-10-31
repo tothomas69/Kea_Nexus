@@ -8,3 +8,4 @@ httpx>=0.27.0
 pandas>=2.2.0
 python-dotenv>=1.0.1
 extra-streamlit-components>=0.1.60
+argon2-cffi>=25.1.0

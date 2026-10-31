@@ -1,5 +1,9 @@
 """
-test_auth.py — Tests for auth.py authentication logic.
+test_auth.py — Tests for auth.py: login, sessions, the signed cookie, the
+first-admin bootstrap, and the user-management rules.
+
+Every test runs against a temporary database (temp_db) with a plain dict
+standing in for st.session_state.
 """
 
 import os
@@ -8,6 +12,11 @@ from unittest.mock import patch
 import pytest
 
 import auth
+import db
+
+_GOOD_PASSWORD = "correct-horse-battery"  # pragma: allowlist secret
+_OTHER_PASSWORD = "different-horse-battery"  # pragma: allowlist secret
+_TEST_SECRET = "test-cookie-secret"  # pragma: allowlist secret
 
 
 @pytest.fixture
@@ -18,109 +27,239 @@ def session():
 		yield state
 
 
-class TestIsAuthenticated:
-	def test_returns_false_when_key_absent(self, session):
+@pytest.fixture
+def secret():
+	with patch.dict(os.environ, {"KEANEXUS_SECRET": _TEST_SECRET}):
+		yield _TEST_SECRET
+
+
+def _add_user(username="tom", password=_GOOD_PASSWORD, role="admin"):
+	auth.create_user(username, password, role)
+
+
+class TestBootstrapAdmin:
+	def test_creates_admin_from_env_when_table_empty(self, temp_db):
+		env = {"KEANEXUS_USERNAME": "admin", "KEANEXUS_PASSWORD": "short"}
+		with patch.dict(os.environ, env):
+			assert auth.bootstrap_admin_from_env() is True
+		user = db.get_user("admin")
+		assert user["role"] == "admin"
+
+	def test_does_nothing_once_a_user_exists(self, temp_db):
+		_add_user()
+		env = {"KEANEXUS_USERNAME": "admin", "KEANEXUS_PASSWORD": "whatever"}
+		with patch.dict(os.environ, env):
+			assert auth.bootstrap_admin_from_env() is False
+		assert db.get_user("admin") is None
+
+	def test_does_nothing_without_env_vars(self, temp_db):
+		with patch.dict(os.environ, {}, clear=True):
+			assert auth.bootstrap_admin_from_env() is False
+		assert db.count_users() == 0
+
+
+class TestLogin:
+	def test_correct_credentials_start_a_session(self, temp_db, session):
+		_add_user()
+		assert auth.attempt_login("tom", _GOOD_PASSWORD) is True
+		assert auth.current_user() == {"username": "tom", "role": "admin"}
+		assert db.get_user("tom")["last_login_at"]
+
+	def test_username_is_case_insensitive(self, temp_db, session):
+		_add_user()
+		assert auth.attempt_login("TOM", _GOOD_PASSWORD) is True
+
+	def test_wrong_password_fails(self, temp_db, session):
+		_add_user()
+		assert auth.attempt_login("tom", _OTHER_PASSWORD) is False
 		assert auth.is_authenticated() is False
 
-	def test_returns_true_when_session_key_set(self, session):
-		session["authenticated"] = True
+	def test_unknown_user_fails(self, temp_db, session):
+		assert auth.attempt_login("nobody", _GOOD_PASSWORD) is False
+
+	def test_empty_username_fails(self, temp_db, session):
+		assert auth.attempt_login("", _GOOD_PASSWORD) is False
+
+	def test_disabled_user_fails(self, temp_db, session):
+		_add_user()
+		db.set_user_disabled("tom", True)
+		assert auth.attempt_login("tom", _GOOD_PASSWORD) is False
+
+	def test_corrupt_stored_hash_fails_rather_than_raising(self, temp_db, session):
+		db.insert_user("tom", "not-an-argon2-hash", "admin")
+		assert auth.attempt_login("tom", _GOOD_PASSWORD) is False
+
+
+class TestCurrentUserAndRoles:
+	def test_nobody_signed_in(self, temp_db, session):
+		assert auth.current_user() is None
+		assert auth.is_authenticated() is False
+		assert auth.is_admin() is False
+
+	def test_viewer_is_not_admin(self, temp_db, session):
+		_add_user(role="viewer")
+		auth.attempt_login("tom", _GOOD_PASSWORD)
 		assert auth.is_authenticated() is True
+		assert auth.is_admin() is False
 
-	def test_returns_false_when_session_key_explicitly_false(self, session):
-		session["authenticated"] = False
+	def test_password_change_ends_open_session(self, temp_db, session):
+		_add_user()
+		auth.attempt_login("tom", _GOOD_PASSWORD)
+		auth.reset_password("tom", _OTHER_PASSWORD)
+		assert auth.current_user() is None
+
+	def test_disable_ends_open_session(self, temp_db, session):
+		_add_user()
+		_add_user("amy")
+		auth.attempt_login("amy", _GOOD_PASSWORD)
+		auth.set_disabled("amy", True, acting_username="tom")
+		assert auth.current_user() is None
+
+	def test_deleted_from_database_ends_open_session(self, temp_db, session):
+		session["auth_user"] = {"username": "ghost", "session_version": 1}
+		assert auth.current_user() is None
+		assert "auth_user" not in session
+
+	def test_logout_clears_session(self, temp_db, session):
+		_add_user()
+		auth.attempt_login("tom", _GOOD_PASSWORD)
+		auth.logout()
 		assert auth.is_authenticated() is False
 
-
-class TestAttemptLogin:
-	_VALID_USER = "admin"
-	_VALID_PASS = "s3cr3t"
-	_ENV = {"KEANEXUS_USERNAME": _VALID_USER, "KEANEXUS_PASSWORD": _VALID_PASS}
-
-	def test_returns_false_when_env_vars_missing(self, session):
-		with patch.dict(os.environ, {}, clear=True):
-			os.environ.pop("KEANEXUS_USERNAME", None)
-			os.environ.pop("KEANEXUS_PASSWORD", None)
-			result = auth.attempt_login("admin", "pass")
-		assert result is False
-
-	def test_returns_false_when_only_username_set(self, session):
-		with patch.dict(os.environ, {"KEANEXUS_USERNAME": self._VALID_USER}, clear=True):
-			os.environ.pop("KEANEXUS_PASSWORD", None)
-			result = auth.attempt_login(self._VALID_USER, "")
-		assert result is False
-
-	def test_returns_false_on_wrong_password(self, session):
-		with patch.dict(os.environ, self._ENV):
-			result = auth.attempt_login(self._VALID_USER, "wrong")
-		assert result is False
-		assert session.get("authenticated") is not True
-
-	def test_returns_false_on_wrong_username(self, session):
-		with patch.dict(os.environ, self._ENV):
-			result = auth.attempt_login("intruder", self._VALID_PASS)
-		assert result is False
-
-	def test_returns_false_on_both_wrong(self, session):
-		with patch.dict(os.environ, self._ENV):
-			result = auth.attempt_login("bad", "bad")
-		assert result is False
-
-	def test_returns_true_and_sets_session_on_correct_credentials(self, session):
-		with patch.dict(os.environ, self._ENV):
-			result = auth.attempt_login(self._VALID_USER, self._VALID_PASS)
-		assert result is True
-		assert session.get("authenticated") is True
-
-
-class TestLogout:
-	def test_clears_authenticated_flag(self, session):
-		session["authenticated"] = True
+	def test_logout_when_not_signed_in_is_safe(self, session):
 		auth.logout()
-		assert session.get("authenticated") is False
-
-	def test_logout_when_not_authenticated_is_safe(self, session):
-		auth.logout()
-		assert session.get("authenticated") is False
+		assert session == {}
 
 
-class TestSessionToken:
-	_ENV = {"KEANEXUS_PASSWORD": "s3cr3t"}
-
-	def test_same_password_produces_same_token(self, session):
-		with patch.dict(os.environ, self._ENV):
-			assert auth.session_token() == auth.session_token()
-
-	def test_different_password_produces_different_token(self, session):
-		with patch.dict(os.environ, {"KEANEXUS_PASSWORD": "s3cr3t"}):
-			token_a = auth.session_token()
-		with patch.dict(os.environ, {"KEANEXUS_PASSWORD": "different"}):
-			token_b = auth.session_token()
-		assert token_a != token_b
-
-	def test_missing_password_still_returns_a_token(self, session):
+class TestSessionCookie:
+	def test_no_token_without_secret(self, temp_db, session):
+		_add_user()
+		auth.attempt_login("tom", _GOOD_PASSWORD)
 		with patch.dict(os.environ, {}, clear=True):
-			os.environ.pop("KEANEXUS_PASSWORD", None)
-			assert auth.session_token() != ""
+			assert auth.session_token() == ""
+
+	def test_no_token_when_signed_out(self, temp_db, session, secret):
+		assert auth.session_token() == ""
+
+	def test_token_round_trips_into_a_fresh_session(self, temp_db, session, secret):
+		_add_user()
+		auth.attempt_login("tom", _GOOD_PASSWORD)
+		token = auth.session_token()
+		session.clear()
+		assert auth.restore_session_from_cookie(token) is True
+		assert auth.current_user()["username"] == "tom"
+
+	def test_cookie_from_before_password_change_is_rejected(self, temp_db, session, secret):
+		_add_user()
+		auth.attempt_login("tom", _GOOD_PASSWORD)
+		old_token = auth.session_token()
+		auth.reset_password("tom", _OTHER_PASSWORD)
+		session.clear()
+		assert auth.restore_session_from_cookie(old_token) is False
+
+	def test_tampered_username_is_rejected(self, temp_db, session, secret):
+		_add_user()
+		_add_user("amy", role="viewer")
+		auth.attempt_login("amy", _GOOD_PASSWORD)
+		_, version, signature = auth.session_token().split("|")
+		session.clear()
+		assert auth.restore_session_from_cookie(f"tom|{version}|{signature}") is False
+
+	def test_cookie_signed_with_another_secret_is_rejected(self, temp_db, session, secret):
+		_add_user()
+		auth.attempt_login("tom", _GOOD_PASSWORD)
+		token = auth.session_token()
+		session.clear()
+		with patch.dict(os.environ, {"KEANEXUS_SECRET": "a-different-secret"}):
+			assert auth.restore_session_from_cookie(token) is False
+
+	@pytest.mark.parametrize("cookie", [None, "", "tom", "tom|1", "a|b|c|d"])
+	def test_malformed_cookies_are_rejected(self, temp_db, session, secret, cookie):
+		assert auth.restore_session_from_cookie(cookie) is False
+
+	def test_non_numeric_version_is_rejected_even_if_signed(self, temp_db, session, secret):
+		_add_user()
+		signature = auth._cookie_signature(_TEST_SECRET, "tom|x")
+		assert auth.restore_session_from_cookie(f"tom|x|{signature}") is False
+
+	def test_no_restore_without_secret(self, temp_db, session):
+		with patch.dict(os.environ, {}, clear=True):
+			assert auth.restore_session_from_cookie("tom|1|abc") is False
 
 
-class TestRestoreSessionFromCookie:
-	_ENV = {"KEANEXUS_PASSWORD": "s3cr3t"}
+class TestUserManagement:
+	def test_create_user_stores_a_hash_not_the_password(self, temp_db):
+		_add_user()
+		stored_hash = db.get_user("tom")["password_hash"]
+		assert stored_hash.startswith("$argon2")
+		assert _GOOD_PASSWORD not in stored_hash
 
-	def test_none_cookie_does_not_authenticate(self, session):
-		assert auth.restore_session_from_cookie(None) is False
-		assert session.get("authenticated") is not True
+	def test_create_rejects_short_password(self, temp_db):
+		with pytest.raises(auth.UserManagementError, match="at least"):
+			auth.create_user("tom", "short", "admin")
 
-	def test_empty_cookie_does_not_authenticate(self, session):
-		assert auth.restore_session_from_cookie("") is False
-		assert session.get("authenticated") is not True
+	@pytest.mark.parametrize("username", ["t", "tom|admin", "has space", "x" * 33])
+	def test_create_rejects_bad_usernames(self, temp_db, username):
+		with pytest.raises(auth.UserManagementError, match="Usernames"):
+			auth.create_user(username, _GOOD_PASSWORD, "viewer")
 
-	def test_wrong_cookie_does_not_authenticate(self, session):
-		with patch.dict(os.environ, self._ENV):
-			assert auth.restore_session_from_cookie("bogus-value") is False
-		assert session.get("authenticated") is not True
+	def test_create_rejects_unknown_role(self, temp_db):
+		with pytest.raises(auth.UserManagementError, match="Unknown role"):
+			auth.create_user("tom", _GOOD_PASSWORD, "superuser")
 
-	def test_valid_cookie_authenticates(self, session):
-		with patch.dict(os.environ, self._ENV):
-			valid_token = auth.session_token()
-			assert auth.restore_session_from_cookie(valid_token) is True
-		assert session.get("authenticated") is True
+	def test_create_rejects_duplicate_in_any_case(self, temp_db):
+		_add_user()
+		with pytest.raises(auth.UserManagementError, match="already exists"):
+			auth.create_user("TOM", _GOOD_PASSWORD, "viewer")
+
+	def test_reset_password_for_unknown_user(self, temp_db):
+		with pytest.raises(auth.UserManagementError, match="No user"):
+			auth.reset_password("nobody", _GOOD_PASSWORD)
+
+	def test_reset_password_rejects_short_password(self, temp_db):
+		_add_user()
+		with pytest.raises(auth.UserManagementError, match="at least"):
+			auth.reset_password("tom", "short")
+
+	def test_change_role(self, temp_db):
+		_add_user()
+		_add_user("amy")
+		auth.change_role("amy", "viewer")
+		assert db.get_user("amy")["role"] == "viewer"
+
+	def test_cannot_demote_last_active_admin(self, temp_db):
+		_add_user()
+		with pytest.raises(auth.UserManagementError, match="last active admin"):
+			auth.change_role("tom", "viewer")
+
+	def test_disabled_admin_does_not_count_toward_the_last_admin_rule(self, temp_db):
+		_add_user()
+		_add_user("amy")
+		auth.set_disabled("amy", True, acting_username="tom")
+		with pytest.raises(auth.UserManagementError, match="last active admin"):
+			auth.change_role("tom", "viewer")
+
+	def test_change_role_rejects_unknown_role(self, temp_db):
+		_add_user()
+		with pytest.raises(auth.UserManagementError, match="Unknown role"):
+			auth.change_role("tom", "superuser")
+
+	def test_cannot_disable_yourself(self, temp_db):
+		_add_user()
+		_add_user("amy")
+		with pytest.raises(auth.UserManagementError, match="your own"):
+			auth.set_disabled("tom", True, acting_username="TOM")
+
+	def test_cannot_disable_last_active_admin(self, temp_db):
+		_add_user()
+		_add_user("zoe", role="viewer")
+		with pytest.raises(auth.UserManagementError, match="last active admin"):
+			auth.set_disabled("tom", True, acting_username="zoe")
+
+	def test_disable_and_reenable(self, temp_db):
+		_add_user()
+		_add_user("zoe", role="viewer")
+		auth.set_disabled("zoe", True, acting_username="tom")
+		assert db.get_user("zoe")["is_disabled"] == 1
+		auth.set_disabled("zoe", False, acting_username="tom")
+		assert db.get_user("zoe")["is_disabled"] == 0

@@ -34,9 +34,13 @@ def render_login(cookie_manager: stx.CookieManager) -> None:
 
 		if st.button("Sign in", type="primary", width="stretch"):
 			if attempt_login(username.strip(), password):
-				cookie_manager.set(
-					SESSION_COOKIE_NAME, session_token(), max_age=_SESSION_COOKIE_MAX_AGE_SECONDS
-				)
+				# An empty token means KEANEXUS_SECRET is unset; the login still
+				# works for this session, it just won't survive a page reload.
+				token = session_token()
+				if token:
+					cookie_manager.set(
+						SESSION_COOKIE_NAME, token, max_age=_SESSION_COOKIE_MAX_AGE_SECONDS
+					)
 				st.rerun()
 			else:
 				st.error("Invalid username or password.")

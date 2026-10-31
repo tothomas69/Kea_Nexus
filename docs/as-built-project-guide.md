@@ -35,7 +35,7 @@ Do NOT include:
 keanexus/
 ├── app.py              — Entry point: page config, CSS, sidebar, tab routing
 ├── version.py          — APP_VERSION constant (single source of truth)
-├── auth.py             — Authentication: env-var credential check, session state
+├── auth.py             — Authentication and user management: argon2 login, roles, signed session cookie
 ├── kea.py              — Kea direct HTTP API client (Kea 3.0+)
 ├── pihole.py           — Pi-hole v6 REST API client (session auth); used by quarantine_service
 ├── quarantine_client.py — Thin client KeaNexus uses to call keanexus-quarantine's own API
@@ -44,7 +44,7 @@ keanexus/
 ├── docs_library.py     — Allowlist + reader for the operator docs shown in-app
 ├── ui_docs.py          — Docs sidebar entry and the article dialog
 ├── pool_history.py     — Background sampler building the pool utilisation time series
-├── db.py               — SQLite persistence layer (IPAM static records)
+├── db.py               — SQLite persistence layer (IPAM static records, users, registry, logs)
 ├── ui_login.py         — Login page: logo, username/password form
 ├── ui_dashboard.py     — Dashboard tab: KPI tiles, gauge, service health, Altair charts
 ├── ui_leases.py        — Leases tab: HTML table with type classification
@@ -68,29 +68,61 @@ Data persisted in Docker named volume `keanexus_data` mounted at `/app/data/`.
 
 ### Authentication (`auth.py`)
 
-- Credentials read from `KEANEXUS_USERNAME` / `KEANEXUS_PASSWORD` env vars (set in `.env`)
-- `is_authenticated()` — checks `st.session_state["authenticated"]`
-- `attempt_login(username, password)` — constant-time compare via `hmac.compare_digest`; sets session state on success
-- `logout()` — clears session state
-- `app.py` guards `main()` with `is_authenticated()` — unauthenticated requests see only the login page
-- Login persists across a page reload via a real browser cookie, not just
-  `st.session_state` — a full reload starts a brand-new Streamlit session
-  with blank session*state, which used to force a re-login every time.
-  `SESSION_COOKIE_NAME` is the cookie name; `session_token()` returns the
-  expected value, an HMAC of `KEANEXUS_PASSWORD` (stateless — no server-side
-  session store, so restarting the app doesn't invalidate cookies already
-  issued, and no separate secret needs configuring).
-  `restore_session_from_cookie(cookie_value)` re-authenticates from that
-  cookie via `hmac.compare_digest` if `is_authenticated()` is False. `app.py`
-  owns the actual cookie I/O (via `extra_streamlit_components.CookieManager`,
-  constructed each run by `_cookie_manager()`) and calls this on every fresh
-  session before falling back to the login page — `auth.py` itself stays
-  free of the CookieManager/component dependency, just the token logic.
-  `_cookie_manager()` is deliberately \_not* `@st.cache_resource` —
-  `CookieManager.__init__` itself calls a Streamlit component (a
-  widget-like command), and Streamlit forbids that inside a cached function
-  (`CachedWidgetWarning`); the component already stabilizes itself across
-  reruns via its own internal `key="init"`, not Python object identity
+- **Multi-user, two roles.** Users live in `db.users` with role `admin` or
+  `viewer`. Passwords are stored only as argon2 hashes (`argon2-cffi`);
+  `auth.py` is the only module that ever handles a plaintext password, and
+  `db.py` only stores and returns hashes
+- **First admin from the old env-var login.** `bootstrap_admin_from_env()`
+  runs at startup (`app.py`, right after `init_db()`). When the users table is
+  empty it creates an admin from `KEANEXUS_USERNAME` / `KEANEXUS_PASSWORD`, so
+  an existing deployment keeps working on upgrade with no manual database step.
+  A no-op once any user exists, so changing those env vars later does nothing.
+  The minimum password length is deliberately not enforced on this one path:
+  the env-var password predates the rule, and refusing it would lock the owner
+  out of their own upgrade
+- `attempt_login(username, password)` — username lookup is case-insensitive.
+  Unknown and disabled users return the same `False` as a wrong password, after
+  the same hashing work (a lazily built decoy hash), so login timing can't
+  reveal which usernames exist
+- `current_user()` returns `{"username", "role"}` or `None`, and **re-checks the
+  database on every call**: the session stores the user's `session_version`,
+  and if the stored version has moved on (password, role or disable change) or
+  the user is gone, the session ends on the spot. So revoking someone takes
+  effect at their next click, not their next login. `is_authenticated()` and
+  `is_admin()` are thin wrappers over it
+- `logout()` — clears the session user
+- **Signed session cookie.** A full page reload starts a brand-new Streamlit
+  session with blank `session_state`, so login persists through a browser
+  cookie (`SESSION_COOKIE_NAME`). `session_token()` returns
+  `username|session_version|signature`, signed with HMAC-SHA256 under
+  `KEANEXUS_SECRET`. `restore_session_from_cookie(value)` rejects anything
+  malformed, wrongly signed, or carrying an old `session_version`. Still
+  stateless (no server-side session store). The previous design derived the
+  cookie from the single shared password, which could not tell users apart or
+  revoke one person; the signed username plus version replaces it. Usernames
+  are restricted to letters, digits, `.`, `_` and `-`, which keeps the `|`
+  separator out of them so the cookie splits unambiguously
+- **`KEANEXUS_SECRET` unset:** `session_token()` returns `""` and
+  `ui_login.py` skips setting the cookie. Login still works for that session;
+  every reload asks again. Changing the secret signs everyone out
+- **User-management rules live here, not in the UI**: `create_user`,
+  `reset_password`, `change_role`, `set_disabled`. They raise
+  `UserManagementError` (a `ValueError` whose message is safe to show) for bad
+  usernames, passwords under `MIN_PASSWORD_LENGTH` (12), unknown roles,
+  duplicates, demoting or disabling the last active admin, and an admin
+  disabling their own account. Kept in `auth.py` so they are unit-tested,
+  since `ui_*.py` is excluded from coverage
+- `app.py` guards `main()` with `is_authenticated()` — unauthenticated requests
+  see only the login page
+- `app.py` owns the actual cookie I/O (via `extra_streamlit_components.CookieManager`,
+  constructed each run by `_cookie_manager()`) and calls
+  `restore_session_from_cookie` on every fresh session before falling back to
+  the login page — `auth.py` itself stays free of the CookieManager/component
+  dependency, just the token logic. `_cookie_manager()` is deliberately _not_
+  `@st.cache_resource` — `CookieManager.__init__` itself calls a Streamlit
+  component (a widget-like command), and Streamlit forbids that inside a cached
+  function (`CachedWidgetWarning`); the component already stabilizes itself
+  across reruns via its own internal `key="init"`, not Python object identity
 - `main()` waits for the CookieManager component's first round trip before
   deciding a session is unauthenticated: `cookie_manager.get_all()` returns
   `{}` on a brand-new session regardless of what's actually stored in the
@@ -316,6 +348,12 @@ override_macs)` / `distinct_real_hostnames(leases, config)` — a Kea
   friendly_name, action, step, succeeded, attempt_count, detail, occurred_at).
   Written by the `keanexus-quarantine` service (see below) on every enforcement
   step attempt.
+- Table: `users` — app login accounts (username PK `COLLATE NOCASE`, password_hash,
+  role `admin`/`viewer` enforced by a CHECK, session_version, is_disabled,
+  created_at, last_login_at). Usernames compare case-insensitively so "Tom" and
+  "tom" can't become two accounts. `session_version` is the logout lever: every
+  password, role or disable change bumps it, which invalidates that user's open
+  sessions and cookies (see `auth.py`). Stores hashes only, never passwords
 - `init_db()` — idempotent schema creation, called at app startup
 - `get_static_entries()`, `get_static_entry(ip)`, `upsert_static_entry(...)`, `delete_static_entry(ip)`
 - `get_reservation_labels()`, `get_reservation_label(mac)`, `upsert_reservation_label(mac, label)`,
@@ -323,6 +361,10 @@ override_macs)` / `distinct_real_hostnames(leases, config)` — a Kea
 - `get_devices()`, `get_device(name)`, `upsert_device(...)`, `delete_device(name)`
 - `insert_quarantine_log_entry(...)`, `get_quarantine_log(friendly_name=None, limit=100)`
 - `insert_pool_sample(...)`, `get_pool_samples(since=None, limit=10000)` (oldest-first, since every caller plots on a time axis), `prune_pool_samples(retention_days)`
+- `count_users()`, `count_active_admins()`, `get_user(username)`, `list_users()` (never returns hashes),
+  `insert_user(...)`, `update_password_hash(...)`, `set_user_role(...)`, `set_user_disabled(...)`,
+  `record_login(username)`. The three updates each bump `session_version`; each query is a
+  literal string, never assembled, so Bandit has nothing to flag. `USER_ROLES` is the role list
 
 ### Dashboard Data (`dashboard_data.py`)
 
@@ -843,7 +885,8 @@ since they require a live Streamlit server and can't be unit-tested). That inclu
 
 | File                                        | What is tested                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `tests/test_auth.py`                        | `is_authenticated`, `attempt_login` (all credential paths), `logout`, `session_token`, `restore_session_from_cookie`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `tests/test_auth.py`                        | First-admin bootstrap; login (case-insensitive, wrong password, unknown and disabled users, corrupt hash); `current_user`/`is_admin` including sessions ended by password change, disable and deletion; signed cookie round trip, stale `session_version`, tampered username, wrong secret, malformed values, no secret; user-management rules (validation, duplicates, last-admin and self-disable protection) |
+| `tests/test_db_users.py`                    | `users` table storage: case-insensitive usernames, duplicate rejection, role CHECK, list omits hashes, active-admin count, `session_version` bumps on every change, `record_login` |
 | `tests/test_db.py`                          | Full CRUD on `ipam_static`, `reservation_labels`, `device_registry`, and `quarantine_log` via `temp_db` fixture (SQLite in tmp dir)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | `tests/test_kea.py`                         | All `KeaClient` methods; `httpx` patched via `http_mock` fixture                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | `tests/test_helpers.py`                     | `fmt_ttl`, `chip`, `leases_to_df`, `build_reservation_type_sets`, `lease_type`, `build_hostname_override_sets`, `real_hostname`, `distinct_real_hostnames`, `lease_for_reservation` (pure functions only)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
