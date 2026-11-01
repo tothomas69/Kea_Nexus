@@ -26,6 +26,12 @@ _COMPOSE = _REPO_ROOT / "docker-compose.yml"
 # that service gets its code from its own Dockerfile COPY, not a bind mount.
 _NOT_REQUIRED_IN_KEANEXUS = {"pihole.py"}
 
+# Mounts that hold runtime state, not code. They are gitignored, so they exist
+# wherever the app has run (a dev Mac, netstack) but not in a fresh clone, and
+# Docker creating the directory on first start is the intended behaviour for
+# them. Without this, the existence check failed on every new checkout.
+_RUNTIME_STATE_MOUNTS = {"data"}
+
 
 def _mounted_host_paths() -> list[str]:
 	"""Every `./<something>` bind-mount source in the compose file."""
@@ -37,7 +43,9 @@ def _repo_root_modules() -> set[str]:
 
 
 class TestComposeMounts:
-	@pytest.mark.parametrize("mount_source", _mounted_host_paths())
+	@pytest.mark.parametrize(
+		"mount_source", sorted(set(_mounted_host_paths()) - _RUNTIME_STATE_MOUNTS)
+	)
 	def test_every_mount_source_exists(self, mount_source):
 		"""A mount pointing at a missing path makes Docker create a directory
 		there, shadowing the file the container expected."""
@@ -54,6 +62,19 @@ class TestComposeMounts:
 			f"{module} is not bind-mounted in docker-compose.yml. Add it, or add "
 			"it to _NOT_REQUIRED_IN_KEANEXUS if the KeaNexus container never "
 			"imports it."
+		)
+
+	@pytest.mark.parametrize("mount_source", sorted(_RUNTIME_STATE_MOUNTS))
+	def test_runtime_state_mounts_are_gitignored(self, mount_source):
+		"""Guard the runtime-state exemption: it is only safe for a path git
+		ignores. Listing a code path here would hide exactly the rename bug the
+		existence check exists to catch."""
+		ignored_entries = {
+			line.strip().rstrip("/")
+			for line in (_REPO_ROOT / ".gitignore").read_text().splitlines()
+		}
+		assert mount_source in ignored_entries, (
+			f"./{mount_source} is exempted as runtime state but is not in .gitignore"
 		)
 
 	def test_the_exclusion_list_stays_accurate(self):
