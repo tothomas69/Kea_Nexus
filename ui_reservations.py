@@ -25,6 +25,7 @@ from helpers import (
 	real_hostname,
 )
 from kea import KeaClient, KeaError
+from ui_access import read_only, read_only_notice
 
 _TH = (
 	"font-family:monospace;font-size:11px;font-weight:700;color:#1f2328;"
@@ -203,6 +204,7 @@ def _render_table(
 ) -> None:
 	"""Render reservations as CSS-grid header + st.columns data rows."""
 	override_ips, override_macs = build_hostname_override_sets(config)
+	viewer = read_only()
 	col_template = " ".join(f"{w}fr" for w in _COL_WIDTHS)
 	header_cells = "".join(f'<div style="{_TH}">{h}</div>' for h in _COL_HEADERS)
 	st.markdown(
@@ -231,7 +233,7 @@ def _render_table(
 			f'<span style="{_TD}">{html_safe_mac(mac) or "—"}</span>', unsafe_allow_html=True
 		)
 		cols[5].markdown(_type_chip(ip), unsafe_allow_html=True)
-		if cols[6].button("Edit", key=f"reservations_edit_{i}_chipblue"):
+		if cols[6].button("Edit", key=f"reservations_edit_{i}_chipblue", disabled=viewer):
 			_edit_dialog(res, config, label)
 
 
@@ -244,13 +246,14 @@ def render_reservations(config, leases: list[dict]) -> None:
 		st.error("Could not load Kea config. Check connection.")
 		return
 
+	read_only_notice()
 	reservations = config.get("subnet4", [{}])[0].get("reservations", [])
 
 	header_col, btn_col = st.columns([5, 1])
 	with header_col:
 		st.caption(f"{len(reservations)} reservations")
 	with btn_col:
-		if st.button("+ Add", key="reservations_addtrigger_chipblue"):
+		if st.button("+ Add", key="reservations_addtrigger_chipblue", disabled=read_only()):
 			add_reservation_dialog(config)
 
 	_render_table(reservations, config, _labels_by_mac(), leases)

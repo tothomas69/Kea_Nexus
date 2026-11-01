@@ -15,6 +15,7 @@ import streamlit as st
 
 from db import delete_static_entry, get_static_entries, get_static_entry, upsert_static_entry
 from helpers import fmt_ttl, get_client, html_safe_mac
+from ui_access import read_only, read_only_notice, refuse_if_viewer
 
 # --- Status constants ---------------------------------------------------------
 
@@ -187,10 +188,14 @@ def _edit_dialog(
 	c1, c2, c3 = st.columns(3)
 	with c1:
 		if st.button("Save", type="primary", key="dialog_save"):
+			if refuse_if_viewer():
+				return
 			upsert_static_entry(ip, hostname.strip(), mac.strip(), desc.strip(), notes.strip())
 			st.rerun()
 	with c2:
 		if existing and st.button("Delete", key="dialog_delete"):
+			if refuse_if_viewer():
+				return
 			delete_static_entry(ip)
 			st.rerun()
 	with c3:
@@ -214,6 +219,8 @@ def _render_table(
 
 	The header is pure HTML (CSS grid) so it is unaffected by column-row CSS.
 	"""
+	# Checked once here, not per row: it reads the users table, and the map has 256 rows.
+	viewer = read_only()
 	# Header as a single CSS grid element — matches st.columns fr proportions
 	# Status column (index 1) is centered to match its chip content
 	col_template = " ".join(f"{w}fr" for w in _COL_WIDTHS)
@@ -256,7 +263,7 @@ def _render_table(
 		c[4].markdown(f'<span style="{_CELL}">{row.info or ""}</span>', unsafe_allow_html=True)
 		# Network (.0) and broadcast (.255) have nothing to edit
 		if row.last_octet not in (0, 255):
-			if c[5].button("Edit", key=f"ipam_edit_{row.ip}_chipblue"):
+			if c[5].button("Edit", key=f"ipam_edit_{row.ip}_chipblue", disabled=viewer):
 				_edit_dialog(
 					row.ip,
 					prefix,
@@ -275,6 +282,7 @@ def render_ipam(leases: list[dict], config: Optional[dict]) -> None:
 	if not config:
 		st.error("Cannot render IPAM: Kea config is unavailable.")
 		return
+	read_only_notice()
 
 	subnet_str = (config.get("subnet4") or [{}])[0].get("subnet", "172.16.17.0/24")
 	# "172.16.17.0/24" → "172.16.17"

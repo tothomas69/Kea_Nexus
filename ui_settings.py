@@ -16,6 +16,7 @@ import streamlit as st
 
 from helpers import get_client, load_config
 from kea import KeaError
+from ui_access import read_only, read_only_notice
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -208,6 +209,7 @@ def render_settings(config: dict | None) -> None:
 	if config is None:
 		st.error("Could not load Kea config — check connection to Kea Control Agent.")
 		return
+	read_only_notice()
 
 	subnet = _get_subnet(config)
 	if not subnet:
@@ -302,7 +304,9 @@ def render_settings(config: dict | None) -> None:
 
 	# --- Save button ------------------------------------------------------
 
-	if st.button("Save Settings", type="primary", key="settings_save_chipgreen"):
+	if st.button(
+		"Save Settings", type="primary", key="settings_save_chipgreen", disabled=read_only()
+	):
 		errors = _validate_inputs(
 			gateway=new_gateway,
 			dns=new_dns,

@@ -300,3 +300,44 @@ class KeaClient:
 	def ip_to_int(ip: str) -> int:
 		parts = ip.strip().split(".")
 		return sum(int(p) << (8 * (3 - i)) for i, p in enumerate(parts))
+
+
+# Kea commands that only read state. ReadOnlyKeaClient allows these and nothing
+# else. An allowlist, not a blocklist: a write method added to KeaClient later
+# is refused for viewers by default instead of slipping through.
+READ_ONLY_COMMANDS = frozenset(
+	{
+		"version-get",
+		"stat-lease4-summary",
+		"lease4-get-all",
+		"lease4-get",
+		"lease4-get-by-hw-address",
+		"lease4-get-by-hostname",
+		"config-get",
+	}
+)
+
+VIEWER_WRITE_REFUSED_MESSAGE = "Viewers can't make changes. Ask an admin."
+
+
+class KeaReadOnlyError(KeaError):
+	"""A viewer's session tried to send a Kea command that changes state.
+
+	A KeaError subclass on purpose: every UI write path already catches
+	KeaError and shows its message, so a refusal appears as an ordinary error
+	instead of crashing the tab.
+	"""
+
+
+class ReadOnlyKeaClient(KeaClient):
+	"""KeaClient that refuses any command not in READ_ONLY_COMMANDS.
+
+	Handed to viewer sessions by helpers.get_client(). Every KeaClient method
+	sends its command through call(), so guarding call() blocks every Kea
+	write in one place, whatever button or dialog asked for it.
+	"""
+
+	def call(self, command: str, arguments: Optional[dict] = None) -> dict:
+		if command not in READ_ONLY_COMMANDS:
+			raise KeaReadOnlyError(VIEWER_WRITE_REFUSED_MESSAGE)
+		return super().call(command, arguments)

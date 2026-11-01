@@ -14,6 +14,7 @@ from helpers import (
 	load_status,
 )
 from kea import KeaError
+from ui_access import read_only, read_only_notice
 
 DISPLAY_COLS = ["IP", "Hostname", "MAC", "Expires", "Status"]
 
@@ -77,6 +78,8 @@ def confirm_wipe_dialog(lease_count: int) -> None:
 
 
 def render_maintenance(leases: list[dict]) -> None:
+	read_only_notice()
+	viewer = read_only()
 	# --- Refresh --------------------------------------------------------------
 	rc1, rc2 = st.columns([8, 1])
 	with rc2:
@@ -98,10 +101,17 @@ def render_maintenance(leases: list[dict]) -> None:
 			st.error("[!!] DHCP is DISABLED - clients cannot obtain or renew leases")
 	with sc2:
 		if dhcp_on:
-			if st.button("Disable DHCP", key="maintenance_disabletrigger_chipdanger"):
+			if st.button(
+				"Disable DHCP", key="maintenance_disabletrigger_chipdanger", disabled=viewer
+			):
 				confirm_disable_dialog()
 		else:
-			if st.button("Enable DHCP", type="primary", key="maintenance_enabledhcp_chipgreen"):
+			if st.button(
+				"Enable DHCP",
+				type="primary",
+				key="maintenance_enabledhcp_chipgreen",
+				disabled=viewer,
+			):
 				try:
 					get_client().enable_dhcp()
 					st.session_state.dhcp_enabled = True
@@ -122,7 +132,9 @@ def render_maintenance(leases: list[dict]) -> None:
 			f"{len(dec)} declined address(es) occupying pool space. "
 			"Clear them to reclaim the space immediately."
 		)
-		if st.button(f"Clear all {len(dec)} declined", key="maintenance_clearall_chipgray"):
+		if st.button(
+			f"Clear all {len(dec)} declined", key="maintenance_clearall_chipgray", disabled=viewer
+		):
 			errors = []
 			for lease in dec:
 				try:
@@ -146,7 +158,11 @@ def render_maintenance(leases: list[dict]) -> None:
 			r1.code(lease["ip-address"])
 			r2.write(f"Quarantine: {fmt_ttl(ttl)}")
 			with r3:
-				if st.button("Clear", key=f"maintenance_clear_{lease['ip-address']}_chipgray"):
+				if st.button(
+					"Clear",
+					key=f"maintenance_clear_{lease['ip-address']}_chipgray",
+					disabled=viewer,
+				):
 					try:
 						get_client().delete_lease(lease["ip-address"])
 						load_leases.clear()
@@ -201,5 +217,7 @@ def render_maintenance(leases: list[dict]) -> None:
 			"Fixed reservations in kea-dhcp4.conf are unaffected."
 		)
 	with wc2:
-		if st.button("Wipe all leases", key="maintenance_wipetrigger_chipdanger"):
+		if st.button(
+			"Wipe all leases", key="maintenance_wipetrigger_chipdanger", disabled=viewer
+		):
 			confirm_wipe_dialog(len(leases))

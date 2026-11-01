@@ -54,6 +54,7 @@ keanexus/
 ├── ui_quarantine.py    — Quarantine tab: device registry CRUD + read-only audit log
 ├── ui_settings.py      — Settings tab: subnet/pool/lease on one row, DHCP options in a 2x2 grid
 ├── ui_users.py         — Users panel (Settings → Users, admins only): add, edit, disable logins
+├── ui_access.py        — Viewer read-only helpers: read_only(), the tab notice, refuse_if_viewer()
 ├── style.css           — Global CSS overrides for Streamlit internals
 ├── Makefile            — Developer setup (`make setup`) and test runner (`make test`)
 ├── static/             — Static assets (keanexus_logo.png)
@@ -161,6 +162,12 @@ Data persisted in Docker named volume `keanexus_data` mounted at `/app/data/`.
 - The `"service"` key is never sent — direct listeners don't support forwarding and reject it
 - Key methods: `get_leases()`, `get_pool_stats()`, `get_config()`, `save_config()`, `get_status()`, `get_pool_range(config)`
 - `get_status()` returns both `"ca"` and `"dhcp4"` keys for UI compatibility; `"ca"` is a static placeholder (`up=True`, `version="n/a"`) since the Control Agent no longer exists in Kea 3.0+
+- `ReadOnlyKeaClient` — a `KeaClient` whose `call()` refuses any command outside
+  `READ_ONLY_COMMANDS` with `KeaReadOnlyError`, before a request is sent. Handed to
+  viewer sessions by `helpers.get_client()`. An allowlist on purpose: a write
+  method added to `KeaClient` later is refused for viewers by default.
+  `KeaReadOnlyError` subclasses `KeaError`, so every existing UI `except KeaError`
+  shows the refusal as an ordinary error
 
 ### Pi-hole Client (`pihole.py`)
 
@@ -243,7 +250,10 @@ Data persisted in Docker named volume `keanexus_data` mounted at `/app/data/`.
 
 ### Helpers (`helpers.py`)
 
-- `get_client()` — `@st.cache_resource` singleton KeaClient
+- `get_client()` — the Kea client for this session: a cached `KeaClient` for
+  admins, a cached `ReadOnlyKeaClient` for viewers (see `kea.py`). Not cached
+  itself, since the answer depends on who is signed in. This is the real
+  enforcement of read-only access for every Kea write
 - `load_leases/load_pool_stats/load_config/load_status` — `@st.cache_data` with TTL
 - `fmt_ttl(seconds)` — formats seconds to "Xh Ym" or "expired"
 - `html_safe_mac(mac)` — HTML-entity-encodes a MAC address's colons before it's
@@ -610,6 +620,31 @@ current_label)` (includes Delete). Deleting a reservation, or changing its MAC
 - Success uses the stash-then-rerun pattern (`_PENDING_NOTICE_KEY`), the same as
   `ui_quarantine.py`, because `st.rerun()` wipes anything drawn in that run
 
+### Viewer Read-Only Access (`ui_access.py`)
+
+Viewers can see every tab but change nothing. Three layers:
+
+1. **Disabled buttons + notice.** Every write trigger passes `disabled=read_only()`,
+   and each tab calls `read_only_notice()`, a one-line caption shown to viewers
+   only. Search, Refresh and "Check who's online" stay enabled, since they change
+   nothing. `style.css` dims disabled buttons, because the `_chip*` colour rules
+   otherwise override Streamlit's disabled look and a disabled red button still
+   looked live
+2. **Streamlit drops clicks on disabled widgets server-side.** Confirmed with
+   `AppTest`: clicking a disabled button as a viewer never ran the handler. Not
+   relied on, just observed
+3. **Guards at every write.** Kea writes are refused by `ReadOnlyKeaClient`
+   through `helpers.get_client()`, one choke point for every tab. Writes that
+   bypass Kea call `refuse_if_viewer()` first: IPAM static entries, Quarantine
+   registry save and delete, and the quarantine service triggers
+   (`_trigger_action`, delete with auto-release). Reservation labels are only
+   written after a Kea save succeeds, so the Kea guard covers them
+
+Verified end to end against a fake Kea listener that logged every command: a
+viewer session sent only read commands, and calling the write functions
+directly as a viewer was refused with nothing reaching Kea or the quarantine
+service.
+
 ### keanexus-quarantine Service (`quarantine_service/`)
 
 Separate FastAPI service, own container, gated behind the `quarantine` Docker
@@ -926,7 +961,7 @@ since they require a live Streamlit server and can't be unit-tested). That inclu
 | `tests/test_auth.py`                        | First-admin bootstrap; login (case-insensitive, wrong password, unknown and disabled users, corrupt hash); `current_user`/`is_admin` including sessions ended by password change, disable and deletion; signed cookie round trip, stale `session_version`, tampered username, wrong secret, malformed values, no secret; user-management rules (validation, duplicates, last-admin and self-disable protection) |
 | `tests/test_db_users.py`                    | `users` table storage: case-insensitive usernames, duplicate rejection, role CHECK, list omits hashes, active-admin count, `session_version` bumps on every change, `record_login` |
 | `tests/test_db.py`                          | Full CRUD on `ipam_static`, `reservation_labels`, `device_registry`, and `quarantine_log` via `temp_db` fixture (SQLite in tmp dir)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| `tests/test_kea.py`                         | All `KeaClient` methods; `httpx` patched via `http_mock` fixture                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `tests/test_kea.py`                         | All `KeaClient` methods; `ReadOnlyKeaClient` passes every read command and refuses every write and unknown command before any request; `httpx` patched via `http_mock` fixture                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | `tests/test_helpers.py`                     | `fmt_ttl`, `chip`, `leases_to_df`, `build_reservation_type_sets`, `lease_type`, `build_hostname_override_sets`, `real_hostname`, `distinct_real_hostnames`, `lease_for_reservation` (pure functions only)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | `tests/test_dashboard_data.py`              | `lease_expiry_buckets` (bucket boundaries, expired leases, declined excluded, missing `valid-lft`), `lease_composition`, `utilisation_points` (gap breaking, declined counted as used, zero total), `leases_issued_since` (cumulative delta, stale baseline rejected, counter reset, insufficient history), `quarantined_count`                                                                                                                                                                                                                                                                                                                                                             |
 | `tests/test_docs_library.py`                | Article allowlist (listed files exist, developer docs excluded, missing file hidden) and `read_article` rejecting path traversal, absolute paths and unlisted names                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |

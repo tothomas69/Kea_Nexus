@@ -31,6 +31,7 @@ from quarantine_client import (
 	trigger_quarantine,
 	trigger_release,
 )
+from ui_access import read_only, read_only_notice, refuse_if_viewer
 
 _CELL = "font-family:monospace;font-size:13px;color:#1f2328"
 # MAC/IP columns are narrow enough that the default cell style can wrap them
@@ -159,6 +160,8 @@ def _clear_release_attempts(friendly_name: str) -> None:
 
 def _delete_registry_entry(friendly_name: str) -> None:
 	"""Drop the registry row and reset its auto-release bookkeeping."""
+	if refuse_if_viewer():
+		return
 	delete_device(friendly_name)
 	_clear_release_attempts(friendly_name)
 	st.rerun()
@@ -183,6 +186,8 @@ def _delete_with_auto_release(friendly_name: str, existing: dict) -> None:
 	release that reports any failed step does not count — partial success
 	is exactly how enforcement gets stranded.
 	"""
+	if refuse_if_viewer():
+		return
 	if not existing.get("is_quarantined"):
 		_delete_registry_entry(friendly_name)
 		return
@@ -308,6 +313,8 @@ def _edit_dialog(
 	c1, c2, c3 = st.columns(3)
 	with c1:
 		if st.button("Save", type="primary", key="dialog_save"):
+			if refuse_if_viewer():
+				return
 			if not name_input.strip() or not hostname.strip():
 				st.error("Friendly Name and Hostname are required.")
 			else:
@@ -520,6 +527,8 @@ def _trigger_action(target: str, action: str, is_group: bool = False) -> None:
 	— the stashed result gets displayed at the top of render_quarantine()
 	on the next run, then cleared so it doesn't linger indefinitely.
 	"""
+	if refuse_if_viewer():
+		return
 	action_label = "Quarantine" if action == "quarantine" else "Release"
 	trigger_fn = trigger_quarantine if action == "quarantine" else trigger_release
 	display_name = f"group '{target}'" if is_group else target
@@ -548,6 +557,7 @@ def _render_pending_action_result() -> None:
 
 def _render_device_table(devices: list[dict], leases: list[dict], config: dict | None) -> None:
 	_render_grid_header(_DEVICE_COL_WIDTHS, _DEVICE_COL_HEADERS)
+	viewer = read_only()
 	for device in devices:
 		friendly_name = device["friendly_name"]
 		cell, cell_nowrap, cell_meta = _row_cell_styles(device["is_quarantined"])
@@ -579,11 +589,17 @@ def _render_device_table(devices: list[dict], leases: list[dict], config: dict |
 			f'<span style="{cell_meta}">{_format_local_time(device["last_quarantined_at"])}</span>',
 			unsafe_allow_html=True,
 		)
-		if cols[7].button("Quarantine", key=f"quarantine_go_{friendly_name}", width="stretch"):
+		if cols[7].button(
+			"Quarantine", key=f"quarantine_go_{friendly_name}", width="stretch", disabled=viewer
+		):
 			_trigger_action(friendly_name, "quarantine")
-		if cols[8].button("Release", key=f"quarantine_release_{friendly_name}", width="stretch"):
+		if cols[8].button(
+			"Release", key=f"quarantine_release_{friendly_name}", width="stretch", disabled=viewer
+		):
 			_trigger_action(friendly_name, "release")
-		if cols[9].button("Edit", key=f"quarantine_edit_{friendly_name}", width="stretch"):
+		if cols[9].button(
+			"Edit", key=f"quarantine_edit_{friendly_name}", width="stretch", disabled=viewer
+		):
 			_edit_dialog(friendly_name, leases, config)
 
 
@@ -642,12 +658,13 @@ def _render_group_actions(devices: list[dict]) -> None:
 			label_visibility="collapsed",
 			key="quarantine_group_select",
 		)
+	viewer = read_only()
 	gc1, gc2, _ = st.columns([1, 1, 5])
 	with gc1:
-		if st.button("Quarantine Group", key="quarantine_group_go"):
+		if st.button("Quarantine Group", key="quarantine_group_go", disabled=viewer):
 			_trigger_action(selected_group, "quarantine", is_group=True)
 	with gc2:
-		if st.button("Release Group", key="quarantine_group_release"):
+		if st.button("Release Group", key="quarantine_group_release", disabled=viewer):
 			_trigger_action(selected_group, "release", is_group=True)
 
 
@@ -674,8 +691,9 @@ def render_quarantine(leases: list[dict], config: dict | None) -> None:
 		_render_manual_cleanup_reference()
 
 	_render_pending_action_result()
+	read_only_notice()
 
-	if st.button("Add Device", key="quarantine_add_device"):
+	if st.button("Add Device", key="quarantine_add_device", disabled=read_only()):
 		_edit_dialog(leases=leases, config=config)
 
 	devices = get_devices()

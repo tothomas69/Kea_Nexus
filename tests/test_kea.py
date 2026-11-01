@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 import httpx
 import pytest
 
-from kea import KeaClient, KeaError
+from kea import READ_ONLY_COMMANDS, KeaClient, KeaError, KeaReadOnlyError, ReadOnlyKeaClient
 
 
 def make_kea_response(data: dict | list):
@@ -455,3 +455,50 @@ class TestUpdateLease:
 		with patch.object(client, "call", return_value={"result": 1, "text": "not found"}):
 			with pytest.raises(KeaError, match="not found"):
 				client.update_lease("10.0.0.1", "aa:bb:cc:dd:ee:ff")
+
+
+# ─── ReadOnlyKeaClient ────────────────────────────────────────────────────────
+
+
+class TestReadOnlyKeaClient:
+	@pytest.fixture
+	def read_only(self):
+		return ReadOnlyKeaClient()
+
+	@pytest.mark.parametrize("command", sorted(READ_ONLY_COMMANDS))
+	def test_read_commands_reach_kea(self, read_only, http_mock, command):
+		http_mock.post.return_value = make_kea_response({"result": 0})
+		assert read_only.call(command) == {"result": 0}
+		assert http_mock.post.called
+
+	@pytest.mark.parametrize(
+		"command",
+		[
+			"dhcp-enable",
+			"dhcp-disable",
+			"lease4-add",
+			"lease4-update",
+			"lease4-del",
+			"lease4-wipe",
+			"config-set",
+			"config-write",
+		],
+	)
+	def test_write_commands_are_refused_before_any_request(self, read_only, http_mock, command):
+		with pytest.raises(KeaReadOnlyError, match="Viewers"):
+			read_only.call(command)
+		assert not http_mock.post.called
+
+	def test_unknown_command_is_refused(self, read_only, http_mock):
+		with pytest.raises(KeaReadOnlyError):
+			read_only.call("some-future-command")
+		assert not http_mock.post.called
+
+	def test_refusal_is_a_kea_error_so_ui_handlers_catch_it(self, read_only):
+		with pytest.raises(KeaError):
+			read_only.save_config({})
+
+	def test_high_level_write_method_is_refused(self, read_only, http_mock):
+		with pytest.raises(KeaReadOnlyError):
+			read_only.wipe_leases()
+		assert not http_mock.post.called

@@ -30,6 +30,7 @@ services:
             - ./ui_quarantine.py:/app/ui_quarantine.py
             - ./ui_settings.py:/app/ui_settings.py
             - ./ui_users.py:/app/ui_users.py
+            - ./ui_access.py:/app/ui_access.py
             - ./style.css:/app/style.css
             - ./.streamlit:/app/.streamlit
             - ./static:/app/static

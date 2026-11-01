@@ -8,14 +8,32 @@ from typing import Optional
 import pandas as pd
 import streamlit as st
 
-from kea import KeaClient
+from auth import is_admin
+from kea import KeaClient, ReadOnlyKeaClient
 
 # --- Client -------------------------------------------------------------------
 
 
 @st.cache_resource
-def get_client() -> KeaClient:
+def _admin_client() -> KeaClient:
 	return KeaClient()
+
+
+@st.cache_resource
+def _viewer_client() -> ReadOnlyKeaClient:
+	return ReadOnlyKeaClient()
+
+
+def get_client() -> KeaClient:
+	"""The Kea client for whoever is signed in to this session.
+
+	Viewers get a ReadOnlyKeaClient, which refuses every command that changes
+	Kea. This is the real enforcement of read-only access for Kea: disabled
+	buttons only stop honest clicks, while this stops any write that reaches
+	the server, from any tab, including ones added later. Not cached itself,
+	because the answer depends on the session; the two clients are.
+	"""
+	return _admin_client() if is_admin() else _viewer_client()
 
 
 # --- Cached data loaders ------------------------------------------------------

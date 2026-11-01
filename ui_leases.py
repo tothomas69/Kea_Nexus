@@ -20,6 +20,7 @@ from helpers import (
 )
 from kea import KeaClient, KeaError
 from quarantine_client import QuarantineServiceError, trigger_liveness_sweep
+from ui_access import read_only, read_only_notice
 
 LOOKUP_COLS = ["IP", "Hostname", "MAC", "Expires", "Status"]
 
@@ -237,6 +238,8 @@ def _render_liveness_caption(live_ips: Optional[set[str]], total_leases: int) ->
 
 
 def render_leases(leases: list[dict], config: Optional[dict] = None) -> None:
+	read_only_notice()
+	viewer = read_only()
 	fixed_ips, reserved_macs, name_hosts = build_reservation_type_sets(config)
 	override_ips, override_macs = build_hostname_override_sets(config)
 
@@ -337,7 +340,9 @@ def render_leases(leases: list[dict], config: Optional[dict] = None) -> None:
 						unsafe_allow_html=True,
 					)
 					if ltype == "IP Address" and found:
-						if st.button("Edit this lease", key="leases_editresult_chipblue"):
+						if st.button(
+							"Edit this lease", key="leases_editresult_chipblue", disabled=viewer
+						):
 							edit_lease_dialog(found[0])
 			except KeaError as e:
 				st.error(str(e))
@@ -345,13 +350,15 @@ def render_leases(leases: list[dict], config: Optional[dict] = None) -> None:
 		st.divider()
 		ac1, ac2 = st.columns(2)
 		with ac1:
-			if st.button("+ Add lease manually", key="leases_addtrigger_chipblue"):
+			if st.button(
+				"+ Add lease manually", key="leases_addtrigger_chipblue", disabled=viewer
+			):
 				add_lease_dialog()
 		with ac2:
 			eip = st.text_input(
 				"Edit lease by IP", placeholder="172.16.17.x", label_visibility="collapsed"
 			)
-			if st.button("Edit ->", key="leases_editbyip_chipblue") and eip.strip():
+			if st.button("Edit ->", key="leases_editbyip_chipblue", disabled=viewer) and eip.strip():
 				lease = get_client().get_lease_by_ip(eip.strip())
 				if lease:
 					edit_lease_dialog(lease)

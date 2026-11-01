@@ -614,3 +614,16 @@ body:has([data-testid="stSidebar"][aria-expanded="false"]) [data-testid="stTabs"
 	background: #dde4ea !important;
 	color: #0550ae !important;
 }
+
+/* --- Disabled buttons (viewer accounts) ------------------------------------
+   The chip rules above set their colours with enough weight to override
+   Streamlit's own disabled styling, so a disabled "Disable DHCP" still drew
+   bright red and looked clickable. Viewers see every write button disabled,
+   so they must read as unavailable at a glance. Opacity and grayscale don't
+   touch any property the chip rules set, so this applies on top of every
+   chip colour without fighting it. */
+[data-testid="stButton"] button:disabled {
+	opacity: 0.45 !important;
+	filter: grayscale(1) !important;
+	cursor: not-allowed !important;
+}
