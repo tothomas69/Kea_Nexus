@@ -38,7 +38,7 @@ _BOOTSTRAP_PASSWORD_ENV = "KEANEXUS_PASSWORD"
 
 # Signs the session cookie. Without it, logins still work but do not survive a
 # page reload, because an unsigned cookie could be forged by anyone.
-_SECRET_ENV = "KEANEXUS_SECRET"
+_SECRET_ENV = "KEANEXUS_SECRET"  # pragma: allowlist secret
 
 _SESSION_USER_KEY = "auth_user"
 SESSION_COOKIE_NAME = "keanexus_session"
@@ -53,9 +53,7 @@ MIN_USERNAME_LENGTH = 2
 MAX_USERNAME_LENGTH = 32
 # Letters, digits, dot, underscore and hyphen only. Keeping the cookie field
 # separator out of usernames is what lets the cookie be split unambiguously.
-_USERNAME_PATTERN = re.compile(
-	rf"^[A-Za-z0-9._-]{{{MIN_USERNAME_LENGTH},{MAX_USERNAME_LENGTH}}}$"
-)
+_USERNAME_PATTERN = re.compile(rf"^[A-Za-z0-9._-]{{{MIN_USERNAME_LENGTH},{MAX_USERNAME_LENGTH}}}$")
 
 _hasher = PasswordHasher()
 
@@ -90,7 +88,9 @@ def _password_matches(stored_hash: str, password: str) -> bool:
 def _spend_equal_time_on_unknown_user(password: str) -> None:
 	global _timing_decoy_hash
 	if _timing_decoy_hash is None:
-		_timing_decoy_hash = _hasher.hash("timing-decoy-not-a-real-password")  # pragma: allowlist secret
+		_timing_decoy_hash = _hasher.hash(
+			"timing-decoy-not-a-real-password"
+		)  # pragma: allowlist secret
 	_password_matches(_timing_decoy_hash, password)
 
 
@@ -195,7 +195,9 @@ def session_token() -> str:
 	session_user = st.session_state.get(_SESSION_USER_KEY)
 	if not secret or not session_user:
 		return ""
-	payload = f"{session_user['username']}{_COOKIE_FIELD_SEPARATOR}{session_user['session_version']}"
+	payload = (
+		f"{session_user['username']}{_COOKIE_FIELD_SEPARATOR}{session_user['session_version']}"
+	)
 	return f"{payload}{_COOKIE_FIELD_SEPARATOR}{_cookie_signature(secret, payload)}"
 
 
@@ -241,9 +243,7 @@ def _validate_username(username: str) -> None:
 
 def _validate_password(password: str) -> None:
 	if len(password) < MIN_PASSWORD_LENGTH:
-		raise UserManagementError(
-			f"Passwords must be at least {MIN_PASSWORD_LENGTH} characters."
-		)
+		raise UserManagementError(f"Passwords must be at least {MIN_PASSWORD_LENGTH} characters.")
 
 
 def _validate_role(role: str) -> None:

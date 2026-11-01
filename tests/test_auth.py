@@ -17,6 +17,10 @@ import db
 _GOOD_PASSWORD = "correct-horse-battery"  # pragma: allowlist secret
 _OTHER_PASSWORD = "different-horse-battery"  # pragma: allowlist secret
 _TEST_SECRET = "test-cookie-secret"  # pragma: allowlist secret
+_OTHER_SECRET = "a-different-secret"  # pragma: allowlist secret
+# Shorter than MIN_PASSWORD_LENGTH on purpose: bootstrap must accept it anyway.
+_SHORT_BOOTSTRAP_PASSWORD = "short"  # pragma: allowlist secret
+_UNUSED_BOOTSTRAP_PASSWORD = "whatever"  # pragma: allowlist secret
 
 
 @pytest.fixture
@@ -39,7 +43,7 @@ def _add_user(username="tom", password=_GOOD_PASSWORD, role="admin"):
 
 class TestBootstrapAdmin:
 	def test_creates_admin_from_env_when_table_empty(self, temp_db):
-		env = {"KEANEXUS_USERNAME": "admin", "KEANEXUS_PASSWORD": "short"}
+		env = {"KEANEXUS_USERNAME": "admin", "KEANEXUS_PASSWORD": _SHORT_BOOTSTRAP_PASSWORD}
 		with patch.dict(os.environ, env):
 			assert auth.bootstrap_admin_from_env() is True
 		user = db.get_user("admin")
@@ -47,7 +51,7 @@ class TestBootstrapAdmin:
 
 	def test_does_nothing_once_a_user_exists(self, temp_db):
 		_add_user()
-		env = {"KEANEXUS_USERNAME": "admin", "KEANEXUS_PASSWORD": "whatever"}
+		env = {"KEANEXUS_USERNAME": "admin", "KEANEXUS_PASSWORD": _UNUSED_BOOTSTRAP_PASSWORD}
 		with patch.dict(os.environ, env):
 			assert auth.bootstrap_admin_from_env() is False
 		assert db.get_user("admin") is None
@@ -170,7 +174,7 @@ class TestSessionCookie:
 		auth.attempt_login("tom", _GOOD_PASSWORD)
 		token = auth.session_token()
 		session.clear()
-		with patch.dict(os.environ, {"KEANEXUS_SECRET": "a-different-secret"}):
+		with patch.dict(os.environ, {"KEANEXUS_SECRET": _OTHER_SECRET}):
 			assert auth.restore_session_from_cookie(token) is False
 
 	@pytest.mark.parametrize("cookie", [None, "", "tom", "tom|1", "a|b|c|d"])

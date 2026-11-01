@@ -19,7 +19,7 @@ class TestInsertAndGet:
 		db.insert_user("tom", "hash-1", "admin")
 		user = db.get_user("tom")
 		assert user["username"] == "tom"
-		assert user["password_hash"] == "hash-1"
+		assert user["password_hash"] == "hash-1"  # pragma: allowlist secret
 		assert user["role"] == "admin"
 		assert user["session_version"] == 1
 		assert user["is_disabled"] == 0
@@ -65,7 +65,7 @@ class TestChangesEndSessions:
 		db.insert_user("tom", "hash-1", "admin")
 		assert db.update_password_hash("tom", "hash-2") is True
 		user = db.get_user("tom")
-		assert user["password_hash"] == "hash-2"
+		assert user["password_hash"] == "hash-2"  # pragma: allowlist secret
 		assert user["session_version"] == 2
 
 	def test_role_change_bumps_session_version(self, temp_db):

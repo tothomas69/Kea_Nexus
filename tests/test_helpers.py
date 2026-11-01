@@ -13,12 +13,31 @@ from helpers import (
 	chip,
 	distinct_real_hostnames,
 	fmt_ttl,
+	get_client,
 	html_safe_mac,
 	lease_for_reservation,
 	lease_type,
 	leases_to_df,
 	real_hostname,
 )
+from kea import KeaClient, ReadOnlyKeaClient
+
+# ─── get_client ──────────────────────────────────────────────────────────────
+
+
+class TestGetClient:
+	"""Viewers must get the read-only client; it is what blocks their Kea writes."""
+
+	def test_admin_gets_full_client(self):
+		with patch("helpers.is_admin", return_value=True):
+			client = get_client()
+		assert isinstance(client, KeaClient)
+		assert not isinstance(client, ReadOnlyKeaClient)
+
+	def test_viewer_gets_read_only_client(self):
+		with patch("helpers.is_admin", return_value=False):
+			assert isinstance(get_client(), ReadOnlyKeaClient)
+
 
 # ─── fmt_ttl ──────────────────────────────────────────────────────────────────
 

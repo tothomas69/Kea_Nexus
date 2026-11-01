@@ -350,15 +350,16 @@ def render_leases(leases: list[dict], config: Optional[dict] = None) -> None:
 		st.divider()
 		ac1, ac2 = st.columns(2)
 		with ac1:
-			if st.button(
-				"+ Add lease manually", key="leases_addtrigger_chipblue", disabled=viewer
-			):
+			if st.button("+ Add lease manually", key="leases_addtrigger_chipblue", disabled=viewer):
 				add_lease_dialog()
 		with ac2:
 			eip = st.text_input(
 				"Edit lease by IP", placeholder="172.16.17.x", label_visibility="collapsed"
 			)
-			if st.button("Edit ->", key="leases_editbyip_chipblue", disabled=viewer) and eip.strip():
+			if (
+				st.button("Edit ->", key="leases_editbyip_chipblue", disabled=viewer)
+				and eip.strip()
+			):
 				lease = get_client().get_lease_by_ip(eip.strip())
 				if lease:
 					edit_lease_dialog(lease)

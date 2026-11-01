@@ -217,7 +217,5 @@ def render_maintenance(leases: list[dict]) -> None:
 			"Fixed reservations in kea-dhcp4.conf are unaffected."
 		)
 	with wc2:
-		if st.button(
-			"Wipe all leases", key="maintenance_wipetrigger_chipdanger", disabled=viewer
-		):
+		if st.button("Wipe all leases", key="maintenance_wipetrigger_chipdanger", disabled=viewer):
 			confirm_wipe_dialog(len(leases))
