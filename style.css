@@ -138,9 +138,15 @@
    of layout even when Streamlit considers it collapsed. The transform still
    slides it out of sight, so the visible result is a 210px empty gutter and
    content that never reclaims the space: the collapse appears to do nothing.
-   Scoping to [aria-expanded="true"] leaves Streamlit's collapsed geometry
-   untouched. */
-[data-testid="stSidebar"][aria-expanded="true"] {
+   Scoping to the expanded state leaves Streamlit's collapsed geometry
+   untouched.
+   Two selectors because Streamlit changed the state attribute: through 1.62
+   the sidebar carried aria-expanded="true|false"; 1.66.1 dropped it for
+   data-collapsed="false|true". With only the old selector the pin silently
+   matched nothing and the sidebar fell back to Streamlit's ~300px default,
+   sliding under the fixed tab bar (which assumes 210px). */
+[data-testid="stSidebar"][aria-expanded="true"],
+[data-testid="stSidebar"][data-collapsed="false"] {
 	min-width: 210px !important;
 	max-width: 210px !important;
 }
@@ -541,8 +547,10 @@
    sidebar collapses — its offset has to follow the sidebar's state explicitly,
    or a collapsed sidebar leaves a 210px gap to the left of the tabs. The
    padding-left keeps the tabs clear of the re-open arrow sitting in that
-   corner. */
-body:has([data-testid="stSidebar"][aria-expanded="false"]) [data-testid="stTabs"] [role="tablist"] {
+   corner. Both state attributes, for the same reason as the width pin above
+   (aria-expanded through Streamlit 1.62, data-collapsed from 1.66.1). */
+body:has([data-testid="stSidebar"][aria-expanded="false"]) [data-testid="stTabs"] [role="tablist"],
+body:has([data-testid="stSidebar"][data-collapsed="true"]) [data-testid="stTabs"] [role="tablist"] {
 	left: 0 !important;
 	padding-left: 2.75rem !important;
 }
