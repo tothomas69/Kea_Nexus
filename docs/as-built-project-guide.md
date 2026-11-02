@@ -488,7 +488,23 @@ KPI tile row → gauge / service health / lease summary cards → utilisation tr
 - `_classify_all(...)` — classifies each IP as: network, broadcast, gateway, leased, declined, reserved, static, scope (free in pool), or free
 - Status priority: network/broadcast > gateway > declined lease > active lease with fixed reservation (shows as reserved) > active lease > reservation > static DB entry > in-scope free > free
 - Static entries stored in SQLite; only permitted for out-of-scope addresses
-- Edit form in expander below table; `upsert_static_entry` / `delete_static_entry`
+- Edit is a per-row `st.dialog` (`_edit_dialog`); `upsert_static_entry` / `delete_static_entry`
+- Columns: IP Address, Status, Label, Real Hostname, MAC, Expires. Label and Real
+  Hostname follow the same split as the Reservations tab, so an admin-typed name
+  never shows up as the device's own name:
+    - **Label** is any admin-assigned name. For a reservation it comes from
+      `db.reservation_labels` (by MAC), falling back to a legacy Kea-side
+      `hostname` on a reservation not yet resaved. For a static entry it is the
+      entry's `hostname`, since that is typed by an admin, not reported by a device.
+      The gateway row's `gateway` is a label too
+    - **Real Hostname** is only `helpers.real_hostname(...)` from a live lease. Rows
+      with no lease (static, offline reservation, gateway) show `-`
+    - **Expires** is the lease time left (`fmt_ttl`), or `offline` for a
+      reservation with no current lease
+- A static entry's description and notes have no column. They show as the
+  hover tooltip on the status chip (`_chip` HTML-escapes the tooltip, since it is
+  free text in an attribute)
+- The filter box matches IP, label, real hostname, or MAC
 
 ### Leases Tab (`ui_leases.py`)
 

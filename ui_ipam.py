@@ -7,14 +7,21 @@ in pool), or free (outside pool, no record). Allows adding and editing static
 records for out-of-scope addresses.
 """
 
+import html as _html
 import time as _time
 from dataclasses import dataclass
 from typing import Optional
 
 import streamlit as st
 
-from db import delete_static_entry, get_static_entries, get_static_entry, upsert_static_entry
-from helpers import fmt_ttl, get_client, html_safe_mac
+from db import (
+	delete_static_entry,
+	get_reservation_labels,
+	get_static_entries,
+	get_static_entry,
+	upsert_static_entry,
+)
+from helpers import build_hostname_override_sets, fmt_ttl, get_client, html_safe_mac, real_hostname
 from ui_access import read_only, read_only_notice, refuse_if_viewer
 
 # --- Status constants ---------------------------------------------------------
@@ -41,8 +48,10 @@ _CHIP_STYLE: dict[str, tuple[str, str]] = {
 	_FREE: ("#f6f8fa", "#57606a"),
 }
 
-_COL_WIDTHS = [2.0, 1.3, 2.0, 2.3, 2.6, 1.1]
-_COL_HEADERS = ["IP Address", "Status", "Hostname", "MAC", "Description", ""]
+# Column order: IP | Status | Label | Real Hostname | MAC | Expires | Edit
+_COL_WIDTHS = [1.8, 1.2, 2.0, 2.0, 2.1, 1.2, 0.9]
+_COL_HEADERS = ["IP Address", "Status", "Label", "Real Hostname", "MAC", "Expires", ""]
+_STATUS_COL = 1  # header for this column is centered to match its chip
 _CELL = "font-family:monospace;font-size:11px;color:#1f2328"
 _HEADER_CENTER = ";text-align:center"
 
@@ -57,10 +66,11 @@ class _IpRow:
 	ip: str
 	last_octet: int
 	status: str
-	hostname: str = ""
+	label: str = ""  # admin-assigned name: reservation label, static hostname, or "gateway"
+	hostname: str = ""  # ONLY the device's real DHCP-negotiated hostname, from a live lease
 	mac: str = ""
-	info: str = ""  # description for static, expiry for leases, "reserved" for reservations
-	notes: str = ""  # shown as tooltip on status chip (static entries only)
+	info: str = ""  # time-to-expiry for leases, "offline" for reservations with no lease
+	notes: str = ""  # tooltip on status chip (static entries: description + notes)
 	editable: bool = False  # True when this address accepts a static record
 
 
@@ -75,8 +85,16 @@ def _classify_all(
 	leases: list[dict],
 	reservations: list[dict],
 	static_entries: list[dict],
+	labels: dict[str, str],
+	override_ips: set,
+	override_macs: set,
 ) -> list[_IpRow]:
-	"""Return one _IpRow for every address .0–.255 in the subnet."""
+	"""Return one _IpRow for every address .0–.255 in the subnet.
+
+	`labels` maps lowercase MAC -> reservation label. The override sets come
+	from build_hostname_override_sets() so a legacy Kea-side reservation
+	"hostname" never masquerades as the device's real hostname.
+	"""
 	now = int(_time.time())
 	lease_map = {lease["ip-address"]: lease for lease in leases if "ip-address" in lease}
 	res_map = {r["ip-address"]: r for r in reservations if "ip-address" in r}
@@ -93,7 +111,7 @@ def _classify_all(
 			row.status = _BCAST
 		elif ip == gateway_ip:
 			row.status = _GATEWAY
-			row.hostname = "gateway"
+			row.label = "gateway"
 			row.editable = True
 		elif ip in lease_map:
 			lease = lease_map[ip]
@@ -104,23 +122,36 @@ def _classify_all(
 				row.status = _RESERVED
 			else:
 				row.status = _LEASED
-			row.hostname = lease.get("hostname", "") or ""
+			# real_hostname() returns "" when Kea is echoing a reservation override
+			row.hostname = real_hostname(lease, override_ips, override_macs) or ""
 			row.mac = lease.get("hw-address", "") or ""
+			if ip in res_map:
+				# Same fallback as the Reservations tab: SQLite label first, then
+				# any legacy Kea "hostname" on a not-yet-resaved reservation
+				res = res_map[ip]
+				res_mac = (res.get("hw-address", "") or row.mac).lower()
+				row.label = labels.get(res_mac, "") or res.get("hostname", "") or ""
 			ttl = lease.get("cltt", 0) + lease.get("valid-lft", 86400) - now
 			row.info = fmt_ttl(ttl)
 		elif ip in res_map:
 			res = res_map[ip]
 			row.status = _RESERVED
-			row.hostname = res.get("hostname", "") or ""
 			row.mac = res.get("hw-address", "") or ""
-			row.info = "reserved"
+			row.label = labels.get(row.mac.lower(), "") or res.get("hostname", "") or ""
+			# No lease means no real hostname to show; "offline" replaces the old
+			# redundant "reserved" text (the status chip already says that)
+			row.info = "offline"
 		elif ip in static_map:
 			s = static_map[ip]
 			row.status = _STATIC
-			row.hostname = s.get("hostname", "") or ""
+			# Static "hostname" is admin-typed, not device-reported -> it's a label.
+			# Real Hostname stays empty since there's no lease to report one.
+			row.label = s.get("hostname", "") or ""
 			row.mac = s.get("mac_address", "") or ""
-			row.info = s.get("description", "") or ""
-			row.notes = s.get("notes", "") or ""
+			# Description no longer has a column; surface it in the hover tooltip
+			row.notes = " — ".join(
+				part for part in (s.get("description", ""), s.get("notes", "")) if part
+			)
 			row.editable = True
 		elif pool_start_octet <= octet <= pool_end_octet:
 			row.status = _SCOPE
@@ -137,7 +168,7 @@ def _classify_all(
 
 def _chip(label: str, status: str, tooltip: str = "") -> str:
 	bg, fg = _CHIP_STYLE.get(status, _CHIP_STYLE[_FREE])
-	tooltip_attr = f' data-tooltip="{tooltip}"' if tooltip else ""
+	tooltip_attr = f' data-tooltip="{_html.escape(tooltip, quote=True)}"' if tooltip else ""
 	return (
 		f'<span{tooltip_attr} style="background:{bg};color:{fg};font-size:11px;font-weight:600;'
 		f'padding:2px 9px;border-radius:10px;display:inline-block;white-space:nowrap">{label}</span>'
@@ -225,12 +256,8 @@ def _render_table(
 	# Status column (index 1) is centered to match its chip content
 	col_template = " ".join(f"{w}fr" for w in _COL_WIDTHS)
 	header_styles = [
-		_HEADER_CELL,
-		_HEADER_CELL + _HEADER_CENTER,
-		_HEADER_CELL,
-		_HEADER_CELL,
-		_HEADER_CELL,
-		_HEADER_CELL,
+		_HEADER_CELL + (_HEADER_CENTER if i == _STATUS_COL else "")
+		for i in range(len(_COL_HEADERS))
 	]
 	cells = "".join(
 		f'<div style="{style}">{h}</div>' for style, h in zip(header_styles, _COL_HEADERS)
@@ -251,26 +278,28 @@ def _render_table(
 			f'<div style="text-align:center">{_chip(row.status, row.status, tooltip=row.notes)}</div>',
 			unsafe_allow_html=True,
 		)
-		hostname_html = (
-			_chip(row.hostname, _STATIC)
-			if row.status == _STATIC and row.hostname
-			else f'<span style="{_CELL}">{row.hostname or "—"}</span>'
+		# Static entries get the purple chip on their (admin-typed) label
+		label_html = (
+			_chip(row.label, _STATIC)
+			if row.status == _STATIC and row.label
+			else f'<span style="{_CELL}">{row.label or "—"}</span>'
 		)
-		c[2].markdown(hostname_html, unsafe_allow_html=True)
-		c[3].markdown(
+		c[2].markdown(label_html, unsafe_allow_html=True)
+		c[3].markdown(f'<span style="{_CELL}">{row.hostname or "—"}</span>', unsafe_allow_html=True)
+		c[4].markdown(
 			f'<span style="{_CELL}">{html_safe_mac(row.mac) or "—"}</span>', unsafe_allow_html=True
 		)
-		c[4].markdown(f'<span style="{_CELL}">{row.info or ""}</span>', unsafe_allow_html=True)
+		c[5].markdown(f'<span style="{_CELL}">{row.info or ""}</span>', unsafe_allow_html=True)
 		# Network (.0) and broadcast (.255) have nothing to edit
 		if row.last_octet not in (0, 255):
-			if c[5].button("Edit", key=f"ipam_edit_{row.ip}_chipblue", disabled=viewer):
+			if c[6].button("Edit", key=f"ipam_edit_{row.ip}_chipblue", disabled=viewer):
 				_edit_dialog(
 					row.ip,
 					prefix,
 					pool_start_octet,
 					pool_end_octet,
 					known_mac=row.mac,
-					known_hostname=row.hostname,
+					known_hostname=row.label or row.hostname,
 				)
 
 
@@ -300,6 +329,8 @@ def render_ipam(leases: list[dict], config: Optional[dict]) -> None:
 
 	reservations = (config.get("subnet4") or [{}])[0].get("reservations", [])
 	static_entries = get_static_entries()
+	labels = {r["mac_address"].lower(): r["label"] for r in get_reservation_labels()}
+	override_ips, override_macs = build_hostname_override_sets(config)
 
 	all_rows = _classify_all(
 		prefix,
@@ -309,6 +340,9 @@ def render_ipam(leases: list[dict], config: Optional[dict]) -> None:
 		leases,
 		reservations,
 		static_entries,
+		labels,
+		override_ips,
+		override_macs,
 	)
 
 	# Status summary counts
@@ -316,7 +350,7 @@ def render_ipam(leases: list[dict], config: Optional[dict]) -> None:
 	for row in all_rows:
 		counts[row.status] = counts.get(row.status, 0) + 1
 
-	named_static_count = sum(1 for r in all_rows if r.status == _STATIC and r.hostname)
+	named_static_count = sum(1 for r in all_rows if r.status == _STATIC and r.label)
 
 	summary = "".join(
 		_chip(f"{counts.get(s, 0)} {s}", s) + "&nbsp; "
@@ -324,14 +358,14 @@ def render_ipam(leases: list[dict], config: Optional[dict]) -> None:
 		if counts.get(s, 0) > 0
 	)
 	if named_static_count > 0:
-		summary += _chip(f"{named_static_count} hostname", _STATIC) + "&nbsp; "
+		summary += _chip(f"{named_static_count} labeled", _STATIC) + "&nbsp; "
 	st.markdown(f'<div style="margin-bottom:12px">{summary}</div>', unsafe_allow_html=True)
 
 	# Filter controls
 	fc, sc = st.columns([4, 2])
 	with fc:
 		q = st.text_input(
-			"Filter", placeholder="Search IP, hostname or MAC…", label_visibility="collapsed"
+			"Filter", placeholder="Search IP, label, hostname or MAC…", label_visibility="collapsed"
 		)
 	with sc:
 		status_filter = st.selectbox(
@@ -349,7 +383,10 @@ def render_ipam(leases: list[dict], config: Optional[dict]) -> None:
 		visible = [
 			r
 			for r in visible
-			if q_lower in r.ip or q_lower in r.hostname.lower() or q_lower in r.mac.lower()
+			if q_lower in r.ip
+			or q_lower in r.label.lower()
+			or q_lower in r.hostname.lower()
+			or q_lower in r.mac.lower()
 		]
 
 	_render_table(visible, prefix, pool_start_octet, pool_end_octet)
