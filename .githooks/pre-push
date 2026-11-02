@@ -1,0 +1,109 @@
+#!/bin/bash
+# =============================================================================
+# .githooks/pre-push — Definition of Done gate (runs once per push)
+# =============================================================================
+# Stages:
+#   1. pytest with coverage (threshold from pyproject.toml)   → BLOCKS
+#   2. Full-tree detect-secrets scan vs the baseline          → BLOCKS
+#   3. pip-audit for known-vulnerable dependencies            → WARNS only
+#      (needs network; must not strand an offline push)
+#
+# Exit codes:  0 = push proceeds   1 = tests or secret scan failed
+# =============================================================================
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+VENV_BIN="$REPO_ROOT/.venv/bin"
+cd "$REPO_ROOT" || exit 1
+
+PYTEST="$VENV_BIN/pytest"
+PIP_AUDIT="$VENV_BIN/pip-audit"
+BASELINE="$REPO_ROOT/.secrets.baseline"
+SECRETS_EXCLUDE='(\.secrets\.baseline$|/versions/.*\.py$|^alembic/versions/)'
+
+DETECT_SECRETS="$VENV_BIN/detect-secrets"
+[ -x "$DETECT_SECRETS" ] || DETECT_SECRETS="$(command -v detect-secrets 2>/dev/null || true)"
+
+# -----------------------------------------------------------------------------
+# Stage 1 — Test suite + coverage
+# -----------------------------------------------------------------------------
+
+if [ ! -x "$PYTEST" ]; then
+  echo "🚨 pytest not found at $PYTEST — cannot verify Definition of Done." >&2
+  echo "   Run: make setup" >&2
+  exit 1
+fi
+
+echo "🧪 Running tests..."
+if ! "$PYTEST" tests/ -q --tb=short; then
+  echo "" >&2
+  echo "🚨 Tests failed or coverage below threshold. Push blocked." >&2
+  exit 1
+fi
+
+# -----------------------------------------------------------------------------
+# Stage 2 — Full-tree secret scan
+# -----------------------------------------------------------------------------
+# Backstop for what the staged-only pre-commit can't see. Compares by
+# (file, secret hash) — NOT line number — so code moving around doesn't
+# false-alarm. Fails only on secrets present in the tree but absent from
+# the baseline. Stale baseline entries (secret since removed) just warn.
+
+if [ -z "$DETECT_SECRETS" ]; then
+  echo "⚠  detect-secrets not found — full-tree secret scan skipped." >&2
+elif [ ! -f "$BASELINE" ]; then
+  echo "⚠  No .secrets.baseline — full-tree secret scan skipped." >&2
+else
+  echo "🔐 Full-tree secret scan..."
+  SCAN=$(mktemp)
+  if ! "$DETECT_SECRETS" scan --exclude-files "$SECRETS_EXCLUDE" > "$SCAN"; then
+    echo "🚨 detect-secrets scan errored. Push blocked (fail closed)." >&2
+    rm -f "$SCAN"
+    exit 1
+  fi
+
+  # Python does the set math: new = in scan but not in baseline
+  python3 - "$BASELINE" "$SCAN" <<'PY'
+import json, sys
+
+def keys(path):
+    results = json.load(open(path)).get("results", {})
+    return {(f, s["hashed_secret"]): s.get("line_number")
+            for f, items in results.items() for s in items}
+
+baseline, scan = keys(sys.argv[1]), keys(sys.argv[2])
+new = sorted(set(scan) - set(baseline))
+stale = sorted(set(baseline) - set(scan))
+
+for f, _ in stale:
+    print(f"⚠  baseline entry no longer found (refresh when convenient): {f}", file=sys.stderr)
+if new:
+    print("🚨 Secrets in the tree that are NOT in the baseline:", file=sys.stderr)
+    for f, h in new:
+        print(f"   {f}:{scan[(f, h)]}", file=sys.stderr)
+    sys.exit(1)
+PY
+  secrets_exit=$?
+  rm -f "$SCAN"
+
+  if [ $secrets_exit -ne 0 ]; then
+    echo "" >&2
+    echo "🚨 Push blocked. Remove real secrets; for false positives, audit then" >&2
+    echo "   refresh: detect-secrets scan --exclude-files '$SECRETS_EXCLUDE' > .secrets.baseline" >&2
+    exit 1
+  fi
+  echo "✔  Tree matches baseline (no new secrets)."
+fi
+
+# -----------------------------------------------------------------------------
+# Stage 3 — Dependency audit (warn only)
+# -----------------------------------------------------------------------------
+
+if [ -x "$PIP_AUDIT" ]; then
+  echo "📦 pip-audit..."
+  "$PIP_AUDIT" -r requirements.txt --progress-spinner off \
+    || echo "⚠  pip-audit reported issues or couldn't reach the network — review above." >&2
+else
+  echo "⚠  pip-audit not installed — dependency audit skipped." >&2
+fi
+
+exit 0

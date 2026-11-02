@@ -8,8 +8,8 @@ help:
 setup:
 	@echo "Configuring git to use .githooks/..."
 	git config core.hooksPath .githooks
-	chmod +x .githooks/pre-commit
-	@echo "✅ Done. Pre-commit checks are now active."
+	chmod +x .githooks/pre-commit .githooks/pre-push
+	@echo "✅ Done. Pre-commit and pre-push checks are now active."
 
 test:
 	.venv/bin/pytest tests/ -v

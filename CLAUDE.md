@@ -25,21 +25,25 @@ Implementation is complete when:
 
 ### Quality Gate
 
-Quality gates run as **git hooks**, not after every Claude edit. Two tiers:
+Quality gates run as **git hooks**, not after every Claude edit. The hooks are
+committed in `.githooks/` and activated per clone by `make setup`
+(`core.hooksPath .githooks`). Anything in `.git/hooks/` is ignored once that is set.
+Two tiers:
 
-**pre-commit** (`.git/hooks/pre-commit`) - fast, every commit:
+**pre-commit** (`.githooks/pre-commit`) - fast, every commit:
 
 - Ruff formats and lints staged Python files (formatting fixes are auto-restaged)
-- Bandit scans staged Python for security anti-patterns
-- import-linter enforces architecture contracts when `.importlinter` exists
-- Vale lints staged Markdown for mechanical plain-English rules (em-dashes, LLM vocabulary, filler)
-- detect-secrets scans for new secrets against `.secrets.baseline`
+- ESLint and Prettier on staged frontend files, when installed
+- detect-secrets checks **staged files only** for secrets not in `.secrets.baseline`
 - Commit is blocked on any failure
 
-**pre-push** (`.git/hooks/pre-push`) - slow, once per push:
+**pre-push** (`.githooks/pre-push`) - slow, once per push:
 
 - Full test suite with 80% minimum coverage (the Definition of Done)
+- Full-tree detect-secrets scan against `.secrets.baseline` (blocks on a new secret)
 - pip-audit for known-vulnerable dependencies (warns, does not block)
+
+Bandit, import-linter and Vale are not wired into the committed hooks yet.
 
 ### Prose
 
