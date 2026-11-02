@@ -36,7 +36,14 @@
    active tab interrupting it, see below. ---------------------------------- */
 [data-testid="stTabs"] [role="tablist"] {
 	position: fixed !important;
-	top: 0.75rem !important;
+	/* Anchored at the very top, with the 0.75rem offset moved into padding-top
+	   below. When the bar sat at top:0.75rem, that 12px band above it was
+	   covered only by stHeader, which this file forces transparent (so the
+	   sidebar re-open arrow stays clickable) — scrolled content showed through
+	   it. Padding keeps the tabs in the same visual spot while the bar's own
+	   background now fills the band. stHeader still stacks above (z-index
+	   999990 vs 999), so the re-open arrow is unaffected. */
+	top: 0 !important;
 	left: 210px !important;
 	right: 0 !important;
 	z-index: 999 !important;
@@ -50,7 +57,7 @@
 	   its own slice of it — see the aria-selected rule below. */
 	box-shadow: inset 0 -2px 0 #0969da !important;
 	border-radius: 0 !important;
-	padding: 3px 1.5rem 2px 1.5rem !important;
+	padding: calc(0.75rem + 3px) 1.5rem 2px 1.5rem !important;
 	gap: 4px !important;
 }
 
