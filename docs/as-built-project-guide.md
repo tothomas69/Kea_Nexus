@@ -247,6 +247,12 @@ Data persisted in Docker named volume `keanexus_data` mounted at `/app/data/`.
 - `_render_settings_tab(config)` — admins get `DHCP` and `Users` sub-tabs
   (`st.tabs(..., key="settings_tabs")`, keyed for the same rerun reason as
   `main_tabs`); viewers get the DHCP settings alone, with no Users tab at all
+- **Nested tab bars must stay in normal flow.** `style.css` pins the tab bar
+  with `position: fixed`, and that selector matches every tablist on the page.
+  The Settings sub-tabs once inherited it, landed on the same spot as the main
+  bar and covered it, so Settings had no way out. A nested-tablist rule resets
+  them to `position: static`; any future `st.tabs()` inside a tab gets the same
+  treatment for free
 
 ### Helpers (`helpers.py`)
 

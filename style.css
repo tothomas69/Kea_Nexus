@@ -61,6 +61,32 @@
 	gap: 4px !important;
 }
 
+/* Nested tabs (Settings → DHCP / Users) stay in normal flow under the main
+   bar. The fixed-bar rule above matches every tablist on the page, so without
+   this the sub-tab bar was pinned to the same top:0 / left:210px spot, came
+   later in the DOM at the same z-index, and painted over the main tabs —
+   leaving Settings with no way back to any other tab. The sidebar-collapsed
+   variants are repeated here because those rules (further down) set the
+   bar's left padding with higher specificity than the plain nested selector. */
+[data-testid="stTabs"] [data-testid="stTabs"] [role="tablist"],
+body:has([data-testid="stSidebar"][aria-expanded="false"])
+	[data-testid="stTabs"]
+	[data-testid="stTabs"]
+	[role="tablist"],
+body:has([data-testid="stSidebar"][data-collapsed="true"])
+	[data-testid="stTabs"]
+	[data-testid="stTabs"]
+	[role="tablist"] {
+	position: static !important;
+	top: auto !important;
+	left: auto !important;
+	right: auto !important;
+	z-index: auto !important;
+	background: transparent !important;
+	padding: 0 0 2px 0 !important;
+	margin-bottom: 0.75rem !important;
+}
+
 /* Every tab gets the full tab shape — filled background, curved top corners,
    a visible outline — regardless of selection state, so unselected tabs
    read as tabs sitting on the bar rather than plain text that only gets a
