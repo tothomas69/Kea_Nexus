@@ -1,0 +1,41 @@
+<section id="reservations-table" class="card" aria-label="Reservations"
+	hx-get="/fragments/reservations" hx-trigger="every 60s, reservations-changed from:body" hx-swap="outerHTML">
+	{% if kea_error %}<p class="banner banner-error" role="alert">Kea can't be reached right now, so reservations can't be shown or changed.</p>{% endif %}
+	{% if rows %}
+	<div class="table-wrap">
+	<table class="data-table">
+		<thead><tr>
+			<th scope="col">IP address</th><th scope="col">Label</th><th scope="col">Hostname</th>
+			<th scope="col">MAC</th><th scope="col">Type</th>
+			{% if is_admin %}<th scope="col"><span class="visually-hidden">Actions</span></th>{% endif %}
+		</tr></thead>
+		<tbody>
+		{% for row in rows %}
+			<tr class="{{ 'row-quarantined' if row.quarantined }}">
+				<td class="mono nowrap">{{ row.ip or "—" }}</td>
+				<td class="strong">{{ row.label or "—" }}{% if row.quarantined %} <span class="chip chip-quarantined">quarantined</span>{% endif %}</td>
+				<td class="mono">
+					{% if row.hostname_state == "offline" %}<span class="muted">offline</span>
+					{% elif row.hostname_state == "masked" %}<span class="muted" title="An old Kea hostname setting hides the device's own name. Edit and save this reservation to clear it.">hidden, save to fix</span>
+					{% elif row.hostname_state == "not reported" %}<span class="muted">none sent</span>
+					{% else %}{{ row.hostname }}{% endif %}
+				</td>
+				<td class="mono nowrap">{{ row.mac or "—" }}</td>
+				<td><span class="chip chip-type-{{ 'fixed' if row.ip else 'name-only' }}">{{ "fixed" if row.ip else "name-only" }}</span></td>
+				{% if is_admin %}
+				<td class="row-actions">
+					{% if row.editable %}
+					<button class="button button-quiet" hx-get="/reservations/{{ row.mac }}" hx-target="#dialog-body" hx-swap="innerHTML"
+						@click="$dispatch('open-dialog')">Edit</button>
+					{% else %}<span class="muted small" title="Kea keys this reservation on something other than a MAC. Edit it in kea-dhcp4.conf.">not a MAC</span>{% endif %}
+				</td>
+				{% endif %}
+			</tr>
+		{% endfor %}
+		</tbody>
+	</table>
+	</div>
+	{% elif not kea_error %}
+	<p class="muted">There are no reservations yet.</p>
+	{% endif %}
+</section>

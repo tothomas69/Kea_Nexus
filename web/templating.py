@@ -27,7 +27,7 @@ templates.env.globals["app_version"] = APP_VERSION
 NAV_ITEMS: list[tuple[str, Optional[str]]] = [
 	("Overview", "/"),
 	("Leases", "/leases"),
-	("Reservations", None),
+	("Reservations", "/reservations"),
 	("Quarantine", "/quarantine"),
 	("Maintenance", None),
 	("Settings", None),

@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}Reservations · KeaNexus{% endblock %}
+{% block content %}
+
+<div class="screen-head">
+	<div>
+		<h1>Reservations</h1>
+		<p class="muted">Devices Kea always recognises by MAC. A fixed reservation always gets the same address; a name-only one is just remembered. Labels belong to KeaNexus and never reach Kea, so the device's own hostname is always kept.</p>
+	</div>
+	{% if is_admin %}
+	<button class="button button-primary" hx-get="/reservations/new" hx-target="#dialog-body" hx-swap="innerHTML"
+		@click="$dispatch('open-dialog')">Add reservation</button>
+	{% endif %}
+</div>
+{% if not is_admin %}<p class="muted small">Viewers can see everything here but can't make changes.</p>{% endif %}
+
+{% include "reservations/_table.html" %}
+{% endblock %}
