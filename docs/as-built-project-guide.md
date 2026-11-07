@@ -59,7 +59,7 @@ keanexus/
 ├── Makefile            — Developer setup (`make setup`) and test runner (`make test`)
 ├── static/             — Static assets (keanexus_logo.png)
 ├── quarantine_service/ — Optional keanexus-quarantine FastAPI service (compose profile "quarantine")
-├── docs/               — PRD and this guide
+├── docs/               — PRD, this guide, design docs (incl. the FastAPI + HTMX migration plan)
 ├── .githooks/          — Committed git hooks (pre-commit, pre-push); activated per-clone with `make setup`
 └── .streamlit/         — Streamlit config (theme)
 ```
@@ -927,6 +927,13 @@ All endpoints require `Authorization: Bearer <QUARANTINE_API_TOKEN>`.
 **SQLite for IPAM static records** — Local SQLite in a named Docker volume. Static IP records are KeaNexus-managed metadata (not sent to Kea); they exist purely for documentation/visibility of non-DHCP addresses.
 
 **HTML tables (not st.dataframe)** — All data tables rendered as raw HTML to allow custom chip/badge formatting. Streamlit's native components don't support per-cell HTML.
+
+**Planned: UI moves from Streamlit to FastAPI + HTMX** — Proposed, not built.
+`docs/fastapi-htmx-migration.md` has the plan: why, the route map, auth and
+CSRF, deployment beside the current UI on port 8503, and a phase-by-phase PR
+order. Until cutover (phase 7), everything below about Streamlit stays true.
+Check that doc before adding new Streamlit-only UI, which would only have to be
+rebuilt.
 
 **Streamlit is pinned, not floated** — `requirements.txt` pins `streamlit==1.66.1` (bumped from 1.62.0 because 1.62 through 1.66.0 cap `pillow<13`, and only Pillow 13 fixes the advisories pip-audit flagged; `pillow>=13.0.0` is listed as a floor so the fix can't silently regress). It previously allowed `>=1.40.0`, which let a container rebuild land on a Streamlit whose tabs are React Aria (`data-rac`, `react-aria-*` ids, a `.react-aria-SelectionIndicator` child per tab) while the local venv had one whose tabs are BaseWeb (`data-baseweb="tab-highlight"`). Different DOM, different CSS hooks — so `style.css` selectors verified locally silently matched nothing in production, and reading the local bundle to diagnose a live styling bug gave confidently wrong answers. This app styles Streamlit's internals heavily, so its DOM is effectively an API here: bump the pin deliberately and re-check `style.css`'s widget selectors when you do. For the 1.66.1 bump, every `data-testid` `style.css` targets was confirmed present in the new frontend bundle and tabs are still React Aria, but the sidebar's state attribute changed from `aria-expanded` to `data-collapsed`, which a test-id check cannot catch: the width pin silently stopped matching and the sidebar widened under the tab bar. `style.css` now targets both attributes. Check attributes, not just test ids, on the next bump; `stDecoration` and BaseWeb's `tab-highlight` match nothing in either version and are kept only as harmless fallbacks. `style.css` still targets both libraries' selection indicators, since that cost nothing.
 
