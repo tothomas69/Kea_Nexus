@@ -313,6 +313,12 @@ override_macs)` / `distinct_real_hostnames(leases, config)` — a Kea
   `distinct_real_hostnames` feeds the Quarantine tab's Add/Edit device
   hostname picker so it only offers hostnames that will actually match a
   live lease, rather than a reservation label that never will
+- `with_reservation_saved(config, original_mac, mac, ip)` /
+  `with_reservation_removed(config, mac)` / `is_quarantined_reservation(r)` —
+  reservation edits that return a copy, changing only MAC and address and
+  keeping every other field (the quarantine service's DROP class above all).
+  Kea's own `hostname` is always dropped. Callers pass a config read fresh
+  from Kea
 - `lease_for_reservation(reservation, leases)` — the live lease matching a
   reservation, by MAC (falling back to IP if the reservation has no
   hw-address), or `None` if the device isn't currently leased. Used by the
@@ -596,6 +602,15 @@ fix`**: a lease exists and its matching reservation still carries a
 current_label)` (includes Delete). Deleting a reservation, or changing its MAC
   on save, also deletes/moves its `reservation_labels` row
 - Each save writes immediately via `config-set` + `config-write`; no deferred "Save" step
+- **Every write reads Kea's config fresh and edits it in place**
+  (`_apply_to_fresh_config` with `helpers.with_reservation_saved` /
+  `with_reservation_removed`). The tab used to rebuild an edited reservation
+  from the form (`hw-address` and `ip-address` only) and save the cached config
+  the page was drawn from. That dropped the quarantine service's
+  `client-classes: ["DROP"]`, silently putting a quarantined device back on
+  DHCP, and could undo any DROP added in the 2 minutes since the cache was
+  filled. Delete now refuses a quarantined device: release it on the
+  Quarantine tab first
 
 ### Quarantine Tab (`ui_quarantine.py`)
 

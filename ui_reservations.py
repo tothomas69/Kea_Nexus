@@ -13,14 +13,19 @@ here instead lives in db.reservation_labels, keyed by MAC address, entirely
 decoupled from Kea's own config.
 """
 
+from typing import Callable
+
 import streamlit as st
 
 from db import delete_reservation_label, get_reservation_labels, upsert_reservation_label
 from helpers import (
 	build_hostname_override_sets,
 	html_safe_mac,
+	is_quarantined_reservation,
 	lease_for_reservation,
 	real_hostname,
+	with_reservation_removed,
+	with_reservation_saved,
 )
 from kea import KeaClient, KeaError
 from streamlit_adapter import get_client, load_config
@@ -66,9 +71,15 @@ def _sorted_reservations(reservations: list[dict]) -> list[dict]:
 	)
 
 
-def _save_config(config: dict) -> None:
-	"""Write config to Kea and clear the cache."""
-	get_client().save_config(config)
+def _apply_to_fresh_config(edit: Callable[[dict], dict]) -> None:
+	"""Read Kea's config fresh, apply edit, write the result back. Raises KeaError.
+
+	Never the cached config the page was drawn from: the quarantine service
+	edits the same config (its DROP class), and saving a copy up to two minutes
+	old would undo whatever it changed in between.
+	"""
+	client = get_client()
+	client.save_config(edit(client.get_config()))
 	load_config.clear()
 
 
@@ -120,16 +131,13 @@ def add_reservation_dialog(config: dict) -> None:
 			if not mac.strip() or not label.strip():
 				st.error("MAC and label are required.")
 				return
-			entry: dict = {"hw-address": mac.strip()}
-			if ip.strip():
-				entry["ip-address"] = ip.strip()
-			config["subnet4"][0]["reservations"].append(entry)
 			try:
-				_save_config(config)
+				_apply_to_fresh_config(
+					lambda fresh: with_reservation_saved(fresh, "", mac.strip(), ip.strip())
+				)
 				upsert_reservation_label(mac.strip(), label.strip())
 				st.rerun()
 			except KeaError as e:
-				config["subnet4"][0]["reservations"].pop()
 				st.error(str(e))
 	with c2:
 		if st.button("Cancel", key="dialog_cancel"):
@@ -159,17 +167,14 @@ def _edit_dialog(reservation: dict, config: dict, current_label: str) -> None:
 			if not mac.strip() or not label.strip():
 				st.error("MAC and label are required.")
 				return
-			updated: dict = {"hw-address": mac.strip()}
-			if ip.strip():
-				updated["ip-address"] = ip.strip()
-			res_list = config["subnet4"][0]["reservations"]
-			# reservation is the same dict object from the config list — identity is safe
-			for idx, r in enumerate(res_list):
-				if r is reservation:
-					res_list[idx] = updated
-					break
+			# Edits the entry in place, so fields this form doesn't show (the
+			# quarantine service's DROP class above all) survive the save.
 			try:
-				_save_config(config)
+				_apply_to_fresh_config(
+					lambda fresh: with_reservation_saved(
+						fresh, original_mac, mac.strip(), ip.strip()
+					)
+				)
 				if original_mac and original_mac.lower() != mac.strip().lower():
 					delete_reservation_label(original_mac)
 				upsert_reservation_label(mac.strip(), label.strip())
@@ -178,13 +183,13 @@ def _edit_dialog(reservation: dict, config: dict, current_label: str) -> None:
 				st.error(str(e))
 	with c2:
 		if st.button("Delete", key="dialog_delete"):
-			res_list = config["subnet4"][0]["reservations"]
+			if is_quarantined_reservation(reservation):
+				# Deleting the entry would delete the DROP class with it and put
+				# the device back on DHCP behind the quarantine service's back.
+				st.error("This device is quarantined. Release it on the Quarantine tab first.")
+				return
 			try:
-				res_list.remove(reservation)
-			except ValueError:
-				pass
-			try:
-				_save_config(config)
+				_apply_to_fresh_config(lambda fresh: with_reservation_removed(fresh, original_mac))
 				if original_mac:
 					delete_reservation_label(original_mac)
 				st.rerun()
