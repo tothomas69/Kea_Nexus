@@ -1,0 +1,15 @@
+<form class="form" hx-post="/maintenance/wipe" hx-target="this" hx-swap="outerHTML" x-data="{ typed: '' }">
+	<div class="dialog-head">
+		<h2>Wipe all {{ lease_count }} leases?</h2>
+		<button type="button" class="icon-button" aria-label="Close" @click="$dispatch('close-dialog')">×</button>
+	</div>
+	<p class="form-error">This can't be undone. Every device loses its lease, and at its next renewal Kea may give it a different address.</p>
+	<p class="muted small">Reservations in kea-dhcp4.conf are not touched.</p>
+	{% if error %}<p class="form-error" role="alert">{{ error }}</p>{% endif %}
+	<label class="field"><span>Type {{ wipe_word }} to confirm</span>
+		<input name="confirm" x-model="typed" autocomplete="off" spellcheck="false" placeholder="{{ wipe_word }}"></label>
+	<div class="form-actions">
+		<button type="submit" class="button button-danger" :disabled="typed.trim() !== '{{ wipe_word }}'">Wipe all leases</button>
+		<button type="button" class="button button-quiet" @click="$dispatch('close-dialog')">Cancel</button>
+	</div>
+</form>

@@ -1,0 +1,74 @@
+<div id="maintenance-panels" hx-get="/fragments/maintenance" hx-trigger="every 30s, maintenance-changed from:body" hx-swap="outerHTML">
+	{% if kea_error %}<p class="banner banner-error" role="alert">Kea can't be reached right now.</p>{% endif %}
+	{% if notice %}<p class="notice {{ 'notice-ok' if notice.ok else 'notice-error' }} notice-block" role="status">{{ notice.text }}</p>{% endif %}
+
+	<section class="card" aria-labelledby="dhcp-title">
+		<div class="card-head">
+			<h2 id="dhcp-title">DHCP service</h2>
+		</div>
+		<div class="state-row">
+			{% if dhcp_unreachable %}
+			<span class="state state-unknown">Kea isn't answering</span>
+			{% elif dhcp_enabled is none %}
+			<span class="state state-unknown">Kea doesn't report whether it is on</span>
+			{% elif dhcp_enabled %}
+			<span class="state state-on"><span class="online-dot" aria-hidden="true"></span>On: handing out and renewing leases</span>
+			{% else %}
+			<span class="state state-off">Off: no device can get or renew a lease</span>
+			{% endif %}
+			<span class="state-actions">
+				{% if dhcp_enabled is not sameas false %}
+				<button class="button button-danger-soft" {% if not is_admin %}disabled{% endif %}
+					hx-get="/maintenance/dhcp/disable" hx-target="#dialog-body" hx-swap="innerHTML"
+					@click="$dispatch('open-dialog')">Turn DHCP off…</button>
+				{% endif %}
+				{% if dhcp_enabled is not sameas true %}
+				<button class="button button-release" {% if not is_admin %}disabled{% endif %}
+					hx-post="/maintenance/dhcp/enable" hx-target="#maintenance-panels" hx-swap="outerHTML" hx-disabled-elt="this">Turn DHCP on</button>
+				{% endif %}
+			</span>
+		</div>
+		<p class="muted small">Turning DHCP off doesn't take addresses away: devices keep theirs until their lease runs out.</p>
+	</section>
+
+	<section class="card" aria-labelledby="declined-title">
+		<div class="card-head">
+			<h2 id="declined-title">Declined leases</h2>
+			{% if declined %}
+			<button class="button" {% if not is_admin %}disabled{% endif %}
+				hx-post="/maintenance/declined/clear" hx-target="#maintenance-panels" hx-swap="outerHTML" hx-disabled-elt="this"
+				hx-confirm="Clear all {{ declined | length }} declined leases?">Clear all {{ declined | length }}</button>
+			{% endif %}
+		</div>
+		<p class="muted small">A device declines an address when it finds something else already using it. Kea then keeps that address out of the pool until the lease runs out. Clearing returns it now.</p>
+		{% if declined %}
+		<table class="data-table">
+			<thead><tr><th scope="col">IP address</th><th scope="col">Kea frees it in</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr></thead>
+			<tbody>
+			{% for row in declined %}
+				<tr>
+					<td class="mono">{{ row.ip }}</td>
+					<td>{{ row.frees_in }}</td>
+					<td class="row-actions">
+						<button class="button button-quiet" {% if not is_admin %}disabled{% endif %}
+							hx-post="/maintenance/declined/{{ row.ip }}/clear" hx-target="#maintenance-panels" hx-swap="outerHTML" hx-disabled-elt="this">Clear</button>
+					</td>
+				</tr>
+			{% endfor %}
+			</tbody>
+		</table>
+		{% else %}
+		<p class="muted">No declined leases. The pool is clean.</p>
+		{% endif %}
+	</section>
+
+	<section class="card card-danger" aria-labelledby="wipe-title">
+		<div class="card-head">
+			<h2 id="wipe-title">Lease database</h2>
+			<button class="button button-danger-soft" {% if not is_admin %}disabled{% endif %}
+				hx-get="/maintenance/wipe" hx-target="#dialog-body" hx-swap="innerHTML"
+				@click="$dispatch('open-dialog')">Wipe all leases…</button>
+		</div>
+		<p class="muted small">Deletes all {{ lease_count }} leases from Kea. Reservations in kea-dhcp4.conf are not touched.</p>
+	</section>
+</div>

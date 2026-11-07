@@ -20,7 +20,16 @@ from db import init_db
 from pool_history import start_pool_sampler
 from web.deps import NotSignedIn
 from web.liveness import start_sweep_loop
-from web.routes import auth_routes, help_routes, leases, overview, pages, quarantine, reservations
+from web.routes import (
+	auth_routes,
+	help_routes,
+	leases,
+	maintenance,
+	overview,
+	pages,
+	quarantine,
+	reservations,
+)
 from web.security import require_csrf
 from web.templating import redirect
 
@@ -87,6 +96,7 @@ def create_app(start_background_work: bool = True, start_liveness_sweep: bool = 
 	app.include_router(quarantine.router)
 	app.include_router(leases.router)
 	app.include_router(reservations.router)
+	app.include_router(maintenance.router)
 	app.include_router(help_routes.router)
 	return app
 
