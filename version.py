@@ -1,6 +1,6 @@
 """
 version.py — Single source of truth for the KeaNexus application version.
-Imported by app.py for display and by any tooling that needs the version string.
+Shown in the web UI (web/templating.py) and read by any tooling that needs it.
 """
 
 # Bump this on every release — used in the sidebar and release notes.

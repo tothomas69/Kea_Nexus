@@ -5,7 +5,7 @@ Run with:
 	uvicorn web.main:app --host 0.0.0.0 --port 8000 --proxy-headers
 
 Startup work runs in the lifespan, when the container starts, not when the
-first browser connects (the Streamlit UI's long-standing limitation).
+first browser connects.
 """
 
 import os
@@ -39,15 +39,15 @@ _WEB_STATIC_DIRECTORY = Path(__file__).resolve().parent / "static"
 # The repo's own static/ folder, which holds the logo files.
 _BRAND_DIRECTORY = Path(__file__).resolve().parent.parent / "static"
 
-# While the Streamlit UI still runs beside this one, only one of them may run
-# the pool sampler, or every reading lands in pool_samples twice. Compose sets
-# this to "off" for keanexus-web until cutover (phase 7).
+# "off" stops the pool sampler. Set while the Streamlit UI ran beside this one
+# with its own sampler, since two would write every reading twice; unset since
+# the cutover.
 _BACKGROUND_WORK_ENV = "KEANEXUS_WEB_BACKGROUND_WORK"
 _BACKGROUND_WORK_OFF = "off"
 
 
-# The liveness sweep has no Streamlit twin to collide with, so it runs during
-# the overlap too. It needs the optional quarantine service; without its URL
+# The liveness sweep has its own switch. It needs the optional quarantine
+# service; without its URL
 # there is nothing to sweep through, so the loop doesn't start.
 _LIVENESS_SWEEP_ENV = "KEANEXUS_WEB_LIVENESS_SWEEP"
 _QUARANTINE_URL_ENV = "QUARANTINE_SERVICE_URL"

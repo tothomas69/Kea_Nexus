@@ -204,10 +204,14 @@ old UI working the whole time.
 4. **Reservations.** *(Done. Edits keep fields the form doesn't show, writes read the config fresh, and delete refuses a quarantined device; see the as-built guide.)*
 5. **Maintenance.** *(Done. DHCP state is now read from Kea's `status-get`, not remembered in the session. The by-MAC/hostname lookup was dropped, since the Leases filter covers it.)*
 6. **Settings + Users.** *(Done. Users sit at `/settings/users`; DHCP saves are applied to a fresh config.)*
-7. **Cutover.** Point NPM at `keanexus-web`, then remove `app.py`, `ui_*.py`,
-   `style.css`, `.streamlit/`, the Streamlit pin, `extra-streamlit-components`,
-   pandas (if nothing else needs it), and the Streamlit compose service.
-   ⌘K search lands here, or right after.
+7. **Cutover.** *(Done.)* Removed `app.py`, `ui_*.py`, `streamlit_adapter.py`,
+   `style.css`, `.streamlit/`, the Streamlit-only helpers and tests, and the
+   Streamlit, Pillow, pandas and `extra-streamlit-components` requirements;
+   Altair is now a direct requirement (pinned to 6.x to match the vendored
+   Vega-Lite). The image runs uvicorn and its HEALTHCHECK probes `/healthz`.
+   Instead of repointing NPM, the web UI took over the `keanexus` compose
+   service and Streamlit's host port 8502, so NPM's upstream is unchanged. The
+   pool sampler now runs in the web app. ⌘K search shipped just before.
 
 ## Risks
 

@@ -1,7 +1,7 @@
 """
 quarantine_client.py — Thin client for KeaNexus itself to call the sibling
-keanexus-quarantine service's API (the Quarantine/Release buttons in
-ui_quarantine.py).
+keanexus-quarantine service's API (the web UI's Quarantine/Release buttons,
+presence checks and liveness sweeps).
 
 This is a distinct concern from kea.py/pihole.py, which talk to Kea and
 Pi-hole directly — this talks sideways to KeaNexus's own sibling service.

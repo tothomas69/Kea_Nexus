@@ -191,7 +191,7 @@ def delete_static_entry(ip_address: str) -> None:
 # A Kea reservation's own "hostname" field is admin-typed free text that Kea
 # echoes back on the live lease, discarding the device's real DHCP-negotiated
 # hostname (see helpers.py's real_hostname/build_hostname_override_sets).
-# ui_reservations.py no longer sends that field to Kea at all — an admin
+# KeaNexus no longer sends that field to Kea at all — an admin
 # label for a reservation lives here instead, keyed by MAC address, entirely
 # decoupled from Kea's own config.
 
