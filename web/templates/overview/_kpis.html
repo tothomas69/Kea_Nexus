@@ -19,6 +19,9 @@
 			{% if issued is none %}New-lease count needs more history{% else %}+{{ issued }} in the last 24 h{% endif %}
 			{% if pool and pool.declined %} · {{ pool.declined }} declined{% endif %}
 		</div>
+		<div class="kpi-note">
+			{% if online_count is none %}Online now: not checked yet{% else %}<span class="online-text">{{ online_count }} online</span> · swept {{ online_age }}{% endif %}
+		</div>
 	</div>
 	<div class="card kpi">
 		<div class="kpi-label">Reservations</div>

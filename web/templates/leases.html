@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Leases · KeaNexus{% endblock %}
+{% block content %}
+
+<div class="screen-head">
+	<div>
+		<h1>Leases</h1>
+		<p class="muted">Every address Kea has handed out. A lease outlives its device by hours, so "leased" doesn't mean "on": Check who's online asks the network.</p>
+	</div>
+	{% if is_admin %}
+	<button class="button button-primary" hx-get="/leases/new" hx-target="#dialog-body" hx-swap="innerHTML"
+		@click="$dispatch('open-dialog')">Add lease</button>
+	{% endif %}
+</div>
+{% if not is_admin %}<p class="muted small">Viewers can see everything here and check who's online, but can't change leases.</p>{% endif %}
+
+<div class="toolbar">
+	<label class="filter">
+		<span class="visually-hidden">Filter leases</span>
+		<input id="lease-filter" type="search" name="q" value="{{ query }}" placeholder="Filter by IP, hostname or MAC" autocomplete="off"
+			hx-get="/fragments/leases" hx-trigger="input changed delay:250ms, search" hx-target="#leases-table" hx-swap="outerHTML">
+	</label>
+	<button class="button" hx-post="/leases/sweep" hx-include="#lease-filter" hx-target="#leases-table" hx-swap="outerHTML"
+		hx-disabled-elt="this" hx-indicator="#sweep-busy">Check who's online</button>
+	<span id="sweep-busy" class="htmx-indicator muted small" role="status">Sweeping…</span>
+</div>
+
+{% include "leases/_table.html" %}
+{% endblock %}

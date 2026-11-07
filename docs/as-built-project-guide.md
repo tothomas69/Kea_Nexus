@@ -716,18 +716,21 @@ viewer session sent only read commands, and calling the write functions
 directly as a viewer was refused with nothing reaching Kea or the quarantine
 service.
 
-### Web UI (`web/`) — FastAPI + HTMX, phases 0–2
+### Web UI (`web/`) — FastAPI + HTMX, phases 0–3
 
 Being built beside the Streamlit UI; the plan, route map and phase order are in
 `docs/fastapi-htmx-migration.md`. Runs as the `keanexus-web` compose service
 (`uvicorn web.main:app`, host port **8503**). Phase 0 is the groundwork: sign
 in/out, the page layout, Help and the health check. Phase 1 is the real
-Overview, and 1b adds its charts. Phase 2 is the Quarantine screen. Other tabs show greyed out in the nav
+Overview, and 1b adds its charts. Phase 2 is the Quarantine screen, phase 3 the Leases screen and the background liveness sweep. Other tabs show greyed out in the nav
 until their phase lands.
 
-- `main.py` — `create_app(start_background_work)`. The lifespan runs
-  `init_db()`, `bootstrap_admin_from_env()` and, when allowed, the pool sampler,
-  all at container start. **`KEANEXUS_WEB_BACKGROUND_WORK=off` is set in compose
+- `main.py` — `create_app(start_background_work, start_liveness_sweep)`. The
+  lifespan runs `init_db()`, `bootstrap_admin_from_env()` and, when allowed, the
+  pool sampler and the liveness sweep loop, all at container start. The sweep
+  has its own switch (`KEANEXUS_WEB_LIVENESS_SWEEP`, default on) and only
+  starts when `QUARANTINE_SERVICE_URL` is set: it has no Streamlit twin, so it
+  runs during the overlap too. **`KEANEXUS_WEB_BACKGROUND_WORK=off` is set in compose
   during the overlap:** the Streamlit container still runs the sampler, and two
   samplers would write every reading twice. Flip it at cutover. Mounts
   `web/static` at `/static` and the repo's `static/` (logos) at `/brand`. No
@@ -824,6 +827,29 @@ until their phase lands.
       `hx-swap="outerHTML"` section that loads a form into `#dialog-body` must
       set `hx-swap="innerHTML"` itself, or it replaces `#dialog-body` and every
       later dialog has nowhere to load
+- **Leases (`routes/leases.py`, `leases_data.py`).** Every lease sorted by
+  address (hostname via `real_hostname`, so a reservation label never shows as
+  the device's name), type chip, expiry, and an Online column. A live filter
+  (`?q=`, 250 ms debounce) matches IP, hostname or MAC. Admins add or edit a
+  lease in the page dialog (`lease4-add` / `lease4-update`); the form checks the
+  address is in the subnet, the MAC's shape, and a duration of 60 s to one week
+  before anything reaches Kea, and shows Kea's own refusal if it says no. A save
+  forgets the cached leases and pool stats and sends `leases-changed`
+    - **Online column:** `—` before any sweep, `yes` (green row) or `no answer`
+      after one. Never "offline": an ARP sweep only proves presence. The caption
+      says how many answered and how long ago
+    - **Check who's online** (`POST /leases/sweep`) is open to viewers, as in
+      Streamlit, since it changes nothing. It sweeps every lease, not the
+      filtered ones, so the result stays valid as the filter changes. A
+      `QuarantineServiceError` becomes a notice above the table
+- `liveness.py` — the latest ARP sweep, kept in memory for the process
+  (`latest()`, `sweep_now(addresses)`), plus a daemon loop
+  (`start_sweep_loop`, every `LIVENESS_SWEEP_INTERVAL_SECONDS`, default 300,
+  floor 30) that sweeps every leased address through
+  `quarantine_client.trigger_liveness_sweep`. The loop catches every failure
+  per pass, like the pool sampler, so an absent quarantine service never stops
+  it. Feeds the Leases Online column and the Overview's "N online · swept
+  X min ago" line. A failed sweep keeps the previous result
 - `kea_reads.py` — `read_kea(kea)`: cached leases, config and pool stats plus a
   `kea_error` flag, shared by every screen. An unreachable Kea gives `None`s and
   a banner, never a 500
@@ -843,6 +869,9 @@ until their phase lands.
   `POST /devices/{name}/{quarantine,release}`, `POST /groups/{tag}/{quarantine,release}`,
   `GET /devices/new`, `GET /devices/{name}`, `POST /devices`,
   `PUT /devices/{name}`, `DELETE /devices/{name}[?force=true]` (all writes admin-only),
+  `GET /leases[?q=]`, `GET /fragments/leases[?q=]`, `POST /leases/sweep` (any
+  signed-in user), `GET /leases/new`, `GET /leases/{ip}`, `POST /leases`,
+  `PUT /leases/{ip}` (admin),
   `GET /help` (table of contents: fragment for HTMX, full page otherwise),
   `GET /help/{filename}` (404 off the allowlist), `GET /healthz` (no auth; the
   compose healthcheck, since the image's own HEALTHCHECK probes Streamlit)
@@ -853,7 +882,7 @@ until their phase lands.
 - Templates: `base.html` (the B2 masthead with the real logo, search placeholder,
   account + Sign out, tabs, Help modal), `login.html` + `_login_form.html`
   (a failed sign-in re-renders only the form, with status 200 because HTMX does
-  not swap 4xx bodies), `overview.html`, `quarantine.html` + `quarantine/`, `help/`
+  not swap 4xx bodies), `overview.html`, `quarantine.html` + `quarantine/`, `leases.html` + `leases/`, `help/`
 
 ### keanexus-quarantine Service (`quarantine_service/`)
 
@@ -1116,7 +1145,7 @@ All endpoints except `GET /health` require `Authorization: Bearer <QUARANTINE_AP
 
 **HTML tables (not st.dataframe)** — All data tables rendered as raw HTML to allow custom chip/badge formatting. Streamlit's native components don't support per-cell HTML.
 
-**UI moving from Streamlit to FastAPI + HTMX (in progress: phases 0–2 done)** —
+**UI moving from Streamlit to FastAPI + HTMX (in progress: phases 0–3 done)** —
 `docs/fastapi-htmx-migration.md` has the plan: why, the route map, auth and
 CSRF, deployment beside the current UI on port 8503, and a phase-by-phase PR
 order. Phase 0 split `auth.py` and `helpers.py` from Streamlit (into
@@ -1194,6 +1223,9 @@ since they require a live Streamlit server and can't be unit-tested). That inclu
 | `tests/test_web_overview.py`                | Overview routes with a stub Kea: needs sign-in, 256 squares + figures + subnet, hover JSON names the registered device, card lists devices, viewer switches disabled, Kea down still renders with a banner, chart specs and table twins present, trend waits for two samples, all four fragments; Quarantine/Release (viewer 403, unknown 404, summary + `HX-Trigger`, release path, service failure shown, CSRF required); static entries (prefill, free address, pool/network/off-subnet refused, save + close trigger, bad MAC not written, delete, viewer 403); `cache` (reuse, expiry, failures not cached, forget, TTL check); `health` (Kea only, Kea down, Pi-hole any non-5xx is up, quarantine needs 2xx, unreachable is down) |
 | `tests/test_quarantine_data.py`             | `device_rows` (order, fields, blanks), `group_tags` counts, `log_rows` (unreadable time shown raw), `step_outcomes` incl. skipped devices, `enforcement_succeeded` (fingerprint ignored, any other failure or nothing resolved fails), `validate_device` (bad, reserved and duplicate names, hostname required, edits skip name rules), `ReleaseAttempts` threshold and clear |
 | `tests/test_web_quarantine.py`              | Quarantine screen with the stub Kea and a patched service: sign-in, devices/groups/log listed, nav link, viewer view, fragments, empty registry; actions (viewer 403, CSRF, unknown 404, steps + `quarantine-changed`, partial failure, service down, group calls with `is_group`, unknown group); forms (lease hostnames offered, quiet hostname kept, free text when Kea is down, admin-only, unknown 404); create/update (presence check, its failure ignored, duplicate and bad names, viewer refused, service-owned fields kept, hostname required); delete (plain, release first, failed release keeps the row, force refused early, force offered and honoured after 3, viewer, unknown) |
+| `tests/test_leases_data.py`                 | `lease_rows` (numeric sort, fields, masked hostname, type from reservation, online none/true/false, declined, Kea's default lifetime), `filter_rows`, `validate_lease` (bad address, outside subnet, bad MAC, duration not a number or out of range), `normalized_mac` |
+| `tests/test_web_liveness.py`                | `sweep_now` keeps the latest and dedupes the count, a failed sweep keeps the previous result, leases without an address skipped; the loop runs, survives a failed pass, is idempotent and stops; interval env var (default, floor, junk); `age_label` |
+| `tests/test_web_leases.py`                  | Leases screen with a recording stub Kea: sign-in, table, filter and no match, Kea down, viewer sees no edit controls; sweep (viewer allowed, sweeps every lease not just the filtered ones, online rows, service down as a notice, CSRF) and the Overview's online count; forms (new, prefilled edit, unknown 404, admin-only); writes (add with MAC normalised, invalid not sent, Kea refusal shown, update, unknown 404, viewer 403); the liveness switch and the lifespan starting the loop |
 | `tests/test_db_users.py`                    | `users` table storage: case-insensitive usernames, duplicate rejection, role CHECK, list omits hashes, active-admin count, `session_version` bumps on every change, `record_login`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | `tests/test_db.py`                          | Full CRUD on `ipam_static`, `reservation_labels`, `device_registry`, and `quarantine_log` via `temp_db` fixture (SQLite in tmp dir)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | `tests/test_kea.py`                         | All `KeaClient` methods; `ReadOnlyKeaClient` passes every read command and refuses every write and unknown command before any request; `httpx` patched via `http_mock` fixture                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
