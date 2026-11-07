@@ -65,7 +65,7 @@ BAD_MAC_MESSAGE = "MAC addresses look like aa:bb:cc:dd:ee:ff."
 # --- Reading Kea and the database -----------------------------------------------------
 
 
-def _address_rows(kea: KeaClient, leases: list[dict], config: Optional[dict]) -> list[AddressRow]:
+def address_rows(kea: KeaClient, leases: list[dict], config: Optional[dict]) -> list[AddressRow]:
 	pool_start, pool_end, _ = kea.get_pool_range(config)
 	override_ips, override_macs = build_hostname_override_sets(config or {})
 	labels = {entry["mac_address"].lower(): entry["label"] for entry in db.get_reservation_labels()}
@@ -86,7 +86,7 @@ def _address_rows(kea: KeaClient, leases: list[dict], config: Optional[dict]) ->
 
 def _map_context(kea: KeaClient) -> dict:
 	data = read_kea(kea)
-	rows = _address_rows(kea, data["leases"], data["config"])
+	rows = address_rows(kea, data["leases"], data["config"])
 	return {
 		"cells": map_cells(rows, db.get_devices()),
 		"legend": legend(),
@@ -245,7 +245,7 @@ def release_device(
 def _editable_row(kea: KeaClient, ip: str) -> AddressRow:
 	"""The address's current row, refusing any address that can't hold a static record."""
 	data = read_kea(kea)
-	for row in _address_rows(kea, data["leases"], data["config"]):
+	for row in address_rows(kea, data["leases"], data["config"]):
 		if row.ip == ip:
 			if not row.editable:
 				raise HTTPException(status_code=_HTTP_NOT_FOUND, detail=STATIC_NOT_ALLOWED_MESSAGE)

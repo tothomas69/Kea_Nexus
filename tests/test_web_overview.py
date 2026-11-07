@@ -377,3 +377,25 @@ class TestActivityRecorded:
 		)
 		client.delete("/address/172.16.17.10/static", headers=headers)
 		assert db.get_activity()[0]["summary"] == "deleted the static entry for 172.16.17.10"
+
+
+class TestSearch:
+	def test_needs_sign_in(self, client):
+		assert client.get("/search?q=kids", follow_redirects=False).status_code == 303
+
+	def test_results(self, client):
+		_sign_in(client)
+		_register_kids_ipad()
+		text = client.get("/search?q=kids", headers=_HTMX).text
+		assert "kids_ipad" in text and "/leases?q=172.16.17.164" in text
+
+	def test_no_match_and_too_short(self, client):
+		_sign_in(client)
+		assert "Nothing matches" in client.get("/search?q=zzzz", headers=_HTMX).text
+		assert "search-results" not in client.get("/search?q=z", headers=_HTMX).text
+
+	def test_box_is_live(self, client):
+		_sign_in(client)
+		page = client.get("/").text
+		assert 'hx-get="/search"' in page
+		assert "disabled" not in page.split('name="q"')[1].split(">")[0]

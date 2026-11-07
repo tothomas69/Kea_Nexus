@@ -29,6 +29,7 @@ from web.routes import (
 	pages,
 	quarantine,
 	reservations,
+	search,
 	settings,
 )
 from web.security import require_csrf
@@ -99,6 +100,7 @@ def create_app(start_background_work: bool = True, start_liveness_sweep: bool = 
 	app.include_router(reservations.router)
 	app.include_router(maintenance.router)
 	app.include_router(settings.router)
+	app.include_router(search.router)
 	app.include_router(help_routes.router)
 	return app
 

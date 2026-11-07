@@ -151,7 +151,7 @@ signed-in user. Routes marked **admin** also depend on `require_admin`.
 | `GET /settings` · `PUT /settings/dhcp` **admin** | DHCP settings |
 | `GET /settings/users` · `POST`/`PUT /settings/users/{username}` **admin** | users |
 | `GET /help` · `GET /help/{article}` | docs table of contents and article (allowlist in `docs_library.py`) |
-| `GET /search?q=` | ⌘K results: IP, MAC, label, hostname |
+| `GET /search?q=` | ⌘K results: IP, MAC, label, hostname *(done)* |
 | `GET /healthz` | container healthcheck |
 
 ## Deployment
