@@ -660,20 +660,39 @@ body:has([data-testid="stSidebar"][data-collapsed="true"]) [data-testid="stTabs"
 [data-testid="stSidebar"] [data-testid="stExpanderDetails"] {
 	padding: 2px 0 6px !important;
 }
-/* Article links read as list entries, not as peers of the Sign out button. */
-[data-testid="stSidebar"] [data-testid="stExpanderDetails"] button {
-	font-family: monospace !important;
-	font-size: 11px !important;
-	font-weight: 400 !important;
-	padding: 3px 6px !important;
+/* Article links read as links, not as peers of the Sign out button — in every
+   state. They used to be plain text at rest but grew a filled rounded box on
+   hover and an outlined box on keyboard focus, so the same entry looked like a
+   link one moment and a second Sign out button the next. Hover and focus now
+   underline instead, which still marks focus for keyboard users without
+   borrowing a button's shape. The font size has to be set on the inner <p>:
+   Streamlit sizes that element itself, so a size on the button alone never
+   reached the label and the links rendered at 14px and wrapped. */
+[data-testid="stSidebar"] [data-testid="stExpanderDetails"] button,
+[data-testid="stSidebar"] [data-testid="stExpanderDetails"] button:hover,
+[data-testid="stSidebar"] [data-testid="stExpanderDetails"] button:focus,
+[data-testid="stSidebar"] [data-testid="stExpanderDetails"] button:focus-visible,
+[data-testid="stSidebar"] [data-testid="stExpanderDetails"] button:active {
+	padding: 2px 6px !important;
 	min-height: 0 !important;
 	border: none !important;
+	outline: none !important;
+	box-shadow: none !important;
 	background: transparent !important;
 	color: #0969da !important;
 }
-[data-testid="stSidebar"] [data-testid="stExpanderDetails"] button:hover {
-	background: #dde4ea !important;
+[data-testid="stSidebar"] [data-testid="stExpanderDetails"] button p {
+	font-family: monospace !important;
+	font-size: 11px !important;
+	font-weight: 400 !important;
+	line-height: 1.4 !important;
+	margin: 0 !important;
+}
+[data-testid="stSidebar"] [data-testid="stExpanderDetails"] button:hover p,
+[data-testid="stSidebar"] [data-testid="stExpanderDetails"] button:focus-visible p {
 	color: #0550ae !important;
+	text-decoration: underline !important;
+	text-underline-offset: 2px !important;
 }
 
 /* --- Disabled buttons (viewer accounts) ------------------------------------

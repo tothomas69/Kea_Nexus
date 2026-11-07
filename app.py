@@ -146,21 +146,13 @@ def render_sidebar(
 		kea = get_client()
 		start, end, _ = kea.get_pool_range(config)
 		subnet = (config.get("subnet4") or [{}])[0].get("subnet", "?")
-		router = "-"
-		for opt in (config.get("subnet4") or [{}])[0].get("option-data", []):
-			if opt.get("name") == "routers":
-				router = opt.get("data", "-")
-
 		total = stats["total"]
-		cumul = stats.get("cumulative", 0)
 
 		rows = (
 			_sidebar_item("Pool Range", f"{start} – {end}")
 			+ _sidebar_item("Subnet", subnet)
-			+ _sidebar_item("Router", router)
 			+ _sidebar_item("Address Pool", str(total))
 			+ _sidebar_item("Lease Time", "24h")
-			+ _sidebar_item("Stats Source", "API" if cumul > 0 else "lease list")
 		)
 		st.sidebar.markdown(
 			f'<div style="margin-top:6px">{rows}</div>',
