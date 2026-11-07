@@ -477,6 +477,26 @@
 	color: #ffffff !important;
 }
 
+/* Vertical centring for every chip family above (Quarantine tab, dialog, and
+   _chip<color>). Inside st.columns, Streamlit renders the label <p> inline
+   inside a block wrapper whose line-height is 22.4px, so the line box was
+   taller than the 1.3 line-height set on the <p> and the text sat ~10px from
+   the top and ~5px from the bottom of the pill. Measured in headless Chrome
+   on 1.66.1; chips outside columns (e.g. + Add Device) render the <p> as a
+   block and were already centred, which is why only table-row chips looked
+   off. Giving the wrapper the same line-height and the <p> block display
+   makes the label's line box the only thing setting the button's height. */
+[class*="st-key-quarantine_"] button [data-testid="stMarkdownContainer"],
+[class*="st-key-dialog_"] button [data-testid="stMarkdownContainer"],
+[class*="_chip"] button [data-testid="stMarkdownContainer"] {
+	line-height: 1.3 !important;
+}
+[class*="st-key-quarantine_"] button p,
+[class*="st-key-dialog_"] button p,
+[class*="_chip"] button p {
+	display: block !important;
+}
+
 /* --- CSS tooltip for status chip notes ------------------------------------ */
 [data-tooltip] {
 	position: relative !important;
