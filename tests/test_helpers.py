@@ -1,6 +1,6 @@
 """
 test_helpers.py — Tests for pure utility functions in helpers.py.
-Streamlit-cached loader functions are not tested here (require a live ST session).
+The Streamlit-cached loaders and get_client live in streamlit_adapter.py.
 """
 
 from unittest.mock import patch
@@ -13,31 +13,13 @@ from helpers import (
 	chip,
 	distinct_real_hostnames,
 	fmt_ttl,
-	get_client,
 	html_safe_mac,
 	lease_for_reservation,
 	lease_type,
 	leases_to_df,
+	pool_stats_with_fallback,
 	real_hostname,
 )
-from kea import KeaClient, ReadOnlyKeaClient
-
-# ─── get_client ──────────────────────────────────────────────────────────────
-
-
-class TestGetClient:
-	"""Viewers must get the read-only client; it is what blocks their Kea writes."""
-
-	def test_admin_gets_full_client(self):
-		with patch("helpers.is_admin", return_value=True):
-			client = get_client()
-		assert isinstance(client, KeaClient)
-		assert not isinstance(client, ReadOnlyKeaClient)
-
-	def test_viewer_gets_read_only_client(self):
-		with patch("helpers.is_admin", return_value=False):
-			assert isinstance(get_client(), ReadOnlyKeaClient)
-
 
 # ─── fmt_ttl ──────────────────────────────────────────────────────────────────
 
@@ -333,3 +315,45 @@ class TestLeaseForReservation:
 	def test_returns_none_for_empty_lease_list(self):
 		reservation = {"hw-address": "aa:bb"}
 		assert lease_for_reservation(reservation, []) is None
+
+
+# ─── pool_stats_with_fallback ─────────────────────────────────────────────────
+
+
+class _PoolStatsClient:
+	"""Stands in for KeaClient: stat-lease4-summary can fail, the fallback reads can too."""
+
+	def __init__(self, summary=None, summary_fails=False, fallback_fails=False):
+		self.summary = summary
+		self.summary_fails = summary_fails
+		self.fallback_fails = fallback_fails
+
+	def get_pool_stats(self):
+		if self.summary_fails:
+			raise RuntimeError("stat_cmds hook not loaded")
+		return self.summary
+
+	def get_leases(self):
+		if self.fallback_fails:
+			raise RuntimeError("Kea unreachable")
+		return [{"state": 0}, {"state": 0}, {"state": 1}]
+
+	def get_config(self):
+		return {}
+
+	def get_pool_range(self, config):
+		return ("172.16.17.100", "172.16.17.109", 10)
+
+
+class TestPoolStatsWithFallback:
+	def test_uses_the_summary_when_kea_has_the_hook(self):
+		summary = {"total": 150, "assigned": 93, "declined": 0, "available": 57, "cumulative": 400}
+		assert pool_stats_with_fallback(_PoolStatsClient(summary=summary)) == summary
+
+	def test_counts_from_leases_when_the_summary_fails(self):
+		stats = pool_stats_with_fallback(_PoolStatsClient(summary_fails=True))
+		assert stats == {"total": 10, "assigned": 2, "declined": 1, "available": 7, "cumulative": 0}
+
+	def test_returns_none_when_kea_cannot_be_read_at_all(self):
+		client = _PoolStatsClient(summary_fails=True, fallback_fails=True)
+		assert pool_stats_with_fallback(client) is None

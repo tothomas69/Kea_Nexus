@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}KeaNexus{% endblock %}</title>
+<link rel="icon" href="/brand/keanexus_logo.png">
+<link rel="stylesheet" href="/static/app.css">
+<script src="/static/vendor/htmx-2.0.11.min.js" defer></script>
+<script src="/static/vendor/alpinejs-3.17.5.min.js" defer></script>
+</head>
+{# Every HTMX request carries the CSRF token; see web/security.py. #}
+<body hx-headers='{"X-CSRF-Token": "{{ csrf_token }}"}' x-data="{ helpOpen: false }" @keydown.escape.window="helpOpen = false">
+
+<header class="masthead">
+	<div class="masthead-inner">
+		<a href="/" class="masthead-logo"><img src="/brand/keanexus_logo.png" alt="KeaNexus home"></a>
+		<div class="masthead-main">
+			{% if user %}
+			<div class="masthead-bar">
+				<label class="search">
+					<svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-3.5-3.5"></path></svg>
+					<span class="visually-hidden">Search</span>
+					<input type="search" placeholder="Search arrives in a later phase" disabled>
+					<kbd>⌘K</kbd>
+				</label>
+				<div class="account">
+					<span class="account-name">{{ user.username }}{% if user.role != "admin" %} · viewer{% endif %}</span>
+					<button class="button button-quiet" hx-post="/logout">Sign out</button>
+				</div>
+			</div>
+			<nav class="tabs" aria-label="Main">
+				{% for label, path in nav_items %}
+					{% if path %}
+					<a href="{{ path }}" class="tab{% if path == current_path %} tab-current{% endif %}"{% if path == current_path %} aria-current="page"{% endif %}>{{ label }}</a>
+					{% else %}
+					<span class="tab tab-pending" title="Still in the current KeaNexus UI. Moves here in a later phase.">{{ label }}</span>
+					{% endif %}
+				{% endfor %}
+				<button class="tab tab-help" aria-haspopup="dialog" hx-get="/help" hx-target="#help-body" @click="helpOpen = true">
+					<svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><path d="M9.5 9a2.5 2.5 0 015 .5c0 1.7-2.5 2-2.5 3.5"></path><path d="M12 17h.01"></path></svg>
+					Help
+				</button>
+			</nav>
+			{% endif %}
+		</div>
+	</div>
+</header>
+
+<main class="page">
+{% block content %}{% endblock %}
+</main>
+
+{% if user %}
+<div class="modal-backdrop" x-show="helpOpen" x-cloak @click.self="helpOpen = false">
+	<div class="modal" role="dialog" aria-modal="true" aria-labelledby="help-title">
+		<div class="modal-head">
+			<img src="/brand/keanexus_logo.png" alt="" class="modal-logo">
+			<div>
+				<h2 id="help-title">Help</h2>
+				<p class="muted">KeaNexus documentation</p>
+			</div>
+			<button class="icon-button" aria-label="Close help" @click="helpOpen = false">×</button>
+		</div>
+		<div id="help-body" class="modal-body"><p class="muted">Loading…</p></div>
+	</div>
+</div>
+{% endif %}
+</body>
+</html>

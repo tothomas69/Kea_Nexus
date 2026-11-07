@@ -18,13 +18,12 @@ import streamlit as st
 from db import delete_reservation_label, get_reservation_labels, upsert_reservation_label
 from helpers import (
 	build_hostname_override_sets,
-	get_client,
 	html_safe_mac,
 	lease_for_reservation,
-	load_config,
 	real_hostname,
 )
 from kea import KeaClient, KeaError
+from streamlit_adapter import get_client, load_config
 from ui_access import read_only, read_only_notice
 
 _TH = (

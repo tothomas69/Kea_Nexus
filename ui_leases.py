@@ -11,15 +11,13 @@ from helpers import (
 	build_hostname_override_sets,
 	build_reservation_type_sets,
 	fmt_ttl,
-	get_client,
 	html_safe_mac,
 	lease_type,
-	load_leases,
-	load_pool_stats,
 	real_hostname,
 )
 from kea import KeaClient, KeaError
 from quarantine_client import QuarantineServiceError, trigger_liveness_sweep
+from streamlit_adapter import get_client, load_leases, load_pool_stats
 from ui_access import read_only, read_only_notice
 
 LOOKUP_COLS = ["IP", "Hostname", "MAC", "Expires", "Status"]

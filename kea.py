@@ -332,7 +332,7 @@ class KeaReadOnlyError(KeaError):
 class ReadOnlyKeaClient(KeaClient):
 	"""KeaClient that refuses any command not in READ_ONLY_COMMANDS.
 
-	Handed to viewer sessions by helpers.get_client(). Every KeaClient method
+	Handed to viewer sessions by get_client() (both UIs). Every KeaClient method
 	sends its command through call(), so guarding call() blocks every Kea
 	write in one place, whatever button or dialog asked for it.
 	"""

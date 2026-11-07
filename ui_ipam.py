@@ -21,7 +21,8 @@ from db import (
 	get_static_entry,
 	upsert_static_entry,
 )
-from helpers import build_hostname_override_sets, fmt_ttl, get_client, html_safe_mac, real_hostname
+from helpers import build_hostname_override_sets, fmt_ttl, html_safe_mac, real_hostname
+from streamlit_adapter import get_client
 from ui_access import read_only, read_only_notice, refuse_if_viewer
 
 # --- Status constants ---------------------------------------------------------

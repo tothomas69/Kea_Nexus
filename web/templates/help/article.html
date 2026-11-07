@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block title %}{{ title }} · Help · KeaNexus{% endblock %}
+{% block content %}
+<p class="breadcrumb"><a href="/help">Help</a> / {{ title }}</p>
+{# body_html comes from our own allowlisted docs (web/help_content.py), never user input. #}
+<article class="card article">
+{{ body_html | safe }}
+</article>
+{% endblock %}

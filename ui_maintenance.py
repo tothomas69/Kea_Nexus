@@ -4,16 +4,9 @@ ui_maintenance.py - Maintenance tab for KeaNexus.
 
 import streamlit as st
 
-from helpers import (
-	fmt_ttl,
-	get_client,
-	leases_to_df,
-	load_config,
-	load_leases,
-	load_pool_stats,
-	load_status,
-)
+from helpers import fmt_ttl, leases_to_df
 from kea import KeaError
+from streamlit_adapter import get_client, load_config, load_leases, load_pool_stats, load_status
 from ui_access import read_only, read_only_notice
 
 DISPLAY_COLS = ["IP", "Hostname", "MAC", "Expires", "Status"]

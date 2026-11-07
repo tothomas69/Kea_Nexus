@@ -1,0 +1,403 @@
+/*
+ * app.css — KeaNexus web UI styles (the "B2 · Clean Light" design).
+ *
+ * Unlike the Streamlit UI's style.css, this styles only our own markup, so
+ * nothing here depends on a framework's internal DOM. Colours come from the
+ * logo's blue plus a neutral grey scale; every text colour passes 4.5:1 on
+ * the surface it sits on.
+ */
+
+:root {
+	--page: #f6f7f9;
+	--surface: #ffffff;
+	--border: #e5e7eb;
+	--border-strong: #d1d5db;
+	--text: #111827;
+	--text-muted: #4b5563;
+	--text-faint: #6b7280;
+	--accent: #0b6fc2;
+	--accent-strong: #0b4f8a;
+	--accent-soft: #e8f2fb;
+	--danger: #b91c1c;
+	--danger-soft: #fef2f2;
+	--radius-card: 14px;
+	--radius-control: 8px;
+	--font: Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
+	--font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+* {
+	box-sizing: border-box;
+}
+
+body {
+	margin: 0;
+	background: var(--page);
+	color: var(--text);
+	font-family: var(--font);
+	font-size: 14px;
+	line-height: 1.5;
+}
+
+a {
+	color: var(--accent);
+}
+a:hover {
+	color: var(--accent-strong);
+}
+
+[x-cloak] {
+	display: none !important;
+}
+
+.visually-hidden {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	overflow: hidden;
+	clip: rect(0 0 0 0);
+	white-space: nowrap;
+}
+
+.muted {
+	color: var(--text-muted);
+}
+
+/* --- Masthead ---------------------------------------------------------- */
+
+.masthead {
+	background: var(--surface);
+	border-bottom: 1px solid var(--border);
+}
+
+.masthead-inner {
+	max-width: 1376px;
+	margin: 0 auto;
+	padding: 14px 32px 0;
+	display: flex;
+	flex-wrap: wrap;
+	align-items: stretch;
+	gap: 24px;
+}
+
+.masthead-logo img {
+	display: block;
+	height: 128px;
+	width: auto;
+	margin-bottom: 12px;
+}
+
+.masthead-main {
+	flex: 1 1 560px;
+	min-width: 0;
+	display: flex;
+	flex-direction: column;
+	justify-content: space-between;
+	padding-top: 18px;
+}
+
+.masthead-bar {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 18px;
+}
+
+.search {
+	flex: 1 1 300px;
+	max-width: 520px;
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	background: #f3f4f6;
+	border: 1px solid var(--border);
+	border-radius: 10px;
+	padding: 9px 12px;
+	color: var(--text-muted);
+}
+.search input {
+	flex: 1;
+	background: transparent;
+	border: none;
+	outline: none;
+	font: inherit;
+	color: var(--text);
+}
+.search kbd {
+	font-family: var(--font-mono);
+	font-size: 11px;
+	background: var(--surface);
+	border: 1px solid var(--border-strong);
+	border-radius: 6px;
+	padding: 2px 6px;
+}
+
+.account {
+	margin-left: auto;
+	display: flex;
+	align-items: center;
+	gap: 12px;
+}
+.account-name {
+	color: var(--text-muted);
+	font-size: 13px;
+}
+
+/* --- Tabs --------------------------------------------------------------- */
+
+.tabs {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 4px;
+}
+
+.tab {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	font: 500 14px var(--font);
+	color: var(--text-muted);
+	text-decoration: none;
+	background: none;
+	border: none;
+	border-bottom: 3px solid transparent;
+	padding: 12px 12px 13px;
+	cursor: pointer;
+}
+.tab:hover {
+	color: var(--text);
+}
+.tab-current {
+	color: var(--accent-strong);
+	font-weight: 600;
+	border-bottom-color: var(--accent);
+}
+.tab-pending {
+	color: #9ca3af;
+	cursor: default;
+}
+.tab-pending:hover {
+	color: #9ca3af;
+}
+
+/* --- Page and cards ----------------------------------------------------- */
+
+.page {
+	max-width: 1376px;
+	margin: 0 auto;
+	padding: 24px 32px 40px;
+}
+
+.card {
+	background: var(--surface);
+	border: 1px solid var(--border);
+	border-radius: var(--radius-card);
+	padding: 20px 24px;
+}
+.card h1 {
+	margin: 0 0 12px;
+	font-size: 20px;
+}
+
+.placeholder {
+	max-width: 760px;
+}
+
+/* --- Forms and buttons -------------------------------------------------- */
+
+.login-card {
+	max-width: 380px;
+	margin: 40px auto;
+}
+
+.form {
+	display: flex;
+	flex-direction: column;
+	gap: 14px;
+}
+
+.field {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	font-size: 13px;
+	color: var(--text-muted);
+}
+.field input {
+	font: inherit;
+	font-size: 14px;
+	color: var(--text);
+	border: 1px solid var(--border-strong);
+	border-radius: var(--radius-control);
+	padding: 9px 12px;
+}
+.field input:focus {
+	outline: 2px solid var(--accent);
+	outline-offset: 1px;
+}
+
+.form-error {
+	margin: 0;
+	padding: 10px 12px;
+	border-radius: var(--radius-control);
+	background: var(--danger-soft);
+	color: var(--danger);
+	font-size: 13px;
+}
+
+.button {
+	font: 600 13px var(--font);
+	border-radius: var(--radius-control);
+	padding: 9px 14px;
+	cursor: pointer;
+	border: 1px solid transparent;
+}
+.button-primary {
+	background: var(--accent);
+	color: #ffffff;
+}
+.button-primary:hover {
+	background: var(--accent-strong);
+}
+.button-quiet {
+	background: var(--surface);
+	color: var(--text);
+	border-color: var(--border-strong);
+	font-weight: 500;
+	padding: 6px 12px;
+}
+
+.icon-button {
+	width: 34px;
+	height: 34px;
+	border-radius: var(--radius-control);
+	border: none;
+	background: #f3f4f6;
+	color: #374151;
+	font: 600 16px var(--font);
+	cursor: pointer;
+}
+
+/* --- Help modal and articles -------------------------------------------- */
+
+.modal-backdrop {
+	position: fixed;
+	inset: 0;
+	background: rgba(17, 24, 39, 0.45);
+	display: flex;
+	align-items: flex-start;
+	justify-content: center;
+	padding: 80px 20px;
+	z-index: 20;
+}
+
+.modal {
+	width: 100%;
+	max-width: 640px;
+	max-height: 80vh;
+	overflow-y: auto;
+	background: var(--surface);
+	border-radius: 16px;
+	box-shadow: 0 24px 60px rgba(17, 24, 39, 0.35);
+}
+
+.modal-head {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	padding: 20px 24px;
+	border-bottom: 1px solid var(--border);
+}
+.modal-head h2 {
+	margin: 0;
+	font-size: 18px;
+}
+.modal-head p {
+	margin: 0;
+	font-size: 13px;
+}
+.modal-head .icon-button {
+	margin-left: auto;
+}
+.modal-logo {
+	height: 56px;
+	width: auto;
+}
+
+.modal-body {
+	padding: 8px 24px 24px;
+}
+
+.toc-article {
+	padding: 16px 0;
+	border-bottom: 1px solid #f3f4f6;
+}
+.toc-article h3 {
+	margin: 0 0 8px;
+	font-size: 15px;
+}
+.toc-article h3 a {
+	text-decoration: none;
+}
+.toc-sections {
+	margin: 0;
+	padding-left: 20px;
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	column-gap: 24px;
+	row-gap: 4px;
+	font-size: 13px;
+}
+.toc-sections a {
+	text-decoration: none;
+}
+
+.breadcrumb {
+	margin: 0 0 12px;
+	font-size: 13px;
+	color: var(--text-muted);
+}
+
+.article {
+	max-width: 860px;
+	line-height: 1.6;
+}
+.article pre {
+	background: #f3f4f6;
+	border-radius: var(--radius-control);
+	padding: 12px 14px;
+	overflow-x: auto;
+	font-family: var(--font-mono);
+	font-size: 12px;
+}
+.article code {
+	font-family: var(--font-mono);
+	font-size: 0.92em;
+}
+.article table {
+	border-collapse: collapse;
+	display: block;
+	overflow-x: auto;
+}
+.article th,
+.article td {
+	border: 1px solid var(--border);
+	padding: 6px 10px;
+	text-align: left;
+}
+
+/* --- Phone width ---------------------------------------------------------- */
+
+@media (max-width: 767px) {
+	.masthead-inner,
+	.page {
+		padding-left: 16px;
+		padding-right: 16px;
+	}
+	.masthead-logo img {
+		height: 88px;
+	}
+	.toc-sections {
+		grid-template-columns: minmax(0, 1fr);
+	}
+}

@@ -1,61 +1,36 @@
 """
-helpers.py - Shared utilities, cache loaders, and data transformers for KeaNexus.
+helpers.py - Shared utilities and data transformers for KeaNexus.
+
+No UI framework here: both the Streamlit UI and the web app import this.
+Streamlit caching and the per-session Kea client live in streamlit_adapter.py.
 """
 
 import time
 from typing import Optional
 
 import pandas as pd
-import streamlit as st
 
-from auth import is_admin
-from kea import KeaClient, ReadOnlyKeaClient
+from kea import KeaClient
 
-# --- Client -------------------------------------------------------------------
+# --- Kea reads ------------------------------------------------------------------
 
 
-@st.cache_resource
-def _admin_client() -> KeaClient:
-	return KeaClient()
+def pool_stats_with_fallback(client: KeaClient) -> Optional[dict]:
+	"""Pool counters from Kea, or None if Kea can't be read at all.
 
-
-@st.cache_resource
-def _viewer_client() -> ReadOnlyKeaClient:
-	return ReadOnlyKeaClient()
-
-
-def get_client() -> KeaClient:
-	"""The Kea client for whoever is signed in to this session.
-
-	Viewers get a ReadOnlyKeaClient, which refuses every command that changes
-	Kea. This is the real enforcement of read-only access for Kea: disabled
-	buttons only stop honest clicks, while this stops any write that reaches
-	the server, from any tab, including ones added later. Not cached itself,
-	because the answer depends on the session; the two clients are.
+	stat-lease4-summary needs Kea's stat_cmds hook. When that call fails for
+	any reason, the counters are worked out from the lease list and the pool
+	range instead, so the numbers still show on a Kea without the hook.
+	"cumulative" is 0 in that case, since only the hook tracks it.
 	"""
-	return _admin_client() if is_admin() else _viewer_client()
-
-
-# --- Cached data loaders ------------------------------------------------------
-
-
-@st.cache_data(ttl=30)
-def load_leases(_client: KeaClient) -> list[dict]:
-	return _client.get_leases()
-
-
-@st.cache_data(ttl=30)
-def load_pool_stats(_client: KeaClient) -> Optional[dict]:
-	# Try stat-lease4-summary first (requires stat_cmds hook).
-	# Fall back to computing from the lease list if it fails for any reason.
 	try:
-		return _client.get_pool_stats()
+		return client.get_pool_stats()
 	except Exception:
 		pass
 	try:
-		leases = _client.get_leases()
-		cfg = _client.get_config()
-		_, _, pool_size = _client.get_pool_range(cfg)
+		leases = client.get_leases()
+		config = client.get_config()
+		_, _, pool_size = client.get_pool_range(config)
 		assigned = sum(1 for lease in leases if lease.get("state", 0) == 0)
 		declined = sum(1 for lease in leases if lease.get("state", 0) == 1)
 		return {
@@ -67,19 +42,6 @@ def load_pool_stats(_client: KeaClient) -> Optional[dict]:
 		}
 	except Exception:
 		return None
-
-
-@st.cache_data(ttl=120)
-def load_config(_client: KeaClient) -> Optional[dict]:
-	try:
-		return _client.get_config()
-	except Exception:
-		return None
-
-
-@st.cache_data(ttl=20)
-def load_status(_client: KeaClient) -> dict:
-	return _client.get_status()
 
 
 # --- Data helpers -------------------------------------------------------------

@@ -25,11 +25,10 @@ from auth import (
 	UserManagementError,
 	change_role,
 	create_user,
-	current_user,
-	is_admin,
 	reset_password,
 	set_disabled,
 )
+from streamlit_adapter import current_user, is_admin
 
 _TH = (
 	"font-family:monospace;font-size:11px;font-weight:700;color:#1f2328;"

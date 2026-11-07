@@ -90,6 +90,11 @@ on `require_admin`, which replaces `refuse_if_viewer()`.
 the FastAPI lifespan, so they run when the container starts. This removes the
 known limitation that sampling does not resume until someone opens the page.
 
+**During the overlap only one UI may sample.** Both containers write the same
+`pool_samples` table, so two samplers would record every reading twice. Compose
+sets `KEANEXUS_WEB_BACKGROUND_WORK=off` for `keanexus-web` until cutover, when it
+flips on and Streamlit goes away. (Found while building phase 0.)
+
 ## Address map hover data
 
 On page load the Overview route renders all 256 cells and embeds their details

@@ -7,7 +7,8 @@ from pathlib import Path
 import extra_streamlit_components as stx
 import streamlit as st
 
-from auth import SESSION_COOKIE_NAME, attempt_login, session_token
+from auth import SESSION_COOKIE_NAME
+from streamlit_adapter import attempt_login, session_token
 
 # Rolling expiry for the session cookie — the CookieManager component always
 # attaches an expiry (no true zero-expiry "clears on browser close" option),

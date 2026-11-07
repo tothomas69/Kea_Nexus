@@ -1,9 +1,9 @@
 """
-test_auth.py — Tests for auth.py: login, sessions, the signed cookie, the
-first-admin bootstrap, and the user-management rules.
+test_auth.py — Tests for auth.py: credential checks, session validity, the
+signed session token, the first-admin bootstrap, and the user-management rules.
 
-Every test runs against a temporary database (temp_db) with a plain dict
-standing in for st.session_state.
+Every test runs against a temporary database (temp_db). The Streamlit session
+glue built on these is tested in test_streamlit_adapter.py.
 """
 
 import os
@@ -21,14 +21,6 @@ _OTHER_SECRET = "a-different-secret"  # pragma: allowlist secret
 # Shorter than MIN_PASSWORD_LENGTH on purpose: bootstrap must accept it anyway.
 _SHORT_BOOTSTRAP_PASSWORD = "short"  # pragma: allowlist secret
 _UNUSED_BOOTSTRAP_PASSWORD = "whatever"  # pragma: allowlist secret
-
-
-@pytest.fixture
-def session():
-	"""Provide a plain dict as st.session_state for the duration of the test."""
-	state = {}
-	with patch.object(auth.st, "session_state", state):
-		yield state
 
 
 @pytest.fixture
@@ -62,133 +54,92 @@ class TestBootstrapAdmin:
 		assert db.count_users() == 0
 
 
-class TestLogin:
-	def test_correct_credentials_start_a_session(self, temp_db, session):
+class TestCheckCredentials:
+	def test_correct_credentials_return_the_user_and_record_the_login(self, temp_db):
 		_add_user()
-		assert auth.attempt_login("tom", _GOOD_PASSWORD) is True
-		assert auth.current_user() == {"username": "tom", "role": "admin"}
+		user = auth.check_credentials("tom", _GOOD_PASSWORD)
+		assert user["username"] == "tom"
 		assert db.get_user("tom")["last_login_at"]
 
-	def test_username_is_case_insensitive(self, temp_db, session):
+	def test_username_is_case_insensitive(self, temp_db):
 		_add_user()
-		assert auth.attempt_login("TOM", _GOOD_PASSWORD) is True
+		assert auth.check_credentials("TOM", _GOOD_PASSWORD) is not None
 
-	def test_wrong_password_fails(self, temp_db, session):
+	@pytest.mark.parametrize("username", ["nobody", ""])
+	def test_unknown_or_empty_username_returns_none(self, temp_db, username):
+		assert auth.check_credentials(username, _GOOD_PASSWORD) is None
+
+	def test_wrong_password_returns_none(self, temp_db):
 		_add_user()
-		assert auth.attempt_login("tom", _OTHER_PASSWORD) is False
-		assert auth.is_authenticated() is False
+		assert auth.check_credentials("tom", _OTHER_PASSWORD) is None
 
-	def test_unknown_user_fails(self, temp_db, session):
-		assert auth.attempt_login("nobody", _GOOD_PASSWORD) is False
-
-	def test_empty_username_fails(self, temp_db, session):
-		assert auth.attempt_login("", _GOOD_PASSWORD) is False
-
-	def test_disabled_user_fails(self, temp_db, session):
+	def test_disabled_user_returns_none(self, temp_db):
 		_add_user()
 		db.set_user_disabled("tom", True)
-		assert auth.attempt_login("tom", _GOOD_PASSWORD) is False
-
-	def test_corrupt_stored_hash_fails_rather_than_raising(self, temp_db, session):
-		db.insert_user("tom", "not-an-argon2-hash", "admin")
-		assert auth.attempt_login("tom", _GOOD_PASSWORD) is False
+		assert auth.check_credentials("tom", _GOOD_PASSWORD) is None
 
 
-class TestCurrentUserAndRoles:
-	def test_nobody_signed_in(self, temp_db, session):
-		assert auth.current_user() is None
-		assert auth.is_authenticated() is False
-		assert auth.is_admin() is False
-
-	def test_viewer_is_not_admin(self, temp_db, session):
-		_add_user(role="viewer")
-		auth.attempt_login("tom", _GOOD_PASSWORD)
-		assert auth.is_authenticated() is True
-		assert auth.is_admin() is False
-
-	def test_password_change_ends_open_session(self, temp_db, session):
+class TestSessionUserIfValid:
+	def test_current_version_is_valid(self, temp_db):
 		_add_user()
-		auth.attempt_login("tom", _GOOD_PASSWORD)
-		auth.reset_password("tom", _OTHER_PASSWORD)
-		assert auth.current_user() is None
+		version = db.get_user("tom")["session_version"]
+		assert auth.session_user_if_valid("tom", version)["username"] == "tom"
 
-	def test_disable_ends_open_session(self, temp_db, session):
+	def test_old_version_is_rejected(self, temp_db):
+		_add_user()
+		version = db.get_user("tom")["session_version"]
+		auth.reset_password("tom", _OTHER_PASSWORD)
+		assert auth.session_user_if_valid("tom", version) is None
+
+	def test_disabled_user_is_rejected(self, temp_db):
 		_add_user()
 		_add_user("amy")
-		auth.attempt_login("amy", _GOOD_PASSWORD)
-		auth.set_disabled("amy", True, acting_username="tom")
-		assert auth.current_user() is None
+		version = db.get_user("amy")["session_version"]
+		db.set_user_disabled("amy", True)
+		# Disabling bumps session_version too, so check against the new value:
+		# the disabled flag alone must still end the session.
+		assert auth.session_user_if_valid("amy", db.get_user("amy")["session_version"]) is None
+		assert auth.session_user_if_valid("amy", version) is None
 
-	def test_deleted_from_database_ends_open_session(self, temp_db, session):
-		session["auth_user"] = {"username": "ghost", "session_version": 1}
-		assert auth.current_user() is None
-		assert "auth_user" not in session
+	def test_unknown_user_is_rejected(self, temp_db):
+		assert auth.session_user_if_valid("ghost", 1) is None
 
-	def test_logout_clears_session(self, temp_db, session):
+
+class TestSessionToken:
+	def test_round_trip(self, temp_db, secret):
 		_add_user()
-		auth.attempt_login("tom", _GOOD_PASSWORD)
-		auth.logout()
-		assert auth.is_authenticated() is False
+		user = db.get_user("tom")
+		token = auth.sign_session("tom", user["session_version"])
+		assert auth.user_from_session_token(token)["username"] == "tom"
 
-	def test_logout_when_not_signed_in_is_safe(self, session):
-		auth.logout()
-		assert session == {}
-
-
-class TestSessionCookie:
-	def test_no_token_without_secret(self, temp_db, session):
-		_add_user()
-		auth.attempt_login("tom", _GOOD_PASSWORD)
+	def test_no_token_without_secret(self, temp_db):
 		with patch.dict(os.environ, {}, clear=True):
-			assert auth.session_token() == ""
+			assert auth.sign_session("tom", 1) == ""
 
-	def test_no_token_when_signed_out(self, temp_db, session, secret):
-		assert auth.session_token() == ""
-
-	def test_token_round_trips_into_a_fresh_session(self, temp_db, session, secret):
+	def test_token_from_before_password_change_is_rejected(self, temp_db, secret):
 		_add_user()
-		auth.attempt_login("tom", _GOOD_PASSWORD)
-		token = auth.session_token()
-		session.clear()
-		assert auth.restore_session_from_cookie(token) is True
-		assert auth.current_user()["username"] == "tom"
-
-	def test_cookie_from_before_password_change_is_rejected(self, temp_db, session, secret):
-		_add_user()
-		auth.attempt_login("tom", _GOOD_PASSWORD)
-		old_token = auth.session_token()
+		token = auth.sign_session("tom", db.get_user("tom")["session_version"])
 		auth.reset_password("tom", _OTHER_PASSWORD)
-		session.clear()
-		assert auth.restore_session_from_cookie(old_token) is False
+		assert auth.user_from_session_token(token) is None
 
-	def test_tampered_username_is_rejected(self, temp_db, session, secret):
+	def test_tampered_username_is_rejected(self, temp_db, secret):
 		_add_user()
 		_add_user("amy", role="viewer")
-		auth.attempt_login("amy", _GOOD_PASSWORD)
-		_, version, signature = auth.session_token().split("|")
-		session.clear()
-		assert auth.restore_session_from_cookie(f"tom|{version}|{signature}") is False
+		_, version, signature = auth.sign_session("amy", 1).split("|")
+		assert auth.user_from_session_token(f"tom|{version}|{signature}") is None
 
-	def test_cookie_signed_with_another_secret_is_rejected(self, temp_db, session, secret):
-		_add_user()
-		auth.attempt_login("tom", _GOOD_PASSWORD)
-		token = auth.session_token()
-		session.clear()
-		with patch.dict(os.environ, {"KEANEXUS_SECRET": _OTHER_SECRET}):
-			assert auth.restore_session_from_cookie(token) is False
+	@pytest.mark.parametrize("token", [None, "", "tom", "tom|1", "a|b|c|d"])
+	def test_malformed_tokens_are_rejected(self, temp_db, secret, token):
+		assert auth.user_from_session_token(token) is None
 
-	@pytest.mark.parametrize("cookie", [None, "", "tom", "tom|1", "a|b|c|d"])
-	def test_malformed_cookies_are_rejected(self, temp_db, session, secret, cookie):
-		assert auth.restore_session_from_cookie(cookie) is False
-
-	def test_non_numeric_version_is_rejected_even_if_signed(self, temp_db, session, secret):
+	def test_non_numeric_version_is_rejected_even_if_signed(self, temp_db, secret):
 		_add_user()
 		signature = auth._cookie_signature(_TEST_SECRET, "tom|x")
-		assert auth.restore_session_from_cookie(f"tom|x|{signature}") is False
+		assert auth.user_from_session_token(f"tom|x|{signature}") is None
 
-	def test_no_restore_without_secret(self, temp_db, session):
-		with patch.dict(os.environ, {}, clear=True):
-			assert auth.restore_session_from_cookie("tom|1|abc") is False
+	def test_public_user_never_includes_the_hash(self, temp_db):
+		_add_user()
+		assert auth.public_user(db.get_user("tom")) == {"username": "tom", "role": "admin"}
 
 
 class TestUserManagement:

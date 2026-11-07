@@ -5,17 +5,18 @@ Users live in the `users` table (see db.py), each with an admin or viewer role.
 Passwords are stored only as argon2 hashes; this module is the only place a
 plaintext password is ever handled.
 
-st.session_state alone only survives while the WebSocket connection stays
-up — a full page reload starts a brand-new Streamlit session with a blank
-session_state. A signed browser cookie (set by ui_login.py via a CookieManager
-component) restores the session after a reload. The cookie carries the
-username and the user's session_version, signed with KEANEXUS_SECRET, so it
-needs no server-side session store, and any change that bumps
-session_version (password, role, disable) makes old cookies stop working.
+This module holds no session state of its own and does not import any UI
+framework. A session is a signed token carrying the username and the user's
+session_version, signed with KEANEXUS_SECRET, so it needs no server-side
+session store, and any change that bumps session_version (password, role,
+disable) makes old tokens stop working. Where the token lives is the caller's
+business: streamlit_adapter.py keeps it in st.session_state plus a cookie for
+the current UI, and the web app keeps it in a cookie only.
 
-The signed-in user is re-checked against the database on every call to
-current_user(), so a password change, role change or disable takes effect on
-the user's open sessions at their next interaction, not only at next login.
+Callers re-check the user against the database on every request with
+session_user_if_valid() or user_from_session_token(), so a password change,
+role change or disable takes effect on open sessions at their next
+interaction, not only at next login.
 """
 
 import hashlib
@@ -24,7 +25,6 @@ import os
 import re
 from typing import Optional
 
-import streamlit as st
 from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHashError, VerificationError
 
@@ -40,7 +40,6 @@ _BOOTSTRAP_PASSWORD_ENV = "KEANEXUS_PASSWORD"
 # page reload, because an unsigned cookie could be forged by anyone.
 _SECRET_ENV = "KEANEXUS_SECRET"  # pragma: allowlist secret
 
-_SESSION_USER_KEY = "auth_user"
 SESSION_COOKIE_NAME = "keanexus_session"
 _COOKIE_FIELD_SEPARATOR = "|"
 _COOKIE_FIELD_COUNT = 3
@@ -94,7 +93,7 @@ def _spend_equal_time_on_unknown_user(password: str) -> None:
 	_password_matches(_timing_decoy_hash, password)
 
 
-# --- Login, session and logout ------------------------------------------------------
+# --- Login and session --------------------------------------------------------------
 
 
 def bootstrap_admin_from_env() -> bool:
@@ -115,66 +114,37 @@ def bootstrap_admin_from_env() -> bool:
 	return True
 
 
-def attempt_login(username: str, password: str) -> bool:
-	"""Check credentials and start a session on success.
+def check_credentials(username: str, password: str) -> Optional[dict]:
+	"""Return the stored user row if the username and password match, else None.
 
-	Disabled and unknown users get the same False, after the same amount of
-	hashing work, as a wrong password.
+	Disabled and unknown users get the same None, after the same amount of
+	hashing work, as a wrong password. Records the login on success.
 	"""
 	user = db.get_user(username) if username else None
 	if user is None or user["is_disabled"]:
 		_spend_equal_time_on_unknown_user(password)
-		return False
+		return None
 	if not _password_matches(user["password_hash"], password):
-		return False
-	_start_session(user)
+		return None
 	db.record_login(user["username"])
-	return True
+	return user
 
 
-def _start_session(user: dict) -> None:
-	st.session_state[_SESSION_USER_KEY] = {
-		"username": user["username"],
-		"session_version": user["session_version"],
-	}
+def session_user_if_valid(username: str, session_version: int) -> Optional[dict]:
+	"""Return the stored user row if a session for them is still good, else None.
 
-
-def _session_still_valid(stored_user: Optional[dict], session_version: int) -> bool:
-	if stored_user is None or stored_user["is_disabled"]:
-		return False
-	return stored_user["session_version"] == session_version
-
-
-def current_user() -> Optional[dict]:
-	"""Return {"username", "role"} for the signed-in user, or None.
-
-	Ends the session on the spot if the user has since been disabled or had a
-	password or role change.
+	A session ends when the user is deleted or disabled, or when their
+	session_version has moved on (password, role or disable change).
 	"""
-	session_user = st.session_state.get(_SESSION_USER_KEY)
-	if not session_user:
+	stored_user = db.get_user(username)
+	if stored_user is None or stored_user["is_disabled"]:
 		return None
-	stored_user = db.get_user(session_user["username"])
-	if not _session_still_valid(stored_user, session_user["session_version"]):
-		logout()
+	if stored_user["session_version"] != session_version:
 		return None
-	return {"username": stored_user["username"], "role": stored_user["role"]}
+	return stored_user
 
 
-def is_authenticated() -> bool:
-	return current_user() is not None
-
-
-def is_admin() -> bool:
-	user = current_user()
-	return user is not None and user["role"] == ROLE_ADMIN
-
-
-def logout() -> None:
-	st.session_state.pop(_SESSION_USER_KEY, None)
-
-
-# --- Session cookie ----------------------------------------------------------------
+# --- Session token -----------------------------------------------------------------
 
 
 def _cookie_secret() -> str:
@@ -185,49 +155,47 @@ def _cookie_signature(secret: str, payload: str) -> str:
 	return hmac.new(secret.encode(), payload.encode(), hashlib.sha256).hexdigest()
 
 
-def session_token() -> str:
-	"""The signed cookie value for the current session.
+def sign_session(username: str, session_version: int) -> str:
+	"""The signed session token for a user, or "" when KEANEXUS_SECRET is unset.
 
-	Returns "" when KEANEXUS_SECRET is unset or nobody is signed in; callers
-	must not set a cookie in that case.
+	Callers must not set a cookie when this returns "", since an unsigned
+	token could be forged by anyone.
 	"""
 	secret = _cookie_secret()
-	session_user = st.session_state.get(_SESSION_USER_KEY)
-	if not secret or not session_user:
+	if not secret:
 		return ""
-	payload = (
-		f"{session_user['username']}{_COOKIE_FIELD_SEPARATOR}{session_user['session_version']}"
-	)
+	payload = f"{username}{_COOKIE_FIELD_SEPARATOR}{session_version}"
 	return f"{payload}{_COOKIE_FIELD_SEPARATOR}{_cookie_signature(secret, payload)}"
 
 
-def restore_session_from_cookie(cookie_value: Optional[str]) -> bool:
-	"""Re-authenticate from a session cookie after a page reload.
+def user_from_session_token(token: Optional[str]) -> Optional[dict]:
+	"""Return the stored user row a session token belongs to, or None.
 
-	Rejects a cookie that is malformed, wrongly signed, or issued before the
-	user's latest password, role or disable change. Returns True on success.
+	Rejects a token that is malformed, wrongly signed, or issued before the
+	user's latest password, role or disable change.
 	"""
 	secret = _cookie_secret()
-	if not cookie_value or not secret:
-		return False
-	fields = cookie_value.split(_COOKIE_FIELD_SEPARATOR)
+	if not token or not secret:
+		return None
+	fields = token.split(_COOKIE_FIELD_SEPARATOR)
 	if len(fields) != _COOKIE_FIELD_COUNT:
-		return False
+		return None
 	username, version_text, signature = fields
 	payload = f"{username}{_COOKIE_FIELD_SEPARATOR}{version_text}"
 	if not hmac.compare_digest(signature, _cookie_signature(secret, payload)):
-		return False
+		return None
 	if not version_text.isdigit():
-		return False
-	stored_user = db.get_user(username)
-	if not _session_still_valid(stored_user, int(version_text)):
-		return False
-	_start_session(stored_user)
-	return True
+		return None
+	return session_user_if_valid(username, int(version_text))
+
+
+def public_user(stored_user: dict) -> dict:
+	"""The fields callers may hold on to: never the password hash."""
+	return {"username": stored_user["username"], "role": stored_user["role"]}
 
 
 # --- User management (admin actions) ---------------------------------------------
-# The UI checks is_admin() before offering these. The rules that protect the
+# The UI checks the user's role before offering these. The rules that protect the
 # system as a whole (never zero active admins, no disabling yourself) live
 # here rather than in ui_settings.py so they are enforced and tested no
 # matter which screen calls them.
