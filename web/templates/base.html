@@ -55,6 +55,15 @@
 </main>
 
 {% if user %}
+{# One dialog for every screen's forms: a route loads a form into #dialog-body,
+   and "close-dialog" (from a button or an HX-Trigger header) closes it. #}
+<div class="modal-backdrop" x-data="{ dialogOpen: false }" x-show="dialogOpen" x-cloak
+	@open-dialog.window="dialogOpen = true" @close-dialog.window="dialogOpen = false"
+	@keydown.escape.window="dialogOpen = false" @click.self="dialogOpen = false">
+	<div class="modal modal-narrow" role="dialog" aria-modal="true" aria-label="Edit">
+		<div id="dialog-body" class="modal-body"></div>
+	</div>
+</div>
 <div class="modal-backdrop" x-show="helpOpen" x-cloak @click.self="helpOpen = false">
 	<div class="modal" role="dialog" aria-modal="true" aria-labelledby="help-title">
 		<div class="modal-head">

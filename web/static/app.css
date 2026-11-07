@@ -222,7 +222,9 @@ a:hover {
 	font-size: 13px;
 	color: var(--text-muted);
 }
-.field input {
+.field input,
+.field select,
+.field textarea {
 	font: inherit;
 	font-size: 14px;
 	color: var(--text);
@@ -230,7 +232,9 @@ a:hover {
 	border-radius: var(--radius-control);
 	padding: 9px 12px;
 }
-.field input:focus {
+.field input:focus,
+.field select:focus,
+.field textarea:focus {
 	outline: 2px solid var(--accent);
 	outline-offset: 1px;
 }
@@ -870,13 +874,10 @@ a:hover {
 	margin-left: auto;
 }
 .field textarea {
-	font: inherit;
-	font-size: 14px;
-	color: var(--text);
-	border: 1px solid var(--border-strong);
-	border-radius: var(--radius-control);
-	padding: 9px 12px;
 	resize: vertical;
+}
+.field select {
+	background: var(--surface);
 }
 .form-actions {
 	display: flex;
@@ -905,5 +906,200 @@ a:hover {
 	}
 	.charts {
 		grid-template-columns: minmax(0, 1fr);
+	}
+}
+
+/* --- Screens with tables (Quarantine first, the rest follow) ------------- */
+
+.screen-head {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: 16px;
+	margin-bottom: 16px;
+}
+.screen-head h1 {
+	margin: 0 0 4px;
+	font-size: 22px;
+}
+.screen-head p {
+	margin: 0;
+	font-size: 13px;
+}
+.page > .card + .card,
+.page > .card + .explainers,
+.page > .explainers + .card {
+	margin-top: 20px;
+}
+.card-head {
+	display: flex;
+	align-items: baseline;
+	justify-content: space-between;
+	gap: 12px;
+	margin-bottom: 12px;
+}
+.card h2 {
+	margin: 0;
+	font-size: 15px;
+	font-weight: 600;
+}
+.subhead {
+	margin: 20px 0 8px;
+	font-size: 13px;
+	font-weight: 600;
+}
+.nowrap {
+	white-space: nowrap;
+}
+
+.table-wrap {
+	overflow-x: auto;
+}
+.data-table {
+	width: 100%;
+	border-collapse: collapse;
+	font-size: 13px;
+}
+.data-table th {
+	text-align: left;
+	font-size: 11px;
+	font-weight: 500;
+	text-transform: uppercase;
+	letter-spacing: 0.04em;
+	color: var(--text-faint);
+	padding: 8px 10px;
+	border-bottom: 1px solid var(--border);
+}
+.data-table td {
+	padding: 9px 10px;
+	border-bottom: 1px solid #f3f4f6;
+	vertical-align: middle;
+}
+.data-table tbody tr:hover {
+	background: #f9fafb;
+}
+.row-quarantined td {
+	color: var(--danger);
+}
+.row-actions {
+	display: flex;
+	gap: 6px;
+	justify-content: flex-end;
+	white-space: nowrap;
+}
+.row-actions .button {
+	padding: 4px 10px;
+	font-size: 12px;
+}
+
+.chip {
+	display: inline-block;
+	padding: 1px 8px;
+	border-radius: 999px;
+	font-size: 11px;
+	font-weight: 500;
+}
+.chip-quarantined {
+	background: var(--danger-soft);
+	color: var(--danger);
+}
+
+.notice p {
+	margin: 0;
+}
+.notice p + p {
+	margin-top: 4px;
+}
+.step {
+	display: inline-block;
+	margin-left: 8px;
+	font-family: var(--font-mono);
+}
+.step-ok {
+	color: #166534;
+}
+.step-soft {
+	color: var(--text-faint);
+}
+.step-failed {
+	color: var(--danger);
+	font-weight: 600;
+}
+
+.group-list {
+	list-style: none;
+	margin: 0;
+	padding: 0;
+}
+.group-row {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	padding: 8px 0;
+	border-bottom: 1px solid #f3f4f6;
+	font-size: 13px;
+}
+.group-actions {
+	margin-left: auto;
+	display: flex;
+	gap: 6px;
+}
+.group-actions .button {
+	padding: 4px 10px;
+	font-size: 12px;
+}
+
+.explainers {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 20px;
+	align-items: start;
+}
+.explainer summary {
+	cursor: pointer;
+	font-size: 13px;
+	font-weight: 600;
+}
+.explainer dl {
+	margin: 12px 0 0;
+	font-size: 13px;
+}
+.explainer dt {
+	font-weight: 600;
+	margin-top: 10px;
+}
+.explainer dd {
+	margin: 2px 0 0;
+	color: var(--text-muted);
+}
+.explainer pre {
+	overflow-x: auto;
+	padding: 10px 12px;
+	background: #f6f8fa;
+	border-radius: var(--radius-control);
+	font-size: 12px;
+}
+
+.check {
+	display: flex;
+	gap: 8px;
+	align-items: flex-start;
+	margin-top: 8px;
+}
+
+.htmx-indicator {
+	visibility: hidden;
+}
+.htmx-request.htmx-indicator,
+.htmx-request .htmx-indicator {
+	visibility: visible;
+}
+
+@media (max-width: 760px) {
+	.explainers {
+		grid-template-columns: minmax(0, 1fr);
+	}
+	.screen-head {
+		flex-direction: column;
 	}
 }

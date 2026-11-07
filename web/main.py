@@ -19,7 +19,7 @@ from auth import bootstrap_admin_from_env
 from db import init_db
 from pool_history import start_pool_sampler
 from web.deps import NotSignedIn
-from web.routes import auth_routes, help_routes, overview, pages
+from web.routes import auth_routes, help_routes, overview, pages, quarantine
 from web.security import require_csrf
 from web.templating import redirect
 
@@ -69,6 +69,7 @@ def create_app(start_background_work: bool = True) -> FastAPI:
 	app.include_router(auth_routes.router)
 	app.include_router(pages.router)
 	app.include_router(overview.router)
+	app.include_router(quarantine.router)
 	app.include_router(help_routes.router)
 	return app
 

@@ -1,0 +1,86 @@
+{# The device table and group actions. Redrawn after every action (with the
+   outcome on top) and whenever a dialog save or delete sends "registry-changed". #}
+<section id="registry" class="card" aria-labelledby="registry-title"
+	hx-get="/fragments/quarantine-registry" hx-trigger="registry-changed from:body" hx-swap="outerHTML">
+	<div class="card-head">
+		<h2 id="registry-title">Registered devices</h2>
+		<span id="registry-busy" class="htmx-indicator muted small" role="status">Working… Quarantine and Release can take a minute or two.</span>
+	</div>
+
+	{% if notice %}
+	<div class="notice {{ 'notice-ok' if notice.ok else 'notice-error' }}" role="status">
+		<p>{{ notice.text }}</p>
+		{% for outcome in notice.outcomes %}
+		<p class="step-line"><span class="strong">{{ outcome.name }}</span>
+			{% if outcome.skipped %}skipped: its address changed during the request. Try again.
+			{% else %}{% for label, ok in outcome.steps %}{# A failed fingerprint is identity upkeep, not a failed action, so it isn't drawn as an alarm. #}<span class="step {{ 'step-ok' if ok else ('step-soft' if label == 'Fingerprint' else 'step-failed') }}">{{ label }} {{ "✓" if ok else "✗" }}</span>{% endfor %}{% endif %}
+		</p>
+		{% endfor %}
+	</div>
+	{% endif %}
+
+	{% if devices %}
+	<div class="table-wrap">
+	<table class="data-table">
+		<thead>
+			<tr>
+				<th scope="col">Friendly name</th><th scope="col">Hostname</th><th scope="col">Group</th>
+				<th scope="col">Last MAC</th><th scope="col">Last IP</th><th scope="col">Last seen</th>
+				<th scope="col">Last quarantined</th><th scope="col"><span class="visually-hidden">Actions</span></th>
+			</tr>
+		</thead>
+		<tbody>
+		{% for device in devices %}
+			<tr class="{{ 'row-quarantined' if device.quarantined }}">
+				<td class="strong">{{ device.name }}{% if device.quarantined %} <span class="chip chip-quarantined">quarantined</span>{% endif %}</td>
+				<td class="mono">{{ device.hostname }}</td>
+				<td>{{ device.group or "—" }}</td>
+				<td class="mono nowrap">{{ device.mac or "—" }}</td>
+				<td class="mono nowrap">{{ device.ip or "—" }}</td>
+				<td class="muted nowrap">{{ device.last_seen or "—" }}</td>
+				<td class="muted nowrap">{{ device.last_quarantined or "—" }}</td>
+				<td class="row-actions">
+					{% if device.quarantined %}
+					<button class="button button-release" {% if not is_admin %}disabled{% endif %}
+						hx-post="/devices/{{ device.name | urlencode }}/release" hx-target="#registry" hx-swap="outerHTML"
+						hx-disabled-elt="#registry button" hx-indicator="#registry-busy">Release</button>
+					{% else %}
+					<button class="button button-danger-soft" {% if not is_admin %}disabled{% endif %}
+						hx-post="/devices/{{ device.name | urlencode }}/quarantine" hx-target="#registry" hx-swap="outerHTML"
+						hx-disabled-elt="#registry button" hx-indicator="#registry-busy"
+						hx-confirm="Quarantine {{ device.name }}? It loses network access until released.">Quarantine</button>
+					{% endif %}
+					<button class="button button-quiet" {% if not is_admin %}disabled{% endif %}
+						hx-get="/devices/{{ device.name | urlencode }}" hx-target="#dialog-body" hx-swap="innerHTML"
+						@click="$dispatch('open-dialog')">Edit</button>
+				</td>
+			</tr>
+		{% endfor %}
+		</tbody>
+	</table>
+	</div>
+	{% else %}
+	<p class="muted">No devices are registered yet.{% if is_admin %} Use Add device to register one.{% endif %}</p>
+	{% endif %}
+
+	{% if groups %}
+	<h3 class="subhead">Groups</h3>
+	<ul class="group-list">
+		{% for group in groups %}
+		<li class="group-row">
+			<span class="strong">{{ group.tag }}</span>
+			<span class="muted small">{{ group.devices }} device{{ "s" if group.devices != 1 }}{% if group.quarantined %}, {{ group.quarantined }} quarantined{% endif %}</span>
+			<span class="group-actions">
+				<button class="button button-danger-soft" {% if not is_admin %}disabled{% endif %}
+					hx-post="/groups/{{ group.tag | urlencode }}/quarantine" hx-target="#registry" hx-swap="outerHTML"
+					hx-disabled-elt="#registry button" hx-indicator="#registry-busy"
+					hx-confirm="Quarantine every device in {{ group.tag }}?">Quarantine group</button>
+				<button class="button button-release" {% if not is_admin %}disabled{% endif %}
+					hx-post="/groups/{{ group.tag | urlencode }}/release" hx-target="#registry" hx-swap="outerHTML"
+					hx-disabled-elt="#registry button" hx-indicator="#registry-busy">Release group</button>
+			</span>
+		</li>
+		{% endfor %}
+	</ul>
+	{% endif %}
+</section>

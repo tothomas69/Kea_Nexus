@@ -716,13 +716,13 @@ viewer session sent only read commands, and calling the write functions
 directly as a viewer was refused with nothing reaching Kea or the quarantine
 service.
 
-### Web UI (`web/`) — FastAPI + HTMX, phases 0–1b
+### Web UI (`web/`) — FastAPI + HTMX, phases 0–2
 
 Being built beside the Streamlit UI; the plan, route map and phase order are in
 `docs/fastapi-htmx-migration.md`. Runs as the `keanexus-web` compose service
 (`uvicorn web.main:app`, host port **8503**). Phase 0 is the groundwork: sign
 in/out, the page layout, Help and the health check. Phase 1 is the real
-Overview, and 1b adds its charts. Other tabs show greyed out in the nav
+Overview, and 1b adds its charts. Phase 2 is the Quarantine screen. Other tabs show greyed out in the nav
 until their phase lands.
 
 - `main.py` — `create_app(start_background_work)`. The lifespan runs
@@ -792,6 +792,43 @@ until their phase lands.
       SVG with vega-embed at the card's width. Each has a "Show the numbers"
       table. They draw once on page load and are not re-polled: a 48 h trend
       gains nothing from a 30 s refresh
+- **Quarantine (`routes/quarantine.py`, `quarantine_data.py`).** The registry
+  table (quarantined rows in red with a chip), per-device and per-group
+  Quarantine/Release, Add/Edit/Delete in the page dialog, the step explainer,
+  the manual cleanup commands, and the audit log (50 newest rows). Rules and
+  shaping live in the pure `quarantine_data.py`: `device_rows`, `group_tags`,
+  `log_rows`, `step_outcomes`, `enforcement_succeeded` (same rule as the
+  service: fingerprint doesn't count), `validate_device` and `ReleaseAttempts`
+    - **Paths are `/devices/...` and `/groups/...`, not `/quarantine/...`.** The
+      Overview already owns `POST /quarantine/{name}`, so a device called
+      "devices" or a group called "release" would have collided with a sibling
+      route. `new` is a reserved friendly name, since `GET /devices/new` is the
+      Add form
+    - **Delete releases first.** The registry row is the only way back to a
+      device's Kea DROP class, Pi-hole overrides and ARP thread, so deleting a
+      quarantined device runs a release and keeps the row unless every
+      enforcement step came off. After `MAX_RELEASE_ATTEMPTS_BEFORE_FORCE` (3)
+      failures the form offers a forced delete behind a checkbox; the route
+      ignores `force=true` before then. Failures are counted in memory per
+      process (`release_attempts`), shared by every admin
+    - **Hostname picker** offers only hostnames on live leases
+      (`distinct_real_hostnames`), plus the entry's own if it has gone quiet,
+      and falls back to free text when Kea reports none. A save carries over
+      every column the service owns (fingerprint, last-seen, quarantine state),
+      then runs `trigger_presence_check` best effort
+    - **Live updates:** an action returns the registry with the outcome (the
+      service's summary plus a ✓/✗ per step per device) and sends
+      `quarantine-changed`, which redraws the audit log. Dialog saves and
+      deletes send `registry-changed, quarantine-changed, close-dialog`
+    - **htmx gotcha:** `hx-swap` is inherited. A button inside an
+      `hx-swap="outerHTML"` section that loads a form into `#dialog-body` must
+      set `hx-swap="innerHTML"` itself, or it replaces `#dialog-body` and every
+      later dialog has nowhere to load
+- `kea_reads.py` — `read_kea(kea)`: cached leases, config and pool stats plus a
+  `kea_error` flag, shared by every screen. An unreachable Kea gives `None`s and
+  a banner, never a 500
+- The page dialog (`#dialog-body`, opened by `open-dialog`, closed by
+  `close-dialog`) lives in `base.html`, so every screen shares one
 - `cache.py` — `cached(key, ttl_seconds, load)`: a small TTL cache replacing
   `@st.cache_data` for Kea reads (leases 30 s, pool stats 30 s, config 120 s,
   health 20 s). A failed load is never cached
@@ -802,6 +839,10 @@ until their phase lands.
   Pi-hole is answering without the web container ever holding a Pi-hole password
 - Routes: `GET/POST /login`, `POST /logout`, `GET /` (Overview),
   `GET /fragments/{address-map,quarantine,activity,health}`,
+  `GET /quarantine`, `GET /fragments/{quarantine-registry,quarantine-log}`,
+  `POST /devices/{name}/{quarantine,release}`, `POST /groups/{tag}/{quarantine,release}`,
+  `GET /devices/new`, `GET /devices/{name}`, `POST /devices`,
+  `PUT /devices/{name}`, `DELETE /devices/{name}[?force=true]` (all writes admin-only),
   `GET /help` (table of contents: fragment for HTMX, full page otherwise),
   `GET /help/{filename}` (404 off the allowlist), `GET /healthz` (no auth; the
   compose healthcheck, since the image's own HEALTHCHECK probes Streamlit)
@@ -812,7 +853,7 @@ until their phase lands.
 - Templates: `base.html` (the B2 masthead with the real logo, search placeholder,
   account + Sign out, tabs, Help modal), `login.html` + `_login_form.html`
   (a failed sign-in re-renders only the form, with status 200 because HTMX does
-  not swap 4xx bodies), `overview.html`, `help/`
+  not swap 4xx bodies), `overview.html`, `quarantine.html` + `quarantine/`, `help/`
 
 ### keanexus-quarantine Service (`quarantine_service/`)
 
@@ -1075,7 +1116,7 @@ All endpoints except `GET /health` require `Authorization: Bearer <QUARANTINE_AP
 
 **HTML tables (not st.dataframe)** — All data tables rendered as raw HTML to allow custom chip/badge formatting. Streamlit's native components don't support per-cell HTML.
 
-**UI moving from Streamlit to FastAPI + HTMX (in progress: phases 0–1 done)** —
+**UI moving from Streamlit to FastAPI + HTMX (in progress: phases 0–2 done)** —
 `docs/fastapi-htmx-migration.md` has the plan: why, the route map, auth and
 CSRF, deployment beside the current UI on port 8503, and a phase-by-phase PR
 order. Phase 0 split `auth.py` and `helpers.py` from Streamlit (into
@@ -1151,6 +1192,8 @@ since they require a live Streamlit server and can't be unit-tested). That inclu
 | `tests/test_address_map.py`                | `classify_addresses`: all 256 rows, network/broadcast/gateway, pool vs free and which are editable, dynamic lease (hostname, MAC, time left), declined beats reservation, leased reservation shows reserved with its stored label, legacy Kea hostname as label fallback, offline reservation, masked hostname never shown as real, static entry label/notes/editable, missing `valid-lft` uses Kea's default, malformed prefix rejected; the config helpers |
 | `tests/test_overview_data.py`               | `local_time`; `pool_figures` (declined counted as used, ok/warn/full, zero pool, no stats); `devices_by_ip` (live hostname first, last-seen fallback); `map_cells` display statuses (quarantined, unknown, named and reserved leases not unknown) and the full cell shape; legend order; `quarantine_rows` ordering and meta; `activity` (one line per action, nmap failure ignored, failed step flagged, identity-drift skip, separate actions, limit) |
 | `tests/test_web_overview.py`                | Overview routes with a stub Kea: needs sign-in, 256 squares + figures + subnet, hover JSON names the registered device, card lists devices, viewer switches disabled, Kea down still renders with a banner, chart specs and table twins present, trend waits for two samples, all four fragments; Quarantine/Release (viewer 403, unknown 404, summary + `HX-Trigger`, release path, service failure shown, CSRF required); static entries (prefill, free address, pool/network/off-subnet refused, save + close trigger, bad MAC not written, delete, viewer 403); `cache` (reuse, expiry, failures not cached, forget, TTL check); `health` (Kea only, Kea down, Pi-hole any non-5xx is up, quarantine needs 2xx, unreachable is down) |
+| `tests/test_quarantine_data.py`             | `device_rows` (order, fields, blanks), `group_tags` counts, `log_rows` (unreadable time shown raw), `step_outcomes` incl. skipped devices, `enforcement_succeeded` (fingerprint ignored, any other failure or nothing resolved fails), `validate_device` (bad, reserved and duplicate names, hostname required, edits skip name rules), `ReleaseAttempts` threshold and clear |
+| `tests/test_web_quarantine.py`              | Quarantine screen with the stub Kea and a patched service: sign-in, devices/groups/log listed, nav link, viewer view, fragments, empty registry; actions (viewer 403, CSRF, unknown 404, steps + `quarantine-changed`, partial failure, service down, group calls with `is_group`, unknown group); forms (lease hostnames offered, quiet hostname kept, free text when Kea is down, admin-only, unknown 404); create/update (presence check, its failure ignored, duplicate and bad names, viewer refused, service-owned fields kept, hostname required); delete (plain, release first, failed release keeps the row, force refused early, force offered and honoured after 3, viewer, unknown) |
 | `tests/test_db_users.py`                    | `users` table storage: case-insensitive usernames, duplicate rejection, role CHECK, list omits hashes, active-admin count, `session_version` bumps on every change, `record_login`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | `tests/test_db.py`                          | Full CRUD on `ipam_static`, `reservation_labels`, `device_registry`, and `quarantine_log` via `temp_db` fixture (SQLite in tmp dir)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | `tests/test_kea.py`                         | All `KeaClient` methods; `ReadOnlyKeaClient` passes every read command and refuses every write and unknown command before any request; `httpx` patched via `http_mock` fixture                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |

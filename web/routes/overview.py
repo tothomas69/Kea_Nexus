@@ -30,12 +30,13 @@ from dashboard_charts import (
 	expiry_chart,
 	utilisation_chart,
 )
-from helpers import build_hostname_override_sets, pool_stats_with_fallback
-from kea import KeaClient, KeaError
+from helpers import build_hostname_override_sets
+from kea import KeaClient
 from quarantine_client import QuarantineServiceError, trigger_quarantine, trigger_release
 from web import cache
 from web.deps import current_user, kea_client, require_admin
 from web.health import service_health
+from web.kea_reads import read_kea
 from web.overview_data import (
 	activity,
 	issued_recently,
@@ -48,9 +49,6 @@ from web.templating import render
 
 router = APIRouter()
 
-_LEASES_CACHE_SECONDS = 30
-_POOL_STATS_CACHE_SECONDS = 30
-_CONFIG_CACHE_SECONDS = 120
 _HEALTH_CACHE_SECONDS = 20
 _SECONDS_PER_HOUR = 60 * 60
 _HISTORY_WINDOW_SECONDS = 26 * _SECONDS_PER_HOUR  # a day of samples, plus the issued-count baseline
@@ -65,28 +63,6 @@ BAD_MAC_MESSAGE = "MAC addresses look like aa:bb:cc:dd:ee:ff."
 
 
 # --- Reading Kea and the database -----------------------------------------------------
-
-
-def _safe_read(key: str, ttl_seconds: float, load) -> Optional[object]:
-	"""A cached Kea read that yields None, not an exception, when Kea is unreachable."""
-	try:
-		return cache.cached(key, ttl_seconds, load)
-	except KeaError:
-		return None
-
-
-def _read_kea(kea: KeaClient) -> dict:
-	leases = _safe_read("leases", _LEASES_CACHE_SECONDS, kea.get_leases)
-	config = _safe_read("config", _CONFIG_CACHE_SECONDS, kea.get_config)
-	stats = _safe_read(
-		"pool_stats", _POOL_STATS_CACHE_SECONDS, lambda: pool_stats_with_fallback(kea)
-	)
-	return {
-		"leases": leases or [],
-		"config": config,
-		"stats": stats,
-		"kea_error": leases is None or config is None,
-	}
 
 
 def _address_rows(kea: KeaClient, leases: list[dict], config: Optional[dict]) -> list[AddressRow]:
@@ -109,7 +85,7 @@ def _address_rows(kea: KeaClient, leases: list[dict], config: Optional[dict]) ->
 
 
 def _map_context(kea: KeaClient) -> dict:
-	data = _read_kea(kea)
+	data = read_kea(kea)
 	rows = _address_rows(kea, data["leases"], data["config"])
 	return {
 		"cells": map_cells(rows, db.get_devices()),
@@ -255,7 +231,7 @@ def release_device(
 
 def _editable_row(kea: KeaClient, ip: str) -> AddressRow:
 	"""The address's current row, refusing any address that can't hold a static record."""
-	data = _read_kea(kea)
+	data = read_kea(kea)
 	for row in _address_rows(kea, data["leases"], data["config"]):
 		if row.ip == ip:
 			if not row.editable:
