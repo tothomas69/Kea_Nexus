@@ -154,6 +154,25 @@ class TestOverviewPage:
 			"Kea can&#39;t be reached" in response.text or "Kea can't be reached" in response.text
 		)
 
+	def test_charts_ship_their_specs(self, client):
+		_sign_in(client)
+		page = client.get("/").text
+		assert 'id="chart-expiry"' in page
+		assert 'id="chart-composition"' in page
+		assert "Show the numbers" in page
+
+	def test_trend_waits_for_history(self, client):
+		_sign_in(client)
+		page = client.get("/").text
+		assert 'id="chart-trend"' not in page
+		assert "Not enough history yet" in page
+
+	def test_trend_drawn_once_samples_exist(self, client):
+		_sign_in(client)
+		for _ in range(2):
+			db.insert_pool_sample(total=100, assigned=40, declined=0, available=60, cumulative=0)
+		assert 'id="chart-trend"' in client.get("/").text
+
 	def test_fragments(self, client):
 		_sign_in(client)
 		assert 'id="address-map"' in client.get("/fragments/address-map", headers=_HTMX).text

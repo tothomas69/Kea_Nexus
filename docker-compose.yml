@@ -17,6 +17,7 @@ services:
             - ./version.py:/app/version.py
             - ./helpers.py:/app/helpers.py
             - ./dashboard_data.py:/app/dashboard_data.py
+            - ./dashboard_charts.py:/app/dashboard_charts.py
             - ./pool_history.py:/app/pool_history.py
             - ./address_map.py:/app/address_map.py
             - ./db.py:/app/db.py
@@ -68,6 +69,7 @@ services:
             - ./helpers.py:/app/helpers.py
             - ./address_map.py:/app/address_map.py
             - ./dashboard_data.py:/app/dashboard_data.py
+            - ./dashboard_charts.py:/app/dashboard_charts.py
             - ./docs_library.py:/app/docs_library.py
             - ./pool_history.py:/app/pool_history.py
             - ./quarantine_client.py:/app/quarantine_client.py

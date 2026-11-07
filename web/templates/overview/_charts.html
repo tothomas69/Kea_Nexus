@@ -1,0 +1,40 @@
+{# The Dashboard's three charts, from the same builders as the Streamlit UI
+   (dashboard_charts.py). Each spec rides along as JSON; overview.js draws it
+   with vega-embed. Every chart has a table twin, so no value is reachable only
+   by reading a mark or hovering. #}
+{% macro numbers(table, label_heading, value_heading) %}
+<details class="numbers">
+	<summary>Show the numbers</summary>
+	<table>
+		<thead><tr><th scope="col">{{ label_heading }}</th><th scope="col">{{ value_heading }}</th></tr></thead>
+		<tbody>
+			{% for label, value in table %}<tr><td>{{ label }}</td><td class="strong">{{ value }}</td></tr>{% endfor %}
+		</tbody>
+	</table>
+</details>
+{% endmacro %}
+
+<section class="charts" aria-label="Charts">
+	<div class="card chart-card chart-wide">
+		<h2>Pool utilisation — last {{ history_hours }} h</h2>
+		{% if trend %}
+		<div class="chart" data-chart="trend" role="img" aria-label="Pool utilisation over the last {{ history_hours }} hours"></div>
+		<script type="application/json" id="chart-trend">{{ trend.spec | tojson }}</script>
+		{{ numbers(trend.table, "Sampled", "In use") }}
+		{% else %}
+		<p class="muted small">Not enough history yet. KeaNexus samples Kea's pool counters every few minutes; this chart fills in as those readings accumulate.</p>
+		{% endif %}
+	</div>
+	<div class="card chart-card">
+		<h2>Expiring within</h2>
+		<div class="chart" data-chart="expiry" role="img" aria-label="Active leases by time until expiry"></div>
+		<script type="application/json" id="chart-expiry">{{ expiry.spec | tojson }}</script>
+		{{ numbers(expiry.table, "Expires in", "Leases") }}
+	</div>
+	<div class="card chart-card">
+		<h2>Lease composition</h2>
+		<div class="chart" data-chart="composition" role="img" aria-label="Active leases by type"></div>
+		<script type="application/json" id="chart-composition">{{ composition.spec | tojson }}</script>
+		{{ numbers(composition.table, "Type", "Leases") }}
+	</div>
+</section>

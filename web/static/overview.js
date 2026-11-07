@@ -84,3 +84,25 @@ document.addEventListener("alpine:init", () => {
 		},
 	}));
 });
+
+/*
+ * Charts: each .chart element names a JSON spec (#chart-<name>) built by
+ * dashboard_charts.py. Drawn as SVG at the card's width; the spec's own
+ * height is kept. No action menu: the table twin beside each chart already
+ * gives the numbers.
+ */
+function drawCharts() {
+	if (typeof vegaEmbed === "undefined") return;
+	document.querySelectorAll(".chart[data-chart]").forEach((element) => {
+		const source = document.getElementById(`chart-${element.dataset.chart}`);
+		if (!source) return;
+		const spec = JSON.parse(source.textContent);
+		spec.width = "container";
+		vegaEmbed(element, spec, { actions: false, renderer: "svg" }).catch((error) => {
+			element.textContent = "This chart could not be drawn.";
+			console.error(error);
+		});
+	});
+}
+
+document.addEventListener("DOMContentLoaded", drawCharts);

@@ -24,6 +24,12 @@ from address_map import (
 	subnet_prefix,
 	subnet_reservations,
 )
+from dashboard_charts import (
+	HISTORY_WINDOW_HOURS,
+	composition_chart,
+	expiry_chart,
+	utilisation_chart,
+)
 from helpers import build_hostname_override_sets, pool_stats_with_fallback
 from kea import KeaClient, KeaError
 from quarantine_client import QuarantineServiceError, trigger_quarantine, trigger_release
@@ -46,7 +52,8 @@ _LEASES_CACHE_SECONDS = 30
 _POOL_STATS_CACHE_SECONDS = 30
 _CONFIG_CACHE_SECONDS = 120
 _HEALTH_CACHE_SECONDS = 20
-_HISTORY_WINDOW_SECONDS = 26 * 60 * 60  # a day of samples, plus the issued-count baseline
+_SECONDS_PER_HOUR = 60 * 60
+_HISTORY_WINDOW_SECONDS = 26 * _SECONDS_PER_HOUR  # a day of samples, plus the issued-count baseline
 _ACTIVITY_LINES = 6
 _ACTIVITY_LOG_ROWS = 200
 
@@ -136,6 +143,26 @@ def _kpi_context(stats: Optional[dict], config: Optional[dict]) -> dict:
 	}
 
 
+def _charts_context(leases: list[dict], config: Optional[dict]) -> dict:
+	"""The three Dashboard charts as Vega-Lite specs plus their table twins.
+
+	Same builders as the Streamlit Dashboard (dashboard_charts.py), so both UIs
+	draw identical charts. The trend is None until there are two samples.
+	"""
+	since = datetime.fromtimestamp(
+		time.time() - HISTORY_WINDOW_HOURS * _SECONDS_PER_HOUR, tz=timezone.utc
+	)
+	trend = utilisation_chart(db.get_pool_samples(since=since.isoformat()))
+	expiry, expiry_table = expiry_chart(leases, datetime.now(timezone.utc))
+	composition, composition_table = composition_chart(leases, config)
+	return {
+		"history_hours": HISTORY_WINDOW_HOURS,
+		"trend": {"spec": trend[0].to_dict(), "table": trend[1]} if trend else None,
+		"expiry": {"spec": expiry.to_dict(), "table": expiry_table},
+		"composition": {"spec": composition.to_dict(), "table": composition_table},
+	}
+
+
 def _is_admin(user: dict) -> bool:
 	return user["role"] == "admin"
 
@@ -151,6 +178,7 @@ def overview(
 	context.update(_kpi_context(context["stats"], context["config"]))
 	context.update(_quarantine_context())
 	context.update(_activity_context())
+	context.update(_charts_context(context["leases"], context["config"]))
 	return render(request, "overview.html", {"user": user, "is_admin": _is_admin(user), **context})
 
 
