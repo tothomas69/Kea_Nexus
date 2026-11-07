@@ -1,0 +1,26 @@
+<section id="users" class="card" aria-label="Users"
+	hx-get="/fragments/users" hx-trigger="users-changed from:body" hx-swap="outerHTML">
+	<div class="card-head">
+		<h2>Users</h2>
+		<button class="button button-primary" hx-get="/settings/users/new" hx-target="#dialog-body" hx-swap="innerHTML"
+			@click="$dispatch('open-dialog')">Add user</button>
+	</div>
+	<p class="muted small">Admins can change anything. Viewers see every screen but can't change anything.</p>
+	<table class="data-table">
+		<thead><tr><th scope="col">Username</th><th scope="col">Role</th><th scope="col">Status</th><th scope="col">Last sign-in</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr></thead>
+		<tbody>
+		{% for row in users %}
+			<tr class="{{ 'row-muted' if row.disabled }}">
+				<td class="strong">{{ row.username }}{% if row.username | lower == user.username | lower %} <span class="muted small">(you)</span>{% endif %}</td>
+				<td><span class="chip chip-role-{{ row.role }}">{{ row.role }}</span></td>
+				<td>{{ "disabled" if row.disabled else "active" }}</td>
+				<td class="muted nowrap">{{ row.last_login }}</td>
+				<td class="row-actions">
+					<button class="button button-quiet" hx-get="/settings/users/{{ row.username }}" hx-target="#dialog-body" hx-swap="innerHTML"
+						@click="$dispatch('open-dialog')">Edit</button>
+				</td>
+			</tr>
+		{% endfor %}
+		</tbody>
+	</table>
+</section>

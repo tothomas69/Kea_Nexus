@@ -30,7 +30,7 @@ NAV_ITEMS: list[tuple[str, Optional[str]]] = [
 	("Reservations", "/reservations"),
 	("Quarantine", "/quarantine"),
 	("Maintenance", "/maintenance"),
-	("Settings", None),
+	("Settings", "/settings"),
 ]
 
 _HTTP_SEE_OTHER = 303

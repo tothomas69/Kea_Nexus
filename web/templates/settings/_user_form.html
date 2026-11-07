@@ -1,0 +1,36 @@
+<form class="form" hx-target="this" hx-swap="outerHTML"
+	{% if target %}hx-put="/settings/users/{{ target.username }}"{% else %}hx-post="/settings/users"{% endif %}>
+	<div class="dialog-head">
+		<h2>{{ "Edit " ~ target.username if target else "Add a user" }}</h2>
+		<button type="button" class="icon-button" aria-label="Close" @click="$dispatch('close-dialog')">×</button>
+	</div>
+	{% if is_self %}<p class="notice notice-error">This is your own account. Changing its role or password signs you out, so you'll sign in again.</p>{% endif %}
+	{% if error %}<p class="form-error" role="alert">{{ error }}</p>{% endif %}
+	{% if not target %}
+	<label class="field"><span>Username</span>
+		<input name="username" value="{{ values.username }}" required autocomplete="off" spellcheck="false">
+		<small class="muted">Letters, digits, . _ and -.</small></label>
+	{% endif %}
+	<label class="field"><span>Role</span>
+		<select name="role">
+			{% for role in roles %}<option value="{{ role }}"{% if role == values.role %} selected{% endif %}>{{ role }}</option>{% endfor %}
+		</select></label>
+	<label class="field"><span>{{ "New password" if target else "Password" }}</span>
+		<input name="password" type="password" autocomplete="new-password" {% if not target %}required{% endif %} minlength="{{ min_password }}">
+		<small class="muted">At least {{ min_password }} characters.{% if target %} Leave blank to keep the current one.{% endif %}</small></label>
+	<label class="field"><span>Repeat password</span>
+		<input name="confirm" type="password" autocomplete="new-password" {% if not target %}required{% endif %}></label>
+	<div class="form-actions">
+		<button type="submit" class="button button-primary">Save</button>
+		{% if target and not is_self %}
+			{% if target.is_disabled %}
+			<button type="button" class="button button-release" hx-post="/settings/users/{{ target.username }}/enable" hx-params="none"
+				hx-target="closest form" hx-swap="outerHTML">Enable</button>
+			{% else %}
+			<button type="button" class="button button-danger-soft" hx-post="/settings/users/{{ target.username }}/disable" hx-params="none"
+				hx-target="closest form" hx-swap="outerHTML" hx-confirm="Disable {{ target.username }}? They are signed out at once.">Disable</button>
+			{% endif %}
+		{% endif %}
+		<button type="button" class="button button-quiet" @click="$dispatch('close-dialog')">Cancel</button>
+	</div>
+</form>

@@ -203,7 +203,7 @@ old UI working the whole time.
 3. **Leases**, with the background liveness sweep (decision 3). *(Done. The sweep has its own switch, `KEANEXUS_WEB_LIVENESS_SWEEP`, and runs during the overlap, since Streamlit has no background sweep to collide with. The "Online now" figure sits in the Active leases tile rather than a fifth tile.)*
 4. **Reservations.** *(Done. Edits keep fields the form doesn't show, writes read the config fresh, and delete refuses a quarantined device; see the as-built guide.)*
 5. **Maintenance.** *(Done. DHCP state is now read from Kea's `status-get`, not remembered in the session. The by-MAC/hostname lookup was dropped, since the Leases filter covers it.)*
-6. **Settings + Users.**
+6. **Settings + Users.** *(Done. Users sit at `/settings/users`; DHCP saves are applied to a fresh config.)*
 7. **Cutover.** Point NPM at `keanexus-web`, then remove `app.py`, `ui_*.py`,
    `style.css`, `.streamlit/`, the Streamlit pin, `extra-streamlit-components`,
    pandas (if nothing else needs it), and the Streamlit compose service.

@@ -717,14 +717,13 @@ viewer session sent only read commands, and calling the write functions
 directly as a viewer was refused with nothing reaching Kea or the quarantine
 service.
 
-### Web UI (`web/`) — FastAPI + HTMX, phases 0–5
+### Web UI (`web/`) — FastAPI + HTMX, phases 0–6
 
 Being built beside the Streamlit UI; the plan, route map and phase order are in
 `docs/fastapi-htmx-migration.md`. Runs as the `keanexus-web` compose service
 (`uvicorn web.main:app`, host port **8503**). Phase 0 is the groundwork: sign
 in/out, the page layout, Help and the health check. Phase 1 is the real
-Overview, and 1b adds its charts. Phase 2 is the Quarantine screen, phase 3 the Leases screen and the background liveness sweep, phase 4 Reservations, phase 5 Maintenance. Other tabs show greyed out in the nav
-until their phase lands.
+Overview, and 1b adds its charts. Phase 2 is the Quarantine screen, phase 3 the Leases screen and the background liveness sweep, phase 4 Reservations, phase 5 Maintenance, phase 6 Settings and Users. Every screen is now built; phase 7 is the cutover.
 
 - `main.py` — `create_app(start_background_work, start_liveness_sweep)`. The
   lifespan runs `init_db()`, `bootstrap_admin_from_env()` and, when allowed, the
@@ -881,6 +880,21 @@ until their phase lands.
     - Wipe needs the word `WIPE` typed (checked in the browser and again on
       the server) and wipes the subnet id from Kea's own config instead of a
       hard-coded 1
+- **Settings (`routes/settings.py`, `settings_data.py`).** `/settings` edits the
+  subnet's pool range, lease length (sets `valid-lifetime` and its min and max
+  to the same value, with renew/rebind at 50% and 87.5%) and four options
+  (gateway, DNS, domain, NTP; blank removes an option). Every problem is listed
+  at once; pool ends and gateway must sit inside the subnet and the pool must
+  run forwards. Saved onto a config **read fresh from Kea**, touching only those
+  fields, so reservations and their DROP classes are left alone. Viewers see a
+  disabled form
+- **Users (`/settings/users`, admins only).** List, add, edit role and
+  password, disable and enable. All rules come from `auth.py`
+  (`UserManagementError` is shown as-is); the route only checks the two
+  password boxes match and are long enough **before** saving anything, so a
+  role change can't land without its password. Changing your own role or
+  password ends your session, so the response sends you to `/login`. You can't
+  disable yourself (no button, and `auth.set_disabled` refuses)
 - `liveness.py` — the latest ARP sweep, kept in memory for the process
   (`latest()`, `sweep_now(addresses)`), plus a daemon loop
   (`start_sweep_loop`, every `LIVENESS_SWEEP_INTERVAL_SECONDS`, default 300,
@@ -916,6 +930,10 @@ until their phase lands.
   `GET /maintenance`, `GET /fragments/maintenance`, `GET`/`POST /maintenance/dhcp/disable`,
   `POST /maintenance/dhcp/enable`, `POST /maintenance/declined/clear`,
   `POST /maintenance/declined/{ip}/clear`, `GET`/`POST /maintenance/wipe` (admin),
+  `GET /settings` (any user), `PUT /settings/dhcp`, `GET /settings/users`,
+  `GET /fragments/users`, `GET /settings/users/new`, `GET /settings/users/{name}`,
+  `POST /settings/users`, `PUT /settings/users/{name}`,
+  `POST /settings/users/{name}/{disable,enable}` (admin),
   `GET /help` (table of contents: fragment for HTMX, full page otherwise),
   `GET /help/{filename}` (404 off the allowlist), `GET /healthz` (no auth; the
   compose healthcheck, since the image's own HEALTHCHECK probes Streamlit)
@@ -926,7 +944,7 @@ until their phase lands.
 - Templates: `base.html` (the B2 masthead with the real logo, search placeholder,
   account + Sign out, tabs, Help modal), `login.html` + `_login_form.html`
   (a failed sign-in re-renders only the form, with status 200 because HTMX does
-  not swap 4xx bodies), `overview.html`, `quarantine.html` + `quarantine/`, `leases.html` + `leases/`, `reservations.html` + `reservations/`, `maintenance.html` + `maintenance/`, `help/`
+  not swap 4xx bodies), `overview.html`, `quarantine.html` + `quarantine/`, `leases.html` + `leases/`, `reservations.html` + `reservations/`, `maintenance.html` + `maintenance/`, `settings.html` + `settings/`, `help/`
 
 ### keanexus-quarantine Service (`quarantine_service/`)
 
@@ -1189,7 +1207,7 @@ All endpoints except `GET /health` require `Authorization: Bearer <QUARANTINE_AP
 
 **HTML tables (not st.dataframe)** — All data tables rendered as raw HTML to allow custom chip/badge formatting. Streamlit's native components don't support per-cell HTML.
 
-**UI moving from Streamlit to FastAPI + HTMX (in progress: phases 0–5 done)** —
+**UI moving from Streamlit to FastAPI + HTMX (in progress: phases 0–6 done)** —
 `docs/fastapi-htmx-migration.md` has the plan: why, the route map, auth and
 CSRF, deployment beside the current UI on port 8503, and a phase-by-phase PR
 order. Phase 0 split `auth.py` and `helpers.py` from Streamlit (into
@@ -1274,6 +1292,8 @@ since they require a live Streamlit server and can't be unit-tested). That inclu
 | `tests/test_web_reservations.py`            | Reservations screen with an in-memory Kea config: table with labels, viewer view, Kea down; forms (new, edit by any-case MAC, unknown 404); writes (add writes Kea then the label, invalid not sent, Kea refusal leaves the label alone, Kea unreachable, edit reads a fresh config and keeps a DROP added after page load, label moves with the MAC, vanished reservation 404, delete, delete refused for a quarantined device, delete failures, viewer 403, CSRF) |
 | `tests/test_maintenance_data.py`            | `declined_rows` (only declined, numeric order, Kea's default lifetime), `validate_auto_enable` bounds, `wipe_confirmed` exact word |
 | `tests/test_web_maintenance.py`             | Maintenance screen with a recording stub Kea: on/off/unknown/unreachable states, clean pool, Kea down; disable with timer, bad timer not sent, refusals, enable; clear all and one declined, a live lease refused, failures reported; wipe needs the word, wipes the configured subnet, refusal shown; every route refused to viewers and without CSRF |
+| `tests/test_settings_data.py`               | `settings_values` (fields, lifetime fallbacks), `validate_settings` (every field, pool order, subnet-less config), `with_settings_applied` (pool, lifetimes and timers, list normalising, blank option removed, unrelated options and reservations kept, input untouched, no pools yet, `valid-lft` stripped) |
+| `tests/test_web_settings.py`                | Settings screen: DHCP page, viewer read-only, save onto a fresh config keeps a DROP added after page load, invalid not sent, Kea failures, viewer and CSRF refused, Kea down; Users: list and forms, viewer refused, create, create refusals (mismatch, short, missing, bad name, duplicate), edit another user, mismatch saves nothing, last admin can't be demoted, own password change signs you out, own no-op save doesn't, disable and enable, can't disable yourself |
 | `tests/test_db_users.py`                    | `users` table storage: case-insensitive usernames, duplicate rejection, role CHECK, list omits hashes, active-admin count, `session_version` bumps on every change, `record_login`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | `tests/test_db.py`                          | Full CRUD on `ipam_static`, `reservation_labels`, `device_registry`, and `quarantine_log` via `temp_db` fixture (SQLite in tmp dir)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | `tests/test_kea.py`                         | All `KeaClient` methods; `ReadOnlyKeaClient` passes every read command and refuses every write and unknown command before any request; `httpx` patched via `http_mock` fixture                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |

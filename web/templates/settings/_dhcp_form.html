@@ -1,0 +1,30 @@
+<form id="dhcp-settings" class="card form settings-form" hx-put="/settings/dhcp" hx-target="this" hx-swap="outerHTML">
+	{% if saved %}<p class="notice notice-ok" role="status">Saved. New and renewing leases use these settings now; existing leases keep theirs until they renew.</p>{% endif %}
+	{% if errors %}
+	<div class="form-error" role="alert">
+		{% for error in errors %}<p>{{ error }}</p>{% endfor %}
+	</div>
+	{% endif %}
+	<fieldset {% if not is_admin %}disabled{% endif %}>
+		<legend class="subhead">Addresses and lease</legend>
+		<div class="field-row">
+			<label class="field"><span>Subnet</span><input value="{{ values.subnet }}" disabled></label>
+			<label class="field"><span>Pool start</span><input name="pool_start" value="{{ values.pool_start }}" required spellcheck="false"></label>
+			<label class="field"><span>Pool end</span><input name="pool_end" value="{{ values.pool_end }}" required spellcheck="false"></label>
+			<label class="field"><span>Lease (hours)</span><input name="lease_hours" type="number" min="{{ min_hours }}" max="{{ max_hours }}" value="{{ values.lease_hours }}" required></label>
+		</div>
+		<legend class="subhead">Options sent to devices</legend>
+		<div class="field-grid">
+			<label class="field"><span>Gateway (option 3)</span><input name="gateway" value="{{ values.gateway }}" spellcheck="false"></label>
+			<label class="field"><span>DNS servers (option 6)</span><input name="dns" value="{{ values.dns }}" spellcheck="false" placeholder="Comma-separated"></label>
+			<label class="field"><span>Domain name (option 15)</span><input name="domain" value="{{ values.domain }}" spellcheck="false"></label>
+			<label class="field"><span>NTP servers (option 42)</span><input name="ntp" value="{{ values.ntp }}" spellcheck="false" placeholder="Comma-separated"></label>
+		</div>
+		<p class="muted small">Leave an option blank to stop sending it.</p>
+	</fieldset>
+	{% if is_admin %}
+	<div class="form-actions">
+		<button type="submit" class="button button-primary" hx-confirm="Save these DHCP settings to Kea now?">Save settings</button>
+	</div>
+	{% endif %}
+</form>
