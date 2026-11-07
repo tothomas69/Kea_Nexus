@@ -104,7 +104,9 @@ def edit_reservation_form(
 	return _form(request, values, mac)
 
 
-def _save(request: Request, kea: KeaClient, values: dict, original_mac: str) -> Response:
+def _save(
+	request: Request, user: dict, kea: KeaClient, values: dict, original_mac: str
+) -> Response:
 	try:
 		config = _fresh_config(kea)
 	except KeaError as exc:
@@ -125,6 +127,9 @@ def _save(request: Request, kea: KeaClient, values: dict, original_mac: str) -> 
 	if original_mac and original_mac != values["mac"]:
 		db.delete_reservation_label(original_mac)
 	db.upsert_reservation_label(values["mac"], values["label"])
+	verb = "edited the reservation for" if original_mac else "added a reservation for"
+	address = values["ip"] or "no fixed address"
+	db.insert_activity(user["username"], f"{verb} {values['label']} ({values['mac']}, {address})")
 	return _saved()
 
 
@@ -141,7 +146,7 @@ def add_reservation(
 	user: dict = Depends(require_admin),
 	kea: KeaClient = Depends(kea_client),
 ) -> Response:
-	return _save(request, kea, _form_values(mac, ip, label), "")
+	return _save(request, user, kea, _form_values(mac, ip, label), "")
 
 
 @router.put("/reservations/{original_mac}")
@@ -154,7 +159,7 @@ def update_reservation(
 	user: dict = Depends(require_admin),
 	kea: KeaClient = Depends(kea_client),
 ) -> Response:
-	return _save(request, kea, _form_values(mac, ip, label), normalized_mac(original_mac))
+	return _save(request, user, kea, _form_values(mac, ip, label), normalized_mac(original_mac))
 
 
 @router.delete("/reservations/{mac}")
@@ -188,6 +193,7 @@ def delete_reservation(
 	except KeaError as exc:
 		return _delete_refused(request, mac, config, f"Kea refused the change: {exc}")
 	db.delete_reservation_label(mac)
+	db.insert_activity(user["username"], f"deleted the reservation for {mac}")
 	return _saved()
 
 

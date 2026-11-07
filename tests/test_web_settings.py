@@ -233,3 +233,31 @@ class TestUsers:
 		response = client.post("/settings/users/tom/disable", headers=headers)
 		assert "form-error" in response.text
 		assert not db.get_user("tom")["is_disabled"]
+
+
+class TestActivityRecorded:
+	def test_settings_and_user_changes_are_logged(self, client):
+		headers = _sign_in(client)
+		client.put("/settings/dhcp", data=_SETTINGS, headers=headers)
+		client.post(
+			"/settings/users",
+			data={
+				"username": "pat",
+				"role": "viewer",
+				"password": _OTHER_PASSWORD,
+				"confirm": _OTHER_PASSWORD,
+			},
+			headers=headers,
+		)
+		client.put(
+			"/settings/users/pat",
+			data={"role": "admin", "password": _PASSWORD, "confirm": _PASSWORD},
+			headers=headers,
+		)
+		client.post("/settings/users/pat/disable", headers=headers)
+		assert [row["summary"] for row in db.get_activity()] == [
+			"disabled the login pat",
+			"changed the role and password of pat",
+			"added the viewer login pat",
+			"saved the DHCP settings",
+		]

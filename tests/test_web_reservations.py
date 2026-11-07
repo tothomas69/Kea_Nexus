@@ -215,3 +215,16 @@ class TestWrites:
 		_sign_in(client)
 		assert client.delete(f"/reservations/{_RESERVED_MAC}", headers=_HTMX).status_code == 403
 		assert kea.saves == []
+
+
+class TestActivityRecorded:
+	def test_add_and_delete_logged(self, client, kea):
+		headers = _sign_in(client)
+		client.post(
+			"/reservations", data={"mac": "bb:bb:bb:bb:bb:02", "label": "Printer"}, headers=headers
+		)
+		client.delete("/reservations/bb:bb:bb:bb:bb:02", headers=headers)
+		assert [row["summary"] for row in db.get_activity()] == [
+			"deleted the reservation for bb:bb:bb:bb:bb:02",
+			"added a reservation for Printer (bb:bb:bb:bb:bb:02, no fixed address)",
+		]

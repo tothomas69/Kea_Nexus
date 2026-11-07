@@ -330,3 +330,28 @@ class TestDelete:
 	def test_unknown(self, client):
 		headers = _sign_in(client)
 		assert client.delete("/devices/ghost", headers=headers).status_code == 404
+
+
+class TestActivityRecorded:
+	def test_registry_changes_logged(self, client, no_presence_check):
+		headers = _sign_in(client)
+		client.post("/devices", data={"friendly_name": "pc", "hostname": "h"}, headers=headers)
+		client.put("/devices/pc", data={"hostname": "h2"}, headers=headers)
+		client.delete("/devices/pc", headers=headers)
+		assert [row["summary"] for row in db.get_activity()] == [
+			"deleted the registry entry for pc",
+			"edited the registry entry for pc",
+			"registered pc for quarantine",
+		]
+
+	def test_forced_delete_says_so(self, client):
+		headers = _sign_in(client)
+		_register(is_quarantined=True)
+		with patch(f"{_ROUTES}.trigger_release", side_effect=QuarantineServiceError("down")):
+			for _ in range(MAX_RELEASE_ATTEMPTS_BEFORE_FORCE):
+				client.delete("/devices/kids_ipad", headers=headers)
+		client.delete("/devices/kids_ipad?force=true", headers=headers)
+		assert (
+			db.get_activity()[0]["summary"]
+			== "force-deleted, without releasing, the registry entry for kids_ipad"
+		)

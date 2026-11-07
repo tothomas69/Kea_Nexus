@@ -225,14 +225,42 @@ def _summarize(group: dict) -> dict:
 	else:
 		text = f"{group['name']} {verb} with problems — {group['ok']}/{group['total']} steps ok"
 		tone = "warn"
-	return {"when": local_time(group["first_at"], "%H:%M"), "text": text, "tone": tone}
+	return {
+		"when": local_time(group["first_at"], "%H:%M"),
+		"text": text,
+		"tone": tone,
+		"at": group["first_at"],
+	}
 
 
-def activity(log_entries: list[dict], limit: int) -> list[dict]:
-	"""quarantine_log rows (newest first) folded into one line per Quarantine/Release.
+def activity(
+	log_entries: list[dict], limit: int, admin_entries: Optional[list[dict]] = None
+) -> list[dict]:
+	"""The newest lines for the Activity card, from both logs.
 
-	The log has a row per enforcement step; a person wants one line per action.
+	quarantine_log rows (newest first) are folded into one line per
+	Quarantine/Release, since that log has a row per enforcement step and a
+	person wants one line per action. activity_log rows (every other change
+	made in the web UI) are one line each already. ISO-8601 UTC strings sort
+	in time order, so the two merge on their timestamps.
 	"""
+	lines = _quarantine_lines(log_entries, limit) + [
+		_admin_line(entry) for entry in admin_entries or []
+	]
+	lines.sort(key=lambda line: line["at"], reverse=True)
+	return lines[:limit]
+
+
+def _admin_line(entry: dict) -> dict:
+	return {
+		"when": local_time(entry["occurred_at"], "%H:%M"),
+		"text": f"{entry['username']} {entry['summary']}",
+		"tone": "admin",
+		"at": entry["occurred_at"],
+	}
+
+
+def _quarantine_lines(log_entries: list[dict], limit: int) -> list[dict]:
 	groups: list[dict] = []
 	for entry in log_entries:
 		if not groups or not _same_action(groups[-1], entry):

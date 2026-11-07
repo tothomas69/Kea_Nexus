@@ -102,7 +102,8 @@ def _quarantine_context(notice: Optional[dict] = None) -> dict:
 
 def _activity_context() -> dict:
 	log_entries = db.get_quarantine_log(limit=_ACTIVITY_LOG_ROWS)
-	return {"activity": activity(log_entries, _ACTIVITY_LINES)}
+	admin_entries = db.get_activity(limit=_ACTIVITY_LINES)
+	return {"activity": activity(log_entries, _ACTIVITY_LINES, admin_entries)}
 
 
 def _kpi_context(stats: Optional[dict], config: Optional[dict]) -> dict:
@@ -302,6 +303,7 @@ def save_static_entry(
 	db.upsert_static_entry(
 		ip, values["hostname"], values["mac_address"], values["description"], values["notes"]
 	)
+	db.insert_activity(user["username"], f"saved the static entry for {ip}")
 	return _closed_dialog()
 
 
@@ -314,6 +316,7 @@ def delete_static_entry(
 ) -> Response:
 	_editable_row(kea, ip)
 	db.delete_static_entry(ip)
+	db.insert_activity(user["username"], f"deleted the static entry for {ip}")
 	return _closed_dialog()
 
 
