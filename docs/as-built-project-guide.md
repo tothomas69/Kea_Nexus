@@ -221,6 +221,8 @@ Data persisted in Docker named volume `keanexus_data` mounted at `/app/data/`.
 
 ### Sidebar Version Block (`app.py`)
 
+- Info rows above it: Pool Range, Subnet, Address Pool, Lease Time. Router and
+  Stats Source were removed as noise
 - `_sidebar_version_block(status)` — renders two info rows near the bottom of the sidebar
 - Displays: Kea DHCP daemon version (from `get_status()`), API Mode (always "Direct API")
 - Always rendered regardless of Kea connectivity — aids diagnosis when Kea is unreachable
@@ -338,6 +340,9 @@ override_macs)` / `distinct_real_hostnames(leases, config)` — a Kea
   internet; the article set is known at build time, so there is no reason to
   accept arbitrary paths. Covered by tests for `../.env`, absolute paths and
   unlisted docs
+- Article entries are `st.button`s styled as links in every state (rest, hover,
+  focus): hover and keyboard focus underline rather than drawing a box, so they
+  never look like a second Sign out button
 - `available_articles()` hides an article whose file is missing, so a deployment
   that missed the `./docs` bind-mount offers nothing rather than entries that
   fail on click
