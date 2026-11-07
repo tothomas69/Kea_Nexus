@@ -254,6 +254,13 @@ class TestReleaseEndpoint:
 		assert mock_unblock_pihole.call_args.args[1] == "172.16.17.50"
 
 
+class TestHealthEndpoint:
+	def test_answers_without_a_token(self, client):
+		response = client.get("/health")
+		assert response.status_code == 200
+		assert response.json() == {"ok": True}
+
+
 class TestStatusEndpoint:
 	def test_requires_auth(self, client):
 		response = client.get("/status/tommy_laptop")

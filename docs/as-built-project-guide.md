@@ -39,7 +39,8 @@ keanexus/
 ├── kea.py              — Kea direct HTTP API client (Kea 3.0+)
 ├── pihole.py           — Pi-hole v6 REST API client (session auth); used by quarantine_service
 ├── quarantine_client.py — Thin client KeaNexus uses to call keanexus-quarantine's own API
-├── helpers.py          — Cached data loaders, format utilities
+├── helpers.py          — Pure data helpers and format utilities (no UI framework)
+├── streamlit_adapter.py — Streamlit-only glue: session state, per-session Kea client, cached loaders
 ├── dashboard_data.py   — Pure metric/chart shaping for the Dashboard tab
 ├── docs_library.py     — Allowlist + reader for the operator docs shown in-app
 ├── ui_docs.py          — Documentation sidebar entry and the article dialog
@@ -59,6 +60,7 @@ keanexus/
 ├── Makefile            — Developer setup (`make setup`) and test runner (`make test`)
 ├── static/             — Static assets (keanexus_logo.png)
 ├── quarantine_service/ — Optional keanexus-quarantine FastAPI service (compose profile "quarantine")
+├── web/                — New FastAPI + HTMX UI (routes/, templates/, static/), built beside Streamlit
 ├── docs/               — PRD, this guide, design docs (incl. the FastAPI + HTMX migration plan)
 ├── .githooks/          — Committed git hooks (pre-commit, pre-push); activated per-clone with `make setup`
 └── .streamlit/         — Streamlit config (theme)
@@ -82,31 +84,42 @@ Data persisted in Docker named volume `keanexus_data` mounted at `/app/data/`.
   The minimum password length is deliberately not enforced on this one path:
   the env-var password predates the rule, and refusing it would lock the owner
   out of their own upgrade
-- `attempt_login(username, password)` — username lookup is case-insensitive.
-  Unknown and disabled users return the same `False` as a wrong password, after
-  the same hashing work (a lazily built decoy hash), so login timing can't
-  reveal which usernames exist
-- `current_user()` returns `{"username", "role"}` or `None`, and **re-checks the
-  database on every call**: the session stores the user's `session_version`,
-  and if the stored version has moved on (password, role or disable change) or
-  the user is gone, the session ends on the spot. So revoking someone takes
-  effect at their next click, not their next login. `is_authenticated()` and
-  `is_admin()` are thin wrappers over it
-- `logout()` — clears the session user
-- **Signed session cookie.** A full page reload starts a brand-new Streamlit
-  session with blank `session_state`, so login persists through a browser
-  cookie (`SESSION_COOKIE_NAME`). `session_token()` returns
+- **No UI framework and no session state in `auth.py`.** It holds the rules and
+  the token logic; where a session lives is the caller's business.
+  `streamlit_adapter.py` keeps it in `st.session_state` plus a cookie for the
+  Streamlit UI, and `web/deps.py` keeps it in a cookie only. Both UIs share
+  every rule below
+- `check_credentials(username, password)` — returns the stored user row or
+  `None`, and records the login. Username lookup is case-insensitive. Unknown
+  and disabled users return the same `None` as a wrong password, after the same
+  hashing work (a lazily built decoy hash), so login timing can't reveal which
+  usernames exist
+- `session_user_if_valid(username, session_version)` — the per-request check:
+  the stored user row, or `None` if the user is gone, disabled, or their
+  `session_version` has moved on (password, role or disable change). So
+  revoking someone takes effect at their next click, not their next login.
+  `public_user(row)` strips a row down to `{"username", "role"}`
+- Streamlit side (`streamlit_adapter.py`): `attempt_login`, `current_user`,
+  `is_authenticated`, `is_admin`, `logout`, `session_token`,
+  `restore_session_from_cookie`, same behaviour as before the split, built on
+  the functions above
+- **Signed session token.** `sign_session(username, session_version)` returns
   `username|session_version|signature`, signed with HMAC-SHA256 under
-  `KEANEXUS_SECRET`. `restore_session_from_cookie(value)` rejects anything
-  malformed, wrongly signed, or carrying an old `session_version`. Still
+  `KEANEXUS_SECRET` (or `""` with no secret). `user_from_session_token(token)`
+  rejects anything malformed, wrongly signed, or carrying an old
+  `session_version`. The Streamlit UI needs it because a full page reload starts
+  a brand-new Streamlit session with blank `session_state`; the web UI uses it as
+  its only session store. Still
   stateless (no server-side session store). The previous design derived the
   cookie from the single shared password, which could not tell users apart or
   revoke one person; the signed username plus version replaces it. Usernames
   are restricted to letters, digits, `.`, `_` and `-`, which keeps the `|`
   separator out of them so the cookie splits unambiguously
-- **`KEANEXUS_SECRET` unset:** `session_token()` returns `""` and
-  `ui_login.py` skips setting the cookie. Login still works for that session;
-  every reload asks again. Changing the secret signs everyone out
+- **`KEANEXUS_SECRET` unset:** `sign_session()` returns `""`. In the Streamlit
+  UI, `ui_login.py` skips setting the cookie, so login still works for that
+  session and every reload asks again. The web UI has no other session store,
+  so it refuses sign-in with a message saying to set the secret. Changing the
+  secret signs everyone out
 - **User-management rules live here, not in the UI**: `create_user`,
   `reset_password`, `change_role`, `set_disabled`. They raise
   `UserManagementError` (a `ValueError` whose message is safe to show) for bad
@@ -258,11 +271,16 @@ Data persisted in Docker named volume `keanexus_data` mounted at `/app/data/`.
 
 ### Helpers (`helpers.py`)
 
-- `get_client()` — the Kea client for this session: a cached `KeaClient` for
-  admins, a cached `ReadOnlyKeaClient` for viewers (see `kea.py`). Not cached
-  itself, since the answer depends on who is signed in. This is the real
-  enforcement of read-only access for every Kea write
-- `load_leases/load_pool_stats/load_config/load_status` — `@st.cache_data` with TTL
+- **No UI framework.** `helpers.py` (and `dashboard_data.py`, which imports it)
+  load without Streamlit, so the web UI shares them
+- `pool_stats_with_fallback(client)` — `stat-lease4-summary`, or counters
+  worked out from the lease list and pool range when Kea lacks the `stat_cmds`
+  hook (`cumulative` is 0 then); `None` if Kea can't be read at all
+- Moved to `streamlit_adapter.py`: `get_client()` (a cached `KeaClient` for
+  admins, a cached `ReadOnlyKeaClient` for viewers — the real enforcement of
+  read-only access for every Kea write in the Streamlit UI) and
+  `load_leases/load_pool_stats/load_config/load_status` (`@st.cache_data` with TTL).
+  The web UI's equivalent is `web/deps.py`'s `kea_client`
 - `fmt_ttl(seconds)` — formats seconds to "Xh Ym" or "expired"
 - `html_safe_mac(mac)` — HTML-entity-encodes a MAC address's colons before it's
   interpolated into an `st.markdown(unsafe_allow_html=True)` string. Streamlit's
@@ -672,6 +690,55 @@ viewer session sent only read commands, and calling the write functions
 directly as a viewer was refused with nothing reaching Kea or the quarantine
 service.
 
+### Web UI (`web/`) — FastAPI + HTMX, phase 0
+
+Being built beside the Streamlit UI; the plan, route map and phase order are in
+`docs/fastapi-htmx-migration.md`. Runs as the `keanexus-web` compose service
+(`uvicorn web.main:app`, host port **8503**). Phase 0 is the groundwork: sign
+in/out, the page layout, Help and the health check. The Overview is a
+placeholder until phase 1; other tabs show greyed out in the nav until their
+phase lands.
+
+- `main.py` — `create_app(start_background_work)`. The lifespan runs
+  `init_db()`, `bootstrap_admin_from_env()` and, when allowed, the pool sampler,
+  all at container start. **`KEANEXUS_WEB_BACKGROUND_WORK=off` is set in compose
+  during the overlap:** the Streamlit container still runs the sampler, and two
+  samplers would write every reading twice. Flip it at cutover. Mounts
+  `web/static` at `/static` and the repo's `static/` (logos) at `/brand`. No
+  OpenAPI or docs pages
+- `security.py` — the session cookie (`keanexus_web_session`: HttpOnly,
+  SameSite=Lax, Secure when the request came over HTTPS, 24h) holding
+  `auth.sign_session()`'s token, and **CSRF**: a double-submit token in its own
+  cookie that every POST/PUT/DELETE/PATCH must echo in `X-CSRF-Token`.
+  `require_csrf` is an app-wide dependency, so no route can forget it.
+  `base.html` puts the header on every HTMX request via `hx-headers` on `<body>`
+- `deps.py` — `current_user` (re-checks the token against the database on every
+  request; raises `NotSignedIn`, which `main.py` turns into a redirect to
+  `/login`, or `HX-Redirect` for HTMX), `require_admin` (replaces
+  `refuse_if_viewer()`; every write route will depend on it) and `kea_client`
+  (`ReadOnlyKeaClient` for viewers)
+- `templating.py` — `render()` gives every template the CSRF token, nav and
+  version and sets the CSRF cookie on first visit; `redirect()` sends
+  `HX-Redirect` to HTMX (which would otherwise swap a whole page into a
+  fragment) and a 303 to everything else. `NAV_ITEMS` marks unbuilt screens
+  with a `None` path
+- `help_content.py` — Help's table of contents is built from each allowlisted
+  article's own `## ` headings (skipping code blocks), with anchors from the
+  same `slugify` the markdown `toc` extension uses, so links can't drift from
+  the docs. Articles render with `markdown` (`fenced_code`, `tables`, `toc`);
+  only `docs_library`'s allowlist is ever read
+- Routes: `GET/POST /login`, `POST /logout`, `GET /` (Overview placeholder),
+  `GET /help` (table of contents: fragment for HTMX, full page otherwise),
+  `GET /help/{filename}` (404 off the allowlist), `GET /healthz` (no auth; the
+  compose healthcheck, since the image's own HEALTHCHECK probes Streamlit)
+- `static/vendor/` — htmx and Alpine.js, vendored at pinned versions with
+  hashes in `VERSIONS.md`. No CDN (must work when the WAN is down) and no Node
+  build step. Fonts fall back to the system stack until they are vendored too
+- Templates: `base.html` (the B2 masthead with the real logo, search placeholder,
+  account + Sign out, tabs, Help modal), `login.html` + `_login_form.html`
+  (a failed sign-in re-renders only the form, with status 200 because HTMX does
+  not swap 4xx bodies), `overview.html`, `help/`
+
 ### keanexus-quarantine Service (`quarantine_service/`)
 
 Separate FastAPI service, own container, gated behind the `quarantine` Docker
@@ -726,7 +793,10 @@ folded into the descriptions below rather than tracked as separate PR numbers.
       need not be registered devices. Backs the Leases tab's "Check who's online"
       button. Rejects more than `MAX_SWEEP_ADDRESSES` with HTTP 413 **at the route**,
       before a packet leaves the host
-    - All five require `Authorization: Bearer <token>` via `require_bearer_token`
+    - `GET /health` — `{"ok": true}`, **no auth on purpose**: it reveals only that
+      the process is up, for the web UI's health dot and Docker. Every other route
+      still needs the token
+    - All the others require `Authorization: Bearer <token>` via `require_bearer_token`
     - `@app.on_event("startup")` calls `init_db()` eagerly. Discovered on first real
       deployment: KeaNexus's own Streamlit script also calls `init_db()`, but Streamlit
       defers running `app.py` until a browser session connects — it doesn't execute
@@ -895,7 +965,9 @@ Key Kea commands used:
 
 ### keanexus-quarantine HTTP API (optional service, port 8600)
 
-All endpoints require `Authorization: Bearer <QUARANTINE_API_TOKEN>`.
+All endpoints except `GET /health` require `Authorization: Bearer <QUARANTINE_API_TOKEN>`.
+
+- `GET /health` — unauthenticated liveness check; returns `{"ok": true}` and nothing else.
 
 - `POST /quarantine` — body `{"target": "<friendly_name or group_tag>", "is_group": bool}`.
   Resolves identity, re-verifies each device's identity hasn't drifted immediately
@@ -928,12 +1000,13 @@ All endpoints require `Authorization: Bearer <QUARANTINE_API_TOKEN>`.
 
 **HTML tables (not st.dataframe)** — All data tables rendered as raw HTML to allow custom chip/badge formatting. Streamlit's native components don't support per-cell HTML.
 
-**Planned: UI moves from Streamlit to FastAPI + HTMX** — Proposed, not built.
+**UI moving from Streamlit to FastAPI + HTMX (in progress: phase 0 done)** —
 `docs/fastapi-htmx-migration.md` has the plan: why, the route map, auth and
 CSRF, deployment beside the current UI on port 8503, and a phase-by-phase PR
-order. Until cutover (phase 7), everything below about Streamlit stays true.
-Check that doc before adding new Streamlit-only UI, which would only have to be
-rebuilt.
+order. Phase 0 split `auth.py` and `helpers.py` from Streamlit (into
+`streamlit_adapter.py`) and added the `web/` skeleton. Until cutover (phase 7),
+everything below about Streamlit stays true. Check that doc before adding new
+Streamlit-only UI, which would only have to be rebuilt.
 
 **Streamlit is pinned, not floated** — `requirements.txt` pins `streamlit==1.66.1` (bumped from 1.62.0 because 1.62 through 1.66.0 cap `pillow<13`, and only Pillow 13 fixes the advisories pip-audit flagged; `pillow>=13.0.0` is listed as a floor so the fix can't silently regress). It previously allowed `>=1.40.0`, which let a container rebuild land on a Streamlit whose tabs are React Aria (`data-rac`, `react-aria-*` ids, a `.react-aria-SelectionIndicator` child per tab) while the local venv had one whose tabs are BaseWeb (`data-baseweb="tab-highlight"`). Different DOM, different CSS hooks — so `style.css` selectors verified locally silently matched nothing in production, and reading the local bundle to diagnose a live styling bug gave confidently wrong answers. This app styles Streamlit's internals heavily, so its DOM is effectively an API here: bump the pin deliberately and re-check `style.css`'s widget selectors when you do. For the 1.66.1 bump, every `data-testid` `style.css` targets was confirmed present in the new frontend bundle and tabs are still React Aria, but the sidebar's state attribute changed from `aria-expanded` to `data-collapsed`, which a test-id check cannot catch: the width pin silently stopped matching and the sidebar widened under the tab bar. `style.css` now targets both attributes. Check attributes, not just test ids, on the next bump; `stDecoration` and BaseWeb's `tab-highlight` match nothing in either version and are kept only as harmless fallbacks. `style.css` still targets both libraries' selection indicators, since that cost nothing.
 
@@ -996,11 +1069,13 @@ since they require a live Streamlit server and can't be unit-tested). That inclu
 
 | File                                        | What is tested                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `tests/test_auth.py`                        | First-admin bootstrap; login (case-insensitive, wrong password, unknown and disabled users, corrupt hash); `current_user`/`is_admin` including sessions ended by password change, disable and deletion; signed cookie round trip, stale `session_version`, tampered username, wrong secret, malformed values, no secret; user-management rules (validation, duplicates, last-admin and self-disable protection)                                                                                                                                                                                                                                                                             |
+| `tests/test_auth.py`                        | First-admin bootstrap; `check_credentials` (case-insensitive, wrong password, unknown/empty and disabled users, records login); `session_user_if_valid` (current vs old version, disabled, unknown); signed token round trip, no secret, stale version, tampered username, malformed and non-numeric values, `public_user` omits the hash; user-management rules (validation, duplicates, last-admin and self-disable protection)                                                                                                                                                                                                                                                                             |
+| `tests/test_streamlit_adapter.py`           | The Streamlit session glue: login (case-insensitive, wrong password, unknown, empty, disabled, corrupt hash), `current_user`/`is_admin` incl. sessions ended by password change, disable and deletion, logout; cookie round trip into a fresh session, stale version, tampered username, wrong secret, malformed values, no secret; `get_client` gives viewers `ReadOnlyKeaClient` |
+| `tests/test_web.py`                         | Web UI phase 0 via `TestClient`: `/healthz`; signed-out redirect (303, or `HX-Redirect` for HTMX); login sets an HttpOnly/SameSite cookie, wrong password shows the error with no session, missing secret explained, plain-form 303; sign-out; sessions ended by password change and disable; CSRF refused without token, with a mismatched token, without the cookie, token written into the page and not rotated; `require_admin`/`kea_client` by role; Help table of contents (fragment vs full page, every link lands on a real heading id, off-allowlist and missing files 404, code blocks skipped); lifespan admin bootstrap and the sampler switch |
 | `tests/test_db_users.py`                    | `users` table storage: case-insensitive usernames, duplicate rejection, role CHECK, list omits hashes, active-admin count, `session_version` bumps on every change, `record_login`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | `tests/test_db.py`                          | Full CRUD on `ipam_static`, `reservation_labels`, `device_registry`, and `quarantine_log` via `temp_db` fixture (SQLite in tmp dir)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | `tests/test_kea.py`                         | All `KeaClient` methods; `ReadOnlyKeaClient` passes every read command and refuses every write and unknown command before any request; `httpx` patched via `http_mock` fixture                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| `tests/test_helpers.py`                     | `get_client` (admins get `KeaClient`, viewers `ReadOnlyKeaClient`), `fmt_ttl`, `chip`, `leases_to_df`, `build_reservation_type_sets`, `lease_type`, `build_hostname_override_sets`, `real_hostname`, `distinct_real_hostnames`, `lease_for_reservation` (pure functions only)                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `tests/test_helpers.py`                     | `fmt_ttl`, `chip`, `leases_to_df`, `build_reservation_type_sets`, `lease_type`, `build_hostname_override_sets`, `real_hostname`, `distinct_real_hostnames`, `lease_for_reservation`, `pool_stats_with_fallback` (summary, lease-count fallback, unreachable)                                                                                                                                                                                                                                                                                                                                                                                                               |
 | `tests/test_dashboard_data.py`              | `lease_expiry_buckets` (bucket boundaries, expired leases, declined excluded, missing `valid-lft`), `lease_composition`, `utilisation_points` (gap breaking, declined counted as used, zero total), `leases_issued_since` (cumulative delta, stale baseline rejected, counter reset, insufficient history), `quarantined_count`                                                                                                                                                                                                                                                                                                                                                             |
 | `tests/test_version.py`                     | `APP_VERSION` is plain `MAJOR.MINOR.PATCH`, since the sidebar renders it as `v` + the value                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | `tests/test_docs_library.py`                | Article allowlist (listed files exist, developer docs excluded, missing file hidden) and `read_article` rejecting path traversal, absolute paths and unlisted names                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
@@ -1019,7 +1094,7 @@ since they require a live Streamlit server and can't be unit-tested). That inclu
 | `tests/test_quarantine_nmap_fingerprint.py` | `refresh_os_fingerprint` — persists top-accuracy match, preserves other registry fields, inconclusive scan doesn't overwrite existing fingerprint, subprocess failure propagates; `subprocess.run` always patched                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | `tests/test_quarantine_liveness.py`         | `sweep` — only responders returned, every address probed in one batched `srp` call, targets deduped/sorted/whitespace-stripped, replies from unrequested addresses ignored, empty input sends nothing, `ARP_INTERFACE` honoured (explicit arg wins, blank env var means auto-select), over-cap input rejected; `srp` always patched                                                                                                                                                                                                                                                                                                                                                         |
 | `tests/test_quarantine_retry.py`            | `run_with_retries` — first-attempt success, success-after-failures, exhausted-retries, custom `max_attempts`, one-row-per-step logging                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| `tests/test_quarantine_main.py`             | FastAPI routes via `TestClient` — auth enforcement, 404/409 error mapping, all four enforcement steps wired correctly, group requests, pre-fire safety check skips a device whose identity drifted between resolution and enforcement, `/presence-check/{friendly_name}`, `is_quarantined`/`last_quarantined_at` stamping on quarantine vs. release; `_human_summary` sentence construction (single/multiple devices, partial failure, identity drift, inconclusive fingerprint) and its presence in both endpoints' responses; `/liveness-sweep` auth, sorted responders, passthrough to `sweep`, distinct-address `checked` count, empty request, and over-cap rejection without sweeping |
+| `tests/test_quarantine_main.py`             | FastAPI routes via `TestClient` — `/health` answers without a token, auth enforcement, 404/409 error mapping, all four enforcement steps wired correctly, group requests, pre-fire safety check skips a device whose identity drifted between resolution and enforcement, `/presence-check/{friendly_name}`, `is_quarantined`/`last_quarantined_at` stamping on quarantine vs. release; `_human_summary` sentence construction (single/multiple devices, partial failure, identity drift, inconclusive fingerprint) and its presence in both endpoints' responses; `/liveness-sweep` auth, sorted responders, passthrough to `sweep`, distinct-address `checked` count, empty request, and over-cap rejection without sweeping |
 | `tests/test_quarantine_presence_check.py`   | `probe_device_now` — unregistered device, no current lease, Kea unreachable, no ARP reply, ARP reply stamps last-seen fields, default-constructed `KeaClient`; `_run_one_pass` probes every registered device                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | `tests/test_pool_history.py`                | `take_sample_now` (writes a row, derives `available`, survives an unreachable Kea), sampler lifecycle (start records, idempotent start, stop, safe stop when never started, a failing pass does not kill the loop), and interval/retention env-var handling                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 
@@ -1035,7 +1110,7 @@ module as `tests.conftest` — a bare `from conftest import StubKeaClient` in an
 test file won't resolve, but fixtures always will. Both stubs record every call made
 (`saved_configs` / `calls`) so tests can assert on exactly what would have been sent.
 
-**Streamlit cached loaders** (`load_leases`, `load_pool_stats`, `load_config`, `load_status` in `helpers.py`) are not tested — they require a `ScriptRunContext` that only exists inside a running Streamlit app.
+**Streamlit cached loaders** (`load_leases`, `load_pool_stats`, `load_config`, `load_status` in `streamlit_adapter.py`) are thin `@st.cache_data` wrappers and are not tested directly; the logic they wrap (`pool_stats_with_fallback`) is.
 
 ## Validation and Error Handling Standards
 

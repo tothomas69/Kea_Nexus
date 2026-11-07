@@ -7,7 +7,7 @@ Two layers, on purpose:
    (`disabled=read_only()`), and each tab shows read_only_notice(), so a
    viewer can see why nothing responds.
 2. Each write path checks again before writing. Kea writes are refused by
-   helpers.get_client(), which gives viewers a ReadOnlyKeaClient. Writes
+   streamlit_adapter.get_client(), which gives viewers a ReadOnlyKeaClient. Writes
    that don't go through Kea (SQLite rows, the quarantine service) call
    refuse_if_viewer() first.
 
@@ -18,8 +18,8 @@ what actually protects the network.
 
 import streamlit as st
 
-from auth import is_admin
 from kea import VIEWER_WRITE_REFUSED_MESSAGE
+from streamlit_adapter import is_admin
 
 
 def read_only() -> bool:

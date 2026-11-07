@@ -1,0 +1,15 @@
+{# Swapped in place on a failed sign-in, so the error shows without a page reload. #}
+<form id="login-form" class="form" hx-post="/login" hx-target="#login-form" hx-swap="outerHTML">
+	{% if error %}
+	<p class="form-error" role="alert">{{ error }}</p>
+	{% endif %}
+	<label class="field">
+		<span>Username</span>
+		<input name="username" value="{{ username }}" autocomplete="username" autocapitalize="off" spellcheck="false" required autofocus>
+	</label>
+	<label class="field">
+		<span>Password</span>
+		<input name="password" type="password" autocomplete="current-password" required>
+	</label>
+	<button class="button button-primary" type="submit">Sign in</button>
+</form>

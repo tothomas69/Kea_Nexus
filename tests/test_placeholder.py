@@ -5,6 +5,6 @@
 
 
 def test_project_is_set_up():
-    """Placeholder - proves pytest is configured and running correctly."""
-    # Replace this with real assertions as the project grows
-    assert True, "If this fails something is very wrong with pytest itself"
+	"""Placeholder - proves pytest is configured and running correctly."""
+	# Replace this with real assertions as the project grows
+	assert True, "If this fails something is very wrong with pytest itself"

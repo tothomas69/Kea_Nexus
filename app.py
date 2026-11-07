@@ -9,18 +9,21 @@ from typing import Optional
 import extra_streamlit_components as stx
 import streamlit as st
 
-from auth import (
-	SESSION_COOKIE_NAME,
-	bootstrap_admin_from_env,
+from auth import SESSION_COOKIE_NAME, bootstrap_admin_from_env
+from db import init_db
+from kea import KeaError
+from pool_history import start_pool_sampler
+from streamlit_adapter import (
+	get_client,
 	is_admin,
 	is_authenticated,
+	load_config,
+	load_leases,
+	load_pool_stats,
+	load_status,
 	logout,
 	restore_session_from_cookie,
 )
-from db import init_db
-from helpers import get_client, load_config, load_leases, load_pool_stats, load_status
-from kea import KeaError
-from pool_history import start_pool_sampler
 from ui_dashboard import render_dashboard
 from ui_docs import render_docs_nav, render_open_article
 from ui_ipam import render_ipam

@@ -31,6 +31,7 @@ services:
             - ./ui_settings.py:/app/ui_settings.py
             - ./ui_users.py:/app/ui_users.py
             - ./ui_access.py:/app/ui_access.py
+            - ./streamlit_adapter.py:/app/streamlit_adapter.py
             - ./style.css:/app/style.css
             - ./.streamlit:/app/.streamlit
             - ./static:/app/static
@@ -44,6 +45,51 @@ services:
             --server.address=0.0.0.0
             --server.headless=true
             --browser.gatherUsageStats=false
+
+    # The FastAPI + HTMX UI, run beside the Streamlit UI until cutover.
+    # See docs/fastapi-htmx-migration.md. Same image, different command.
+    keanexus-web:
+        build: .
+        container_name: keanexus-web
+        restart: unless-stopped
+        ports:
+            - "8503:8000"
+        env_file:
+            - .env
+        environment:
+            # The Streamlit container still runs the pool sampler. Two samplers
+            # would write every reading twice, so this stays "off" until cutover.
+            KEANEXUS_WEB_BACKGROUND_WORK: "off"
+        volumes:
+            - ./auth.py:/app/auth.py
+            - ./db.py:/app/db.py
+            - ./kea.py:/app/kea.py
+            - ./helpers.py:/app/helpers.py
+            - ./dashboard_data.py:/app/dashboard_data.py
+            - ./docs_library.py:/app/docs_library.py
+            - ./pool_history.py:/app/pool_history.py
+            - ./quarantine_client.py:/app/quarantine_client.py
+            - ./version.py:/app/version.py
+            - ./web:/app/web
+            - ./static:/app/static
+            - ./docs:/app/docs
+            - ./data:/app/data
+        # --proxy-headers makes Nginx Proxy Manager's X-Forwarded-Proto set the
+        # request scheme, so session cookies get the Secure flag over HTTPS.
+        command: >
+            uvicorn web.main:app
+            --host 0.0.0.0
+            --port 8000
+            --proxy-headers
+            --forwarded-allow-ips=*
+        # The image's own HEALTHCHECK probes Streamlit's port; this container
+        # serves uvicorn on 8000 instead.
+        healthcheck:
+            test: ["CMD", "curl", "-f", "http://localhost:8000/healthz"]
+            interval: 30s
+            timeout: 5s
+            start_period: 10s
+            retries: 3
 
     keanexus-quarantine:
         build:

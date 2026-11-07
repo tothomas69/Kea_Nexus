@@ -14,8 +14,8 @@ original expiry until they renew.
 
 import streamlit as st
 
-from helpers import get_client, load_config
 from kea import KeaError
+from streamlit_adapter import get_client, load_config
 from ui_access import read_only, read_only_notice
 
 # ---------------------------------------------------------------------------

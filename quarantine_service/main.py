@@ -398,6 +398,17 @@ def _resolve_and_log(request: QuarantineRequest, action: str) -> dict:
 	}
 
 
+@app.get("/health")
+def health() -> dict:
+	"""Liveness for the KeaNexus header's health dot and Docker. Unauthenticated on purpose.
+
+	Says only that the process is up and answering: no device names, no
+	state, nothing a caller without the token could learn from. Every route
+	that reads or changes anything still requires the bearer token.
+	"""
+	return {"ok": True}
+
+
 @app.post("/quarantine", dependencies=[Depends(require_bearer_token)])
 def quarantine(request: QuarantineRequest) -> dict:
 	"""Resolve the target's live identity and apply all four enforcement steps."""

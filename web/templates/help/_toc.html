@@ -1,0 +1,14 @@
+{% for article in articles %}
+<section class="toc-article">
+	<h3><a href="/help/{{ article.filename }}">{{ article.title }}</a></h3>
+	{% if article.sections %}
+	<ol class="toc-sections">
+		{% for section in article.sections %}
+		<li><a href="/help/{{ article.filename }}#{{ section.anchor }}">{{ section.text }}</a></li>
+		{% endfor %}
+	</ol>
+	{% endif %}
+</section>
+{% else %}
+<p class="muted">No help articles are installed. Check that the docs folder is mounted into the container.</p>
+{% endfor %}
