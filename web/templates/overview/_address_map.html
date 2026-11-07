@@ -1,0 +1,13 @@
+{# Redrawn every 30 s and after any change. The cell details ride along as JSON, so the
+   hover card reads them locally and hovering costs no requests (see overview.js). #}
+<div id="address-map" hx-get="/fragments/address-map" hx-trigger="every 30s, overview-changed from:body" hx-swap="outerHTML">
+	<script type="application/json" id="address-cells">{{ cells | tojson }}</script>
+	<div class="address-grid">
+		{% for cell in cells %}
+		<button type="button" class="cell cell-{{ cell.status }}"
+			:class="{ 'cell-pinned': pinned === {{ cell.octet }}, 'cell-hovered': pinned === null && hovered === {{ cell.octet }} }"
+			aria-label="{{ cell.ip }}, {{ cell.status_label }}"
+			@mouseenter="hover({{ cell.octet }})" @focus="hover({{ cell.octet }})" @click="toggle({{ cell.octet }})">{{ cell.octet }}</button>
+		{% endfor %}
+	</div>
+</div>

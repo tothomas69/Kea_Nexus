@@ -1,0 +1,33 @@
+<section class="kpis" aria-label="Key figures">
+	<div class="card kpi">
+		<div class="kpi-label">Pool utilisation</div>
+		{% if pool %}
+		<div class="kpi-value-row"><span class="kpi-value">{{ pool.percent }}%</span><span class="muted small">{{ pool.used }} of {{ pool.total }}</span></div>
+		<div class="pool-bar" role="img" aria-label="Pool {{ pool.percent }} percent full">
+			<div class="pool-bar-fill pool-{{ pool.level }}" style="width: {{ pool.percent }}%"></div>
+		</div>
+		<div class="kpi-foot"><span>{{ pool.available }} free</span><span>warn at {{ pool.warn_percent }}%</span></div>
+		{% else %}
+		<div class="kpi-value">—</div>
+		<div class="kpi-note">Kea did not report pool figures</div>
+		{% endif %}
+	</div>
+	<div class="card kpi">
+		<div class="kpi-label">Active leases</div>
+		<div class="kpi-value">{{ pool.assigned if pool else "—" }}</div>
+		<div class="kpi-note">
+			{% if issued is none %}New-lease count needs more history{% else %}+{{ issued }} in the last 24 h{% endif %}
+			{% if pool and pool.declined %} · {{ pool.declined }} declined{% endif %}
+		</div>
+	</div>
+	<div class="card kpi">
+		<div class="kpi-label">Reservations</div>
+		<div class="kpi-value">{{ reservation_count }}</div>
+		<div class="kpi-note">{{ fixed_count }} with a fixed IP</div>
+	</div>
+	<div class="card kpi{% if quarantined_names %} kpi-alert{% endif %}">
+		<div class="kpi-label">Quarantined</div>
+		<div class="kpi-value">{{ quarantined_names | length }}</div>
+		<div class="kpi-note">{{ quarantined_names | join(" · ") if quarantined_names else "Nothing is quarantined" }}</div>
+	</div>
+</section>

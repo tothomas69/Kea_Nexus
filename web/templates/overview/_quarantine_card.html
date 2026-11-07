@@ -1,0 +1,28 @@
+<section id="quarantine-card" class="card side-card" aria-labelledby="quarantine-title"
+	hx-get="/fragments/quarantine" hx-trigger="every 30s" hx-swap="outerHTML">
+	<div class="side-card-head">
+		<h2 id="quarantine-title">Quarantine</h2>
+	</div>
+	{% if notice %}
+	<p class="notice {{ 'notice-ok' if notice.ok else 'notice-error' }}" role="status">{{ notice.text }}</p>
+	{% endif %}
+	{% for device in devices %}
+	<div class="switch-row">
+		<div class="switch-row-text">
+			<div class="strong">{{ device.name }}</div>
+			{% if device.meta %}<div class="muted small">{{ device.meta }}</div>{% endif %}
+		</div>
+		<button type="button" role="switch" class="switch{% if device.quarantined %} switch-on{% endif %}"
+			aria-checked="{{ 'true' if device.quarantined else 'false' }}"
+			aria-label="Quarantine {{ device.name }}"
+			{% if not is_admin %}disabled title="Viewers can't make changes"{% endif %}
+			hx-post="/quarantine/{{ device.name | urlencode }}{% if device.quarantined %}/release{% endif %}"
+			hx-target="#quarantine-card" hx-swap="outerHTML" hx-disabled-elt="this">
+			<span class="switch-knob" aria-hidden="true"></span>
+		</button>
+	</div>
+	{% else %}
+	<p class="muted small">No devices are registered for quarantine yet.</p>
+	{% endfor %}
+	<p class="muted small side-card-foot">Kea deny · ARP · Pi-hole ×2 · fingerprint — each step logged</p>
+</section>

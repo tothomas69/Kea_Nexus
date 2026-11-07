@@ -1,0 +1,6 @@
+{% for service in services %}
+<span class="health-item" title="{{ service.name }} is {{ 'answering' if service.up else 'not answering' }}">
+	<span class="health-dot{% if not service.up %} health-down{% endif %}" aria-hidden="true"></span>
+	{{ service.name }}<span class="visually-hidden">: {{ "up" if service.up else "down" }}</span>
+</span>
+{% endfor %}

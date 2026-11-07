@@ -1,0 +1,31 @@
+{# One card, filled from the hovered or pinned cell. Pinned cards stay put and offer actions. #}
+<template x-if="focus">
+	<div class="hover-card" :class="{ 'hover-card-pinned': pinned !== null }" :style="cardStyle()"
+		role="dialog" :aria-label="'Details for ' + focus.ip">
+		<div class="hover-card-top">
+			<span class="hover-card-mode" x-text="pinned !== null ? 'Pinned' : 'Address'"></span>
+			<span class="pill" :class="'cell-' + focus.status" x-text="focus.status_label"></span>
+			<button type="button" class="icon-button icon-button-small" aria-label="Close details" x-show="pinned !== null" @click="toggle(pinned)">×</button>
+		</div>
+		<div class="hover-card-ip" x-text="focus.ip"></div>
+		<dl class="hover-card-details">
+			<dt>Label</dt><dd class="strong" x-text="focus.label || '—'"></dd>
+			<dt>Hostname</dt><dd class="mono" x-text="focus.hostname || '—'"></dd>
+			<dt>MAC</dt><dd class="mono" x-text="focus.mac || '—'"></dd>
+			<dt>Lease</dt><dd x-text="focus.info || '—'"></dd>
+			<template x-if="focus.device"><dt>Device</dt></template>
+			<template x-if="focus.device"><dd x-text="focus.device"></dd></template>
+			<template x-if="focus.notes"><dt>Notes</dt></template>
+			<template x-if="focus.notes"><dd x-text="focus.notes"></dd></template>
+		</dl>
+		<template x-if="pinned !== null && isAdmin && (focus.editable || focus.device)">
+			<div class="hover-card-actions">
+				<button type="button" class="button button-primary" x-show="focus.editable" @click="editStatic(focus)">Edit</button>
+				<button type="button" class="button" :class="focus.quarantined ? 'button-release' : 'button-danger-soft'"
+					x-show="focus.device" :disabled="busy" @click="quarantineAction(focus)"
+					x-text="busy ? 'Working…' : (focus.quarantined ? 'Release' : 'Quarantine')"></button>
+			</div>
+		</template>
+		<p class="hover-card-hint" x-show="pinned === null">Click the square to pin</p>
+	</div>
+</template>

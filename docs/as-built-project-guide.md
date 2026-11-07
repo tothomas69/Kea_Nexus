@@ -42,6 +42,7 @@ keanexus/
 ├── helpers.py          — Pure data helpers and format utilities (no UI framework)
 ├── streamlit_adapter.py — Streamlit-only glue: session state, per-session Kea client, cached loaders
 ├── dashboard_data.py   — Pure metric/chart shaping for the Dashboard tab
+├── address_map.py      — Pure /24 classifier shared by the IPAM tab and the web Address Map
 ├── docs_library.py     — Allowlist + reader for the operator docs shown in-app
 ├── ui_docs.py          — Documentation sidebar entry and the article dialog
 ├── pool_history.py     — Background sampler building the pool utilisation time series
@@ -511,11 +512,23 @@ KPI tile row → gauge / service health / lease summary cards → utilisation tr
 - `_health_row(label, detail, up)` — service health row with status badge
 - `_metric_row(label, value)` — lease summary metric row
 
+### Address Map (`address_map.py`)
+
+- **Pure and shared.** The per-address classification that used to live inside
+  `ui_ipam.py`, moved out unchanged so the IPAM tab and the web UI's Address Map
+  can never disagree about an address, and so it is unit-tested
+- `classify_addresses(prefix, pool_start_octet, pool_end_octet, gateway, leases,
+  reservations, static_entries, labels, override_ips, override_macs, now_epoch)` —
+  one `AddressRow` per address .0–.255: network, broadcast, gateway, leased,
+  declined, reserved, static, scope (free in pool) or free. `now_epoch` is passed
+  in so lease time-left is testable
+- Status priority: network/broadcast > gateway > declined lease > active lease with fixed reservation (shows as reserved) > active lease > reservation > static DB entry > in-scope free > free
+- `subnet_prefix(config)`, `gateway_ip(config)`, `subnet_reservations(config)`,
+  `last_octet(ip)` — the config lookups both UIs need
+
 ### IPAM Tab (`ui_ipam.py`)
 
-- `render_ipam(leases, config)` — full /24 subnet map (256 addresses)
-- `_classify_all(...)` — classifies each IP as: network, broadcast, gateway, leased, declined, reserved, static, scope (free in pool), or free
-- Status priority: network/broadcast > gateway > declined lease > active lease with fixed reservation (shows as reserved) > active lease > reservation > static DB entry > in-scope free > free
+- `render_ipam(leases, config)` — full /24 subnet map (256 addresses), classified by `address_map.classify_addresses`
 - Static entries stored in SQLite; only permitted for out-of-scope addresses
 - Edit is a per-row `st.dialog` (`_edit_dialog`); `upsert_static_entry` / `delete_static_entry`
 - Columns: IP Address, Status, Label, Real Hostname, MAC, Expires. Label and Real
@@ -690,14 +703,14 @@ viewer session sent only read commands, and calling the write functions
 directly as a viewer was refused with nothing reaching Kea or the quarantine
 service.
 
-### Web UI (`web/`) — FastAPI + HTMX, phase 0
+### Web UI (`web/`) — FastAPI + HTMX, phases 0–1
 
 Being built beside the Streamlit UI; the plan, route map and phase order are in
 `docs/fastapi-htmx-migration.md`. Runs as the `keanexus-web` compose service
 (`uvicorn web.main:app`, host port **8503**). Phase 0 is the groundwork: sign
-in/out, the page layout, Help and the health check. The Overview is a
-placeholder until phase 1; other tabs show greyed out in the nav until their
-phase lands.
+in/out, the page layout, Help and the health check. Phase 1 is the real
+Overview (charts follow in phase 1b). Other tabs show greyed out in the nav
+until their phase lands.
 
 - `main.py` — `create_app(start_background_work)`. The lifespan runs
   `init_db()`, `bootstrap_admin_from_env()` and, when allowed, the pool sampler,
@@ -727,7 +740,49 @@ phase lands.
   same `slugify` the markdown `toc` extension uses, so links can't drift from
   the docs. Articles render with `markdown` (`fenced_code`, `tables`, `toc`);
   only `docs_library`'s allowlist is ever read
-- Routes: `GET/POST /login`, `POST /logout`, `GET /` (Overview placeholder),
+- **Overview (`routes/overview.py`, `overview_data.py`, `static/overview.js`).**
+  Key figures (pool use with a green/amber/red bar, active leases and new
+  leases in 24 h, reservations, quarantined), the Address Map, the Quarantine
+  card and Activity. All the shaping is in the pure `overview_data.py`
+  (`pool_figures`, `map_cells`, `devices_by_ip`, `quarantine_rows`, `activity`);
+  the route only fetches and renders
+    - **Address Map:** 256 server-rendered squares plus every cell's details as
+      one JSON blob (`#address-cells`), so the Alpine component in
+      `overview.js` shows the hover card without a single request. Clicking
+      pins the card, which then offers **Edit** (static entry, for addresses
+      that can hold one) and **Quarantine/Release** (when a registered device
+      sits there) to admins. Two display-only statuses sit on top of
+      `address_map`: **quarantined** (a registered device with
+      `is_quarantined`) and **unknown** (a dynamic lease with no hostname, no
+      label and no registered device). Devices are placed by the hostname on
+      their live lease first, the way the quarantine service finds them, and by
+      `last_seen_ip_address` otherwise, since a quarantined device holds no lease
+    - **Live redraws:** the map and Activity re-fetch every 30 s and on the
+      `overview-changed` event, which every write route sends in `HX-Trigger`,
+      so an action shows up at once. The Quarantine card polls every 30 s only:
+      its own POST already returns the fresh card with the result notice
+    - **Activity** folds `quarantine_log` (one row per step) into one line per
+      Quarantine/Release, counting only the enforcement steps (Kea, ARP, both
+      Pi-holes). Like `_enforcement_succeeded`, an inconclusive nmap refresh is
+      not a problem. Rows for one action within 5 minutes are one line
+    - **Static entries** moved here from the IPAM tab: `GET /address/{ip}/static`
+      (form into the page dialog), `POST` (save; MAC must look like
+      `aa:bb:cc:dd:ee:ff`), `DELETE`. Admin-only, and refused (404) for any
+      address `address_map` doesn't mark editable, i.e. inside the pool
+    - **Quarantine/Release:** `POST /quarantine/{name}` and
+      `POST /quarantine/{name}/release`, admin-only, 404 for an unregistered
+      name. A `QuarantineServiceError` becomes a red notice on the card, never
+      a 500
+- `cache.py` — `cached(key, ttl_seconds, load)`: a small TTL cache replacing
+  `@st.cache_data` for Kea reads (leases 30 s, pool stats 30 s, config 120 s,
+  health 20 s). A failed load is never cached
+- `health.py` — the header's health dots: Kea via `version-get`;
+  `keanexus-quarantine` via its `GET /health`; Pi-hole 1/2 shown only when
+  `PIHOLE_API_URL` / `PIHOLE_SECONDARY_API_URL` are set for this container, and
+  counted up on **any** HTTP answer below 500 (a 401 included). That proves
+  Pi-hole is answering without the web container ever holding a Pi-hole password
+- Routes: `GET/POST /login`, `POST /logout`, `GET /` (Overview),
+  `GET /fragments/{address-map,quarantine,activity,health}`,
   `GET /help` (table of contents: fragment for HTMX, full page otherwise),
   `GET /help/{filename}` (404 off the allowlist), `GET /healthz` (no auth; the
   compose healthcheck, since the image's own HEALTHCHECK probes Streamlit)
@@ -1000,11 +1055,12 @@ All endpoints except `GET /health` require `Authorization: Bearer <QUARANTINE_AP
 
 **HTML tables (not st.dataframe)** — All data tables rendered as raw HTML to allow custom chip/badge formatting. Streamlit's native components don't support per-cell HTML.
 
-**UI moving from Streamlit to FastAPI + HTMX (in progress: phase 0 done)** —
+**UI moving from Streamlit to FastAPI + HTMX (in progress: phases 0–1 done)** —
 `docs/fastapi-htmx-migration.md` has the plan: why, the route map, auth and
 CSRF, deployment beside the current UI on port 8503, and a phase-by-phase PR
 order. Phase 0 split `auth.py` and `helpers.py` from Streamlit (into
-`streamlit_adapter.py`) and added the `web/` skeleton. Until cutover (phase 7),
+`streamlit_adapter.py`) and added the `web/` skeleton; phase 1 built the
+Overview and moved the address classifier into `address_map.py`. Until cutover (phase 7),
 everything below about Streamlit stays true. Check that doc before adding new
 Streamlit-only UI, which would only have to be rebuilt.
 
@@ -1072,6 +1128,9 @@ since they require a live Streamlit server and can't be unit-tested). That inclu
 | `tests/test_auth.py`                        | First-admin bootstrap; `check_credentials` (case-insensitive, wrong password, unknown/empty and disabled users, records login); `session_user_if_valid` (current vs old version, disabled, unknown); signed token round trip, no secret, stale version, tampered username, malformed and non-numeric values, `public_user` omits the hash; user-management rules (validation, duplicates, last-admin and self-disable protection)                                                                                                                                                                                                                                                                             |
 | `tests/test_streamlit_adapter.py`           | The Streamlit session glue: login (case-insensitive, wrong password, unknown, empty, disabled, corrupt hash), `current_user`/`is_admin` incl. sessions ended by password change, disable and deletion, logout; cookie round trip into a fresh session, stale version, tampered username, wrong secret, malformed values, no secret; `get_client` gives viewers `ReadOnlyKeaClient` |
 | `tests/test_web.py`                         | Web UI phase 0 via `TestClient`: `/healthz`; signed-out redirect (303, or `HX-Redirect` for HTMX); login sets an HttpOnly/SameSite cookie, wrong password shows the error with no session, missing secret explained, plain-form 303; sign-out; sessions ended by password change and disable; CSRF refused without token, with a mismatched token, without the cookie, token written into the page and not rotated; `require_admin`/`kea_client` by role; Help table of contents (fragment vs full page, every link lands on a real heading id, off-allowlist and missing files 404, code blocks skipped); lifespan admin bootstrap and the sampler switch |
+| `tests/test_address_map.py`                | `classify_addresses`: all 256 rows, network/broadcast/gateway, pool vs free and which are editable, dynamic lease (hostname, MAC, time left), declined beats reservation, leased reservation shows reserved with its stored label, legacy Kea hostname as label fallback, offline reservation, masked hostname never shown as real, static entry label/notes/editable, missing `valid-lft` uses Kea's default, malformed prefix rejected; the config helpers |
+| `tests/test_overview_data.py`               | `local_time`; `pool_figures` (declined counted as used, ok/warn/full, zero pool, no stats); `devices_by_ip` (live hostname first, last-seen fallback); `map_cells` display statuses (quarantined, unknown, named and reserved leases not unknown) and the full cell shape; legend order; `quarantine_rows` ordering and meta; `activity` (one line per action, nmap failure ignored, failed step flagged, identity-drift skip, separate actions, limit) |
+| `tests/test_web_overview.py`                | Overview routes with a stub Kea: needs sign-in, 256 squares + figures + subnet, hover JSON names the registered device, card lists devices, viewer switches disabled, Kea down still renders with a banner, all four fragments; Quarantine/Release (viewer 403, unknown 404, summary + `HX-Trigger`, release path, service failure shown, CSRF required); static entries (prefill, free address, pool/network/off-subnet refused, save + close trigger, bad MAC not written, delete, viewer 403); `cache` (reuse, expiry, failures not cached, forget, TTL check); `health` (Kea only, Kea down, Pi-hole any non-5xx is up, quarantine needs 2xx, unreachable is down) |
 | `tests/test_db_users.py`                    | `users` table storage: case-insensitive usernames, duplicate rejection, role CHECK, list omits hashes, active-admin count, `session_version` bumps on every change, `record_login`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | `tests/test_db.py`                          | Full CRUD on `ipam_static`, `reservation_labels`, `device_registry`, and `quarantine_log` via `temp_db` fixture (SQLite in tmp dir)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | `tests/test_kea.py`                         | All `KeaClient` methods; `ReadOnlyKeaClient` passes every read command and refuses every write and unknown command before any request; `httpx` patched via `http_mock` fixture                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
