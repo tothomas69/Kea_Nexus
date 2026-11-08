@@ -201,7 +201,7 @@ old UI working the whole time.
      axis showing UTC as local time.)*
 2. **Quarantine.** *(Done.)*
 3. **Leases**, with the background liveness sweep (decision 3). *(Done. The sweep has its own switch, `KEANEXUS_WEB_LIVENESS_SWEEP`, and runs during the overlap, since Streamlit has no background sweep to collide with. The "Online now" figure sits in the Active leases tile rather than a fifth tile.)*
-4. **Reservations.**
+4. **Reservations.** *(Done. Edits keep fields the form doesn't show, writes read the config fresh, and delete refuses a quarantined device; see the as-built guide.)*
 5. **Maintenance.**
 6. **Settings + Users.**
 7. **Cutover.** Point NPM at `keanexus-web`, then remove `app.py`, `ui_*.py`,

@@ -1,0 +1,27 @@
+{# Loaded into the page dialog. Errors re-render this form; success closes it. #}
+<form class="form" hx-target="this" hx-swap="outerHTML"
+	{% if original_mac %}hx-put="/reservations/{{ original_mac }}"{% else %}hx-post="/reservations"{% endif %}>
+	<div class="dialog-head">
+		<h2>{{ "Edit reservation" if original_mac else "Add a reservation" }}</h2>
+		<button type="button" class="icon-button" aria-label="Close" @click="$dispatch('close-dialog')">×</button>
+	</div>
+	<p class="muted small">Saving writes to Kea at once and to kea-dhcp4.conf, so it survives a restart.</p>
+	{% if error %}<p class="form-error" role="alert">{{ error }}</p>{% endif %}
+	<label class="field"><span>Label</span>
+		<input name="label" value="{{ values.label }}" required autocomplete="off" placeholder="Living room TV">
+		<small class="muted">Shown in KeaNexus only. Kea keeps the name the device reports.</small></label>
+	<label class="field"><span>MAC address</span>
+		<input name="mac" value="{{ values.mac }}" required autocomplete="off" spellcheck="false" placeholder="aa:bb:cc:dd:ee:ff"></label>
+	<label class="field"><span>IP address</span>
+		<input name="ip" value="{{ values.ip }}" autocomplete="off" spellcheck="false" placeholder="Leave blank for name-only">
+		<small class="muted">Blank means Kea remembers the device but still gives it any free address.</small></label>
+	<div class="form-actions">
+		<button type="submit" class="button button-primary">Save</button>
+		{% if original_mac %}
+		<button type="button" class="button button-danger-soft" hx-delete="/reservations/{{ original_mac }}" hx-params="none"
+			hx-target="closest form" hx-swap="outerHTML" hx-disabled-elt="this"
+			hx-confirm="Delete the reservation for {{ original_mac }}?">Delete</button>
+		{% endif %}
+		<button type="button" class="button button-quiet" @click="$dispatch('close-dialog')">Cancel</button>
+	</div>
+</form>
