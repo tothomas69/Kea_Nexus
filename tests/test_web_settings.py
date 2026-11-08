@@ -118,6 +118,19 @@ def _sign_in_as(username, client, role="admin"):
 	return headers
 
 
+class TestTabHighlight:
+	def test_settings_tab_current_on_its_sub_pages(self, client):
+		_sign_in(client)
+		page = client.get("/settings/users").text
+		assert 'href="/settings" class="tab tab-current" aria-current="page"' in page
+
+	def test_overview_tab_not_current_on_other_screens(self, client):
+		_sign_in(client)
+		page = client.get("/settings").text
+		assert 'href="/" class="tab tab-current"' not in page
+		assert 'href="/settings" class="tab tab-current"' in page
+
+
 class TestUsers:
 	def test_list_and_forms(self, client):
 		_sign_in(client)
