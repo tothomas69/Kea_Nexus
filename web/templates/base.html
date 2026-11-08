@@ -20,12 +20,19 @@
 		<div class="masthead-main">
 			{% if user %}
 			<div class="masthead-bar">
-				<label class="search">
-					<svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-3.5-3.5"></path></svg>
-					<span class="visually-hidden">Search</span>
-					<input type="search" placeholder="Search arrives in a later phase" disabled>
-					<kbd>⌘K</kbd>
-				</label>
+				{# ⌘K or Ctrl+K focuses the box; Escape clears it. Results come from /search. #}
+				<div class="search-wrap" x-data="{ open: false }" @click.outside="open = false"
+					@keydown.window.meta.k.prevent="$refs.search.focus()" @keydown.window.ctrl.k.prevent="$refs.search.focus()">
+					<label class="search">
+						<svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-3.5-3.5"></path></svg>
+						<span class="visually-hidden">Search</span>
+						<input type="search" name="q" x-ref="search" placeholder="Search IP, MAC, hostname or label" autocomplete="off" spellcheck="false"
+							hx-get="/search" hx-trigger="input changed delay:200ms, search" hx-target="#search-results" hx-swap="innerHTML"
+							@focus="open = true" @input="open = true" @keydown.escape="$el.value = ''; open = false; $el.blur()">
+						<kbd>⌘K</kbd>
+					</label>
+					<div id="search-results" class="search-panel" x-show="open" x-cloak></div>
+				</div>
 				<div class="health" hx-get="/fragments/health" hx-trigger="load, every 30s" aria-live="polite"></div>
 				<div class="account">
 					<span class="account-name">{{ user.username }}{% if user.role != "admin" %} · viewer{% endif %}</span>
