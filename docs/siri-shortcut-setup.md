@@ -12,7 +12,7 @@
 2. `quarantine_service/.env` has a real `QUARANTINE_API_TOKEN` (generate one
    with `python3 -c "import secrets; print(secrets.token_urlsafe(32))"`),
    and real `PIHOLE_API_PASSWORD`.
-3. At least one device is registered in the KeaNexus **Quarantine** tab
+3. At least one device is registered on the KeaNexus **Quarantine** screen
    (friendly_name + hostname).
 4. You know the service's address — `http://<netstack-ip>:8600` (netstack is
    LXC 108; confirm its actual IP if you're not sure it's still 172.16.17.215).
@@ -31,7 +31,7 @@ curl -X POST http://<netstack-ip>:8600/quarantine \
 
 A working call returns JSON with a plain-English `summary` field plus the
 diagnostic `resolved_devices` and `step_results`. Check
-the KeaNexus Quarantine tab's audit log afterward — you should see five new
+the audit log on the KeaNexus Quarantine screen afterward — you should see five new
 rows (`identity_resolution`, `kea`, `arp`, `pihole`, `nmap_refresh`). Then
 test release the same way against `/release`.
 
@@ -107,7 +107,8 @@ The `summary` sentence only reflects the three steps that actually take a
 device off the network (Kea, ARP, Pi-hole). The nmap fingerprint refresh is
 identity upkeep that runs in both directions, so an inconclusive scan won't
 report a failure to someone who just wants to know whether the wifi is off —
-the per-step detail is still in `step_results` for the KeaNexus tab.
+the per-step detail is still in `step_results`, which the KeaNexus Quarantine
+screen shows as a ✓ or ✗ per step.
 
 ## Wiring it up to Siri
 
@@ -136,7 +137,7 @@ personal data without it, independent of anything configured on your phone.
 ## Verifying it end to end
 
 Say "Hey Siri, Quarantine Tommy's Laptop." Then check the KeaNexus
-Quarantine tab's audit log — same five-row pattern as the `curl` test above
+Quarantine screen's audit log — same five-row pattern as the `curl` test above
 confirms the whole path from voice to enforcement actually worked.
 
 ## Things worth knowing before relying on this

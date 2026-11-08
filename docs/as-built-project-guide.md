@@ -243,7 +243,8 @@ override_macs)` / `distinct_real_hostnames(leases, config)` — a Kea
 - Help in the masthead opens a table of contents built from each article's
   own `## ` headings (`web/help_content.py`); an article opens in the Help modal
 - `docs_library.ARTICLES` is the allowlist: currently Siri Shortcut Setup and
-  Quarantine Design. The as-built guide and PRD are developer notes and stay out
+  Quarantine Design. Both were brought up to date for 2.0.0 (screens, not
+  Streamlit tabs). The README describes 2.0.0 too. The as-built guide and PRD are developer notes and stay out
   of the app deliberately
 - **`read_article` refuses anything not in `ARTICLES`, before any path is
   built.** The filename arrives from a URL, so joining it onto the docs

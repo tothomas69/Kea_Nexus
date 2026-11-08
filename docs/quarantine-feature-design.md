@@ -3,6 +3,14 @@
 > Status: implemented (PRs 1–6 complete). Companion to `docs/prd.md` and
 > `docs/siri-shortcut-setup.md`. Read this alongside
 > `docs/as-built-project-guide.md` before extending anything here.
+>
+> **Since KeaNexus 2.0.0** the UI is FastAPI + HTMX, not Streamlit. This doc
+> records why the quarantine service was built as it was, so the Streamlit
+> reasoning below is kept as history. The split still holds: the quarantine
+> service needs host networking and raw-socket capabilities that the web UI
+> container deliberately doesn't have. Where this doc names a Streamlit file
+> (`ui_quarantine.py`, the Quarantine "tab"), the same behaviour now lives in
+> `web/routes/quarantine.py` and `web/quarantine_data.py`.
 
 ## Problem
 
@@ -331,6 +339,7 @@ Pi-hole failures were indistinguishable from that constant noise.
 ### Changes made
 
 - **Delete now releases first.** `ui_quarantine._delete_with_auto_release`
+  (now the `DELETE /devices/{name}` route in `web/routes/quarantine.py`)
   calls `/release` for a quarantined device and verifies every step
   succeeded before removing the row. Any failed step aborts the delete.
   Partial success does not count — that is precisely how enforcement gets
