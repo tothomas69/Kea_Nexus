@@ -21,7 +21,8 @@ import os
 import threading
 
 from db import insert_pool_sample, prune_pool_samples
-from kea import KeaClient, KeaError
+from helpers import pool_stats_with_fallback
+from kea import KeaClient
 
 logger = logging.getLogger(__name__)
 
@@ -54,12 +55,15 @@ def take_sample_now(kea: KeaClient | None = None) -> bool:
 	Kea being down is an ordinary, recoverable condition for a sampler —
 	the loop should keep running and pick the series back up when Kea
 	returns, so this reports failure rather than raising.
+
+	Uses the same fallback as the screens: without Kea's stat_cmds hook the
+	counters come from the lease list, so the utilisation trend still
+	records. "cumulative" is 0 then, which dashboard_data reads as unknown.
 	"""
 	client = kea or KeaClient()
-	try:
-		stats = client.get_pool_stats()
-	except KeaError as exc:
-		logger.warning("Pool sample skipped, Kea unreachable: %s", exc)
+	stats = pool_stats_with_fallback(client)
+	if stats is None:
+		logger.warning("Pool sample skipped, Kea unreachable")
 		return False
 
 	insert_pool_sample(

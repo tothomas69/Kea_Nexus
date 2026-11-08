@@ -157,6 +157,16 @@ class TestLeasesIssuedSince:
 		samples = [_sample(0, cumulative=100), _sample(5, cumulative=101)]
 		assert dd.leases_issued_since(samples, 24, _BASE_TIME + timedelta(minutes=5)) is None
 
+	def test_none_when_the_counter_is_missing(self):
+		"""Samples taken without Kea's stat_cmds hook carry 0, not a count."""
+		samples = [_sample(m, cumulative=0) for m in range(0, 121, 5)]
+		assert dd.leases_issued_since(samples, 1, _BASE_TIME + timedelta(minutes=120)) is None
+
+	def test_none_when_the_counter_appears_mid_window(self):
+		"""Loading the hook later must not report its whole count as new."""
+		samples = [_sample(0, cumulative=0), _sample(60, cumulative=5000)]
+		assert dd.leases_issued_since(samples, 1, _BASE_TIME + timedelta(minutes=60)) is None
+
 	def test_none_when_a_single_sample(self):
 		assert dd.leases_issued_since([_sample(0)], 1, _BASE_TIME) is None
 

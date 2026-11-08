@@ -137,6 +137,10 @@ def _utilisation_pct(sample: dict) -> float:
 # itself off as a short window.
 DEFAULT_BASELINE_TOLERANCE_SECONDS = 3600
 
+# What helpers.pool_stats_with_fallback records when Kea's stat_cmds hook,
+# the only source of the cumulative counter, isn't loaded.
+UNKNOWN_CUMULATIVE = 0
+
 
 def leases_issued_since(
 	samples: list[dict],
@@ -160,7 +164,9 @@ def leases_issued_since(
 	all, and — because the sampler leaves real gaps — a baseline that sits so
 	far before the cutoff that the delta would span much more than the window
 	asked for. Reporting ten hours of leases as "the last hour" would be
-	worse than reporting nothing.
+	worse than reporting nothing. A counter of 0 at either end is also None:
+	samples taken without Kea's stat_cmds hook carry 0, and showing "0 new
+	leases" for a counter that doesn't exist would be a false figure.
 	"""
 	assert window_hours > 0, "window_hours must be positive"
 	assert baseline_tolerance_seconds >= 0, "baseline_tolerance_seconds must not be negative"
@@ -183,7 +189,10 @@ def leases_issued_since(
 
 	# Kea restarting resets the counter, which would show as a negative
 	# delta — report nothing rather than a nonsense figure.
-	issued = samples[-1]["cumulative"] - baseline["cumulative"]
+	latest_cumulative = samples[-1]["cumulative"]
+	if latest_cumulative == UNKNOWN_CUMULATIVE or baseline["cumulative"] == UNKNOWN_CUMULATIVE:
+		return None
+	issued = latest_cumulative - baseline["cumulative"]
 	return issued if issued >= 0 else None
 
 
