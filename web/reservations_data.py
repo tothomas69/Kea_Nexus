@@ -56,10 +56,35 @@ def _hostname_state(
 	return (HOSTNAME_NOT_REPORTED, "") if not hostname else ("", hostname)
 
 
+def _online(
+	reservation: dict, leases: list[dict], responding: Optional[frozenset[str]]
+) -> Optional[bool]:
+	"""Did the device answer the latest ARP sweep? None before any sweep.
+
+	A fixed reservation is checked at its reserved address. A name-only one has
+	no address of its own, so it is checked at whatever its live lease holds,
+	and counts as not answering when it holds none.
+	"""
+	if responding is None:
+		return None
+	address = reservation.get("ip-address")
+	if not address:
+		lease = lease_for_reservation(reservation, leases)
+		address = lease.get("ip-address") if lease else ""
+	return bool(address) and address in responding
+
+
 def reservation_rows(
-	config: Optional[dict], leases: list[dict], labels: dict[str, str]
+	config: Optional[dict],
+	leases: list[dict],
+	labels: dict[str, str],
+	responding: Optional[frozenset[str]] = None,
 ) -> list[dict]:
-	"""Fixed-address reservations first, by address, then name-only ones by MAC."""
+	"""Fixed-address reservations first, by address, then name-only ones by MAC.
+
+	`responding` is the latest ARP sweep's answering addresses, or None before
+	the first sweep.
+	"""
 	override_ips, override_macs = build_hostname_override_sets(config or {})
 	rows = []
 	for reservation in _reservations(config):
@@ -75,6 +100,7 @@ def reservation_rows(
 				"hostname": hostname,
 				"hostname_state": state,
 				"quarantined": is_quarantined_reservation(reservation),
+				"online": _online(reservation, leases, responding),
 				# Kea can also key a reservation on client-id, DUID or circuit-id.
 				# KeaNexus only edits MAC reservations; the rest are shown, not touched.
 				"editable": bool(mac),

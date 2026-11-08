@@ -6,6 +6,8 @@ check exactly what would reach kea-dhcp4.conf.
 
 import copy
 import os
+import time
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -14,7 +16,7 @@ from fastapi.testclient import TestClient
 import db
 from kea import KeaError
 from tests.test_web_overview import _CONFIG, _HTMX, _SECRET, StubKea, _sign_in
-from web import cache
+from web import cache, liveness
 from web.deps import kea_client
 from web.main import create_app
 from web.routes.reservations import RESERVATIONS_CHANGED_EVENT
@@ -51,8 +53,10 @@ class ConfigKea(StubKea):
 @pytest.fixture(autouse=True)
 def fresh_cache():
 	cache.clear()
+	liveness.reset()
 	yield
 	cache.clear()
+	liveness.reset()
 
 
 @pytest.fixture
@@ -83,6 +87,20 @@ class TestTable:
 		fragment = client.get("/fragments/reservations", headers=_HTMX).text
 		assert "172.16.17.177" in fragment
 		assert "Edit" not in fragment
+
+	def test_online_column_before_and_after_a_sweep(self, client):
+		_sign_in(client)
+		page = client.get("/reservations").text
+		assert "Not checked yet" in page
+		assert "row-online" not in page
+		# Only .responding and .checked_at_epoch are read, whatever else a sweep carries.
+		sweep = SimpleNamespace(
+			responding=frozenset({"172.16.17.177"}), checked_at_epoch=time.time()
+		)
+		with patch("web.liveness.latest", return_value=sweep):
+			page = client.get("/reservations").text
+		assert "1 answered" in page
+		assert page.count("row-online") == 1
 
 	def test_kea_down(self, client, kea):
 		_sign_in(client)

@@ -9,6 +9,7 @@ the database only after Kea accepts the change, so a refused save leaves both
 sides as they were.
 """
 
+import time
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, Response
@@ -16,7 +17,7 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Request, Response
 import db
 from helpers import is_quarantined_reservation
 from kea import KeaClient, KeaError
-from web import cache
+from web import cache, liveness
 from web.deps import current_user, kea_client, require_admin
 from web.kea_reads import read_kea
 from web.leases_data import normalized_mac
@@ -41,8 +42,16 @@ def _labels() -> dict[str, str]:
 
 def _table_context(kea: KeaClient) -> dict:
 	data = read_kea(kea)
-	rows = reservation_rows(data["config"], data["leases"], _labels())
-	return {"rows": rows, "kea_error": data["config"] is None}
+	sweep = liveness.latest()
+	responding = sweep.responding if sweep else None
+	rows = reservation_rows(data["config"], data["leases"], _labels(), responding)
+	return {
+		"rows": rows,
+		"kea_error": data["config"] is None,
+		"sweep": sweep,
+		"sweep_age": liveness.age_label(sweep, time.time()) if sweep else "",
+		"online_count": sum(1 for row in rows if row["online"]),
+	}
 
 
 @router.get("/reservations")
