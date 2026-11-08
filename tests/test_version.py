@@ -28,3 +28,13 @@ def test_masthead_and_help_show_the_version(temp_db):
 			_sign_in(client)
 			page = client.get("/help").text
 	assert page.count(f"v{APP_VERSION}") == 2
+
+
+def test_sign_in_page_shows_no_version_or_masthead(temp_db):
+	"""The sign-in page is just the centred logo and form."""
+	with patch.dict(os.environ, {"KEANEXUS_SECRET": _SECRET}):
+		with TestClient(create_app(start_background_work=False)) as client:
+			page = client.get("/login").text
+	assert f"v{APP_VERSION}" not in page
+	assert "masthead" not in page
+	assert "login-logo" in page

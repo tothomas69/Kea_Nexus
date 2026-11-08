@@ -14,6 +14,8 @@
 {# Every HTMX request carries the CSRF token; see web/security.py. #}
 <body hx-headers='{"X-CSRF-Token": "{{ csrf_token }}"}' x-data="{ helpOpen: false }" @keydown.escape.window="helpOpen = false">
 
+{# The sign-in page draws its own centred logo, so it has no masthead. #}
+{% if user %}
 <header class="masthead">
 	<div class="masthead-inner">
 		<div class="masthead-brand">
@@ -21,7 +23,6 @@
 			<span class="app-version" title="KeaNexus version">v{{ app_version }}</span>
 		</div>
 		<div class="masthead-main">
-			{% if user %}
 			<div class="masthead-bar">
 				{# ⌘K or Ctrl+K focuses the box; Escape clears it. Results come from /search. #}
 				<div class="search-wrap" x-data="{ open: false }" @click.outside="open = false"
@@ -55,10 +56,10 @@
 					Help
 				</button>
 			</nav>
-			{% endif %}
 		</div>
 	</div>
 </header>
+{% endif %}
 
 <main class="page">
 {% block content %}{% endblock %}
