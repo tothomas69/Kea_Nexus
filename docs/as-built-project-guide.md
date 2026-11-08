@@ -558,10 +558,15 @@ Overview, and 1b adds its charts. Phase 2 is the Quarantine screen, phase 3 the 
   `@st.cache_data` for Kea reads (leases 30 s, pool stats 30 s, config 120 s,
   health 20 s). A failed load is never cached
 - `health.py` — the header's health dots: Kea via `version-get`;
-  `keanexus-quarantine` via its `GET /health`; Pi-hole 1/2 shown only when
+  `keanexus-quarantine` via its `GET /health`; Pi-hole primary/secondary (labelled DNS1/DNS2) shown only when
   `PIHOLE_API_URL` / `PIHOLE_SECONDARY_API_URL` are set for this container, and
   counted up on **any** HTTP answer below 500 (a 401 included). That proves
-  Pi-hole is answering without the web container ever holding a Pi-hole password
+  Pi-hole is answering without the web container ever holding a Pi-hole password.
+  `pihole_auth_url` accepts the URL with or without `http://` and with or
+  without a trailing `/api`; the Pi-hole probe skips TLS verification (Pi-hole
+  v6's certificate is self-signed, and the probe sends nothing secret) and
+  waits 5 s rather than 2. Each failed check is logged with its reason, so
+  `docker logs keanexus` explains a red dot
 - Routes: `GET/POST /login`, `POST /logout`, `GET /` (Overview),
   `GET /fragments/{address-map,quarantine,activity,health}`,
   `GET /quarantine`, `GET /fragments/{quarantine-registry,quarantine-log}`,
