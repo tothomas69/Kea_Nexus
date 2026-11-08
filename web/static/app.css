@@ -704,6 +704,10 @@ a:hover {
 	margin: 0;
 	overflow-wrap: anywhere;
 }
+.hover-card-details dd.hover-card-warning {
+	color: var(--danger);
+	font-weight: 500;
+}
 .hover-card-actions {
 	display: flex;
 	gap: 8px;

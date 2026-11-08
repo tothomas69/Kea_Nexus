@@ -7,7 +7,7 @@ unit-tested. The route in routes/overview.py only fetches and renders.
 """
 
 from datetime import datetime
-from typing import Optional
+from typing import Mapping, Optional
 from zoneinfo import ZoneInfo
 
 from address_map import (
@@ -145,8 +145,32 @@ def _display_status(row: AddressRow, device: Optional[dict]) -> str:
 	return row.status
 
 
-def map_cells(rows: list[AddressRow], devices: list[dict]) -> list[dict]:
-	"""One dict per address: what the map square and its hover card show."""
+def _seen_fields(row: AddressRow, seen_macs: Optional[Mapping[str, str]], seen_age: str) -> dict:
+	"""What the latest ARP sweep says about one address.
+
+	`seen` is None before any sweep, so the card can tell "not checked" apart
+	from "didn't answer". `seen_mismatch` flags an answering MAC that differs
+	from the one Kea or the static record holds: a different device is using
+	that address.
+	"""
+	if seen_macs is None:
+		return {"seen": None, "seen_mac": "", "seen_age": "", "seen_mismatch": False}
+	answered = row.ip in seen_macs
+	seen_mac = seen_macs.get(row.ip, "")
+	mismatch = bool(seen_mac and row.mac and seen_mac.lower() != row.mac.lower())
+	return {"seen": answered, "seen_mac": seen_mac, "seen_age": seen_age, "seen_mismatch": mismatch}
+
+
+def map_cells(
+	rows: list[AddressRow],
+	devices: list[dict],
+	seen_macs: Optional[Mapping[str, str]] = None,
+	seen_age: str = "",
+) -> list[dict]:
+	"""One dict per address: what the map square and its hover card show.
+
+	`seen_macs` is the latest ARP sweep's {ip: mac}, or None before the first.
+	"""
 	matched = devices_by_ip(devices, rows)
 	cells = []
 	for row in rows:
@@ -166,6 +190,7 @@ def map_cells(rows: list[AddressRow], devices: list[dict]) -> list[dict]:
 				"editable": row.editable,
 				"device": device["friendly_name"] if device else "",
 				"quarantined": bool(device and device.get("is_quarantined")),
+				**_seen_fields(row, seen_macs, seen_age),
 			}
 		)
 	return cells

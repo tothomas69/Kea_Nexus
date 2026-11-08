@@ -1,6 +1,6 @@
 """
 liveness.py — Batched ARP sweep answering "which of these IPs has a
-powered-on device behind it right now".
+powered-on device behind it right now, and what MAC answered".
 
 Backs the Leases tab's "Check who's online" button (via main.py's
 POST /liveness-sweep). Distinct from presence_check.py despite both
@@ -21,6 +21,11 @@ nothing to reach.
 All requests go out in one scapy srp call rather than one call per
 address, so the whole sweep costs a single `timeout` wait no matter how
 many IPs are asked about — a full /24 comes back in about two seconds.
+
+The MAC in each reply is kept, not just the address. An ARP reply carries the
+answering interface's hardware address, which is the only way KeaNexus can see
+a MAC for an address Kea knows nothing about: a statically configured device
+never asks Kea for anything.
 """
 
 import logging
@@ -43,14 +48,13 @@ def sweep(
 	ip_addresses: list[str],
 	timeout_seconds: float = DEFAULT_SWEEP_TIMEOUT_SECONDS,
 	interface: Optional[str] = None,
-) -> set[str]:
-	"""ARP-probe every address in `ip_addresses` and return the subset that
-	answered.
+) -> dict[str, str]:
+	"""ARP-probe every address in `ip_addresses` and return {ip: mac} for the
+	ones that answered, MACs lowercased.
 
-	Returns a set rather than a list because every caller asks "is this one
-	live", never "what order did they answer in". An address that doesn't
-	answer is simply absent — this deliberately reports presence, never
-	absence, since a sweep can only ever prove the former.
+	An address that doesn't answer is simply absent — this deliberately
+	reports presence, never absence, since a sweep can only ever prove the
+	former.
 	"""
 	assert len(ip_addresses) <= MAX_SWEEP_ADDRESSES, (
 		f"sweep called with {len(ip_addresses)} addresses, more than the {MAX_SWEEP_ADDRESSES} cap"
@@ -58,7 +62,7 @@ def sweep(
 
 	targets = sorted({ip.strip() for ip in ip_addresses if ip.strip()})
 	if not targets:
-		return set()
+		return {}
 
 	interface = interface or os.environ.get("ARP_INTERFACE") or None
 
@@ -73,7 +77,9 @@ def sweep(
 	# replies from addresses nobody asked about (gratuitous ARP, a proxy-ARP
 	# router answering on behalf of a range), and reporting those back would
 	# mark leases live on evidence that isn't about them.
-	responding = {reply.psrc for _sent, reply in answered if reply.psrc in requested}
+	responding = {
+		reply.psrc: reply.hwsrc.lower() for _sent, reply in answered if reply.psrc in requested
+	}
 
 	logger.info("ARP sweep: %d of %d addresses answered", len(responding), len(requested))
 	return responding

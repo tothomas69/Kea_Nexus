@@ -146,7 +146,41 @@ class TestMapCells:
 			"editable": True,
 			"device": "",
 			"quarantined": False,
+			"seen": None,
+			"seen_mac": "",
+			"seen_age": "",
+			"seen_mismatch": False,
 		}
+
+	def test_static_address_shows_the_mac_that_answered(self):
+		row = AddressRow(ip="172.16.17.10", last_octet=10, status="static", mac="")
+		cell = map_cells([row], [], {"172.16.17.10": "aa:bb:cc:00:00:0a"}, "2 min ago")[0]
+		assert (cell["seen"], cell["seen_mac"], cell["seen_age"]) == (
+			True,
+			"aa:bb:cc:00:00:0a",
+			"2 min ago",
+		)
+		assert cell["seen_mismatch"] is False
+
+	def test_silent_address_after_a_sweep_is_no_answer_not_unchecked(self):
+		cell = map_cells([_row(20)], [], {}, "just now")[0]
+		assert cell["seen"] is False
+		assert cell["seen_mac"] == ""
+
+	def test_different_answering_mac_is_flagged(self):
+		row = AddressRow(ip="172.16.17.10", last_octet=10, status="static", mac="AA:BB:CC:DD:EE:FF")
+		seen = {"172.16.17.10": "11:22:33:44:55:66"}
+		assert map_cells([row], [], seen, "just now")[0]["seen_mismatch"] is True
+
+	def test_same_mac_in_another_case_is_not_a_mismatch(self):
+		row = AddressRow(ip="172.16.17.10", last_octet=10, status="static", mac="AA:BB:CC:DD:EE:FF")
+		seen = {"172.16.17.10": "aa:bb:cc:dd:ee:ff"}
+		assert map_cells([row], [], seen, "just now")[0]["seen_mismatch"] is False
+
+	def test_answer_without_a_mac_is_never_a_mismatch(self):
+		row = AddressRow(ip="172.16.17.10", last_octet=10, status="static", mac="aa:bb:cc:dd:ee:ff")
+		cell = map_cells([row], [], {"172.16.17.10": ""}, "just now")[0]
+		assert (cell["seen"], cell["seen_mismatch"]) == (True, False)
 
 	def test_legend_follows_the_declared_order(self):
 		assert [item["status"] for item in legend()] == LEGEND_STATUSES

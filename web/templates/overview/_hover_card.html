@@ -12,6 +12,9 @@
 			<dt>Label</dt><dd class="strong" x-text="focus.label || '—'"></dd>
 			<dt>Hostname</dt><dd class="mono" x-text="focus.hostname || '—'"></dd>
 			<dt>MAC</dt><dd class="mono" x-text="focus.mac || '—'"></dd>
+			<dt>On the wire</dt><dd class="mono" x-text="seenText(focus)"></dd>
+			<template x-if="focus.seen_mismatch"><dt>Warning</dt></template>
+			<template x-if="focus.seen_mismatch"><dd class="hover-card-warning">A different MAC answered for this address</dd></template>
 			<dt>Lease</dt><dd x-text="focus.info || '—'"></dd>
 			<template x-if="focus.device"><dt>Device</dt></template>
 			<template x-if="focus.device"><dd x-text="focus.device"></dd></template>
