@@ -2,6 +2,7 @@
 test_helpers.py — Tests for pure utility functions in helpers.py.
 """
 
+import helpers
 from helpers import (
 	build_hostname_override_sets,
 	build_reservation_type_sets,
@@ -265,3 +266,55 @@ class TestPoolStatsWithFallback:
 	def test_returns_none_when_kea_cannot_be_read_at_all(self):
 		client = _PoolStatsClient(summary_fails=True, fallback_fails=True)
 		assert pool_stats_with_fallback(client) is None
+
+
+class TestReservationEdits:
+	"""The edits both UIs use. The regression they guard: the Streamlit tab rebuilt
+	a reservation from the form, dropping the quarantine service's DROP class."""
+
+	MAC_A = "aa:aa:aa:aa:aa:01"
+	MAC_B = "bb:bb:bb:bb:bb:02"
+
+	def _config(self, *reservations):
+		return {"subnet4": [{"subnet": "172.16.17.0/24", "reservations": list(reservations)}]}
+
+	def test_edit_keeps_drop_and_other_fields(self):
+		original = self._config(
+			{
+				"hw-address": self.MAC_A.upper(),
+				"ip-address": "172.16.17.10",
+				"hostname": "typed",
+				"client-classes": ["DROP"],
+				"option-data": [1],
+			}
+		)
+		updated = helpers.with_reservation_saved(original, self.MAC_A, self.MAC_B, "")
+		assert updated["subnet4"][0]["reservations"] == [
+			{"hw-address": self.MAC_B, "client-classes": ["DROP"], "option-data": [1]}
+		]
+		assert original["subnet4"][0]["reservations"][0]["hw-address"] == self.MAC_A.upper()
+
+	def test_add(self):
+		updated = helpers.with_reservation_saved(self._config(), "", self.MAC_A, "172.16.17.10")
+		assert updated["subnet4"][0]["reservations"] == [
+			{"hw-address": self.MAC_A, "ip-address": "172.16.17.10"}
+		]
+
+	def test_add_without_a_reservation_list(self):
+		updated = helpers.with_reservation_saved({"subnet4": [{}]}, "", self.MAC_A, "")
+		assert updated["subnet4"][0]["reservations"] == [{"hw-address": self.MAC_A}]
+
+	def test_remove_only_the_one(self):
+		original = self._config(
+			{"hw-address": self.MAC_A}, {"hw-address": self.MAC_B, "client-classes": ["DROP"]}
+		)
+		updated = helpers.with_reservation_removed(original, self.MAC_A.upper())
+		assert updated["subnet4"][0]["reservations"] == [
+			{"hw-address": self.MAC_B, "client-classes": ["DROP"]}
+		]
+		assert len(original["subnet4"][0]["reservations"]) == 2
+
+	def test_quarantined(self):
+		assert helpers.is_quarantined_reservation({"client-classes": ["DROP"]})
+		assert not helpers.is_quarantined_reservation({"client-classes": None})
+		assert not helpers.is_quarantined_reservation({})

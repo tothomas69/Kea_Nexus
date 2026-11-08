@@ -4,6 +4,7 @@ helpers.py - Shared utilities and data transformers for KeaNexus.
 No UI framework here: the web app and keanexus-quarantine both import it.
 """
 
+import copy
 from typing import Optional
 
 from kea import KeaClient
@@ -162,3 +163,50 @@ def lease_for_reservation(reservation: dict, leases: list[dict]) -> Optional[dic
 			if lease.get("ip-address") == ip:
 				return lease
 	return None
+
+
+# --- Reservation edits ------------------------------------------------------------------
+#
+# A reservation can carry fields KeaNexus doesn't show, the important one being
+# the quarantine service's client-classes ["DROP"]. These edits never rebuild a
+# reservation from the form: they copy the existing entry and change only the
+# MAC and address, so a quarantined device stays off DHCP. Callers pass a config
+# read fresh from Kea, since the quarantine service edits the same config.
+
+
+def _matches_mac(reservation: dict, mac: str) -> bool:
+	return bool(mac) and (reservation.get("hw-address") or "").lower() == mac.lower()
+
+
+def with_reservation_saved(config: dict, original_mac: str, mac: str, ip: str) -> dict:
+	"""A copy of config with the reservation for original_mac edited, or a new one added.
+
+	Kea's own hostname is always dropped: a non-empty one overrides the name the
+	device reports, and the label lives in db.reservation_labels instead.
+	"""
+	updated = copy.deepcopy(config)
+	reservations = updated["subnet4"][0].setdefault("reservations", [])
+	existing = next((r for r in reservations if _matches_mac(r, original_mac)), None)
+	entry = existing if existing is not None else {}
+	entry["hw-address"] = mac
+	entry.pop("hostname", None)
+	if ip:
+		entry["ip-address"] = ip
+	else:
+		entry.pop("ip-address", None)
+	if existing is None:
+		reservations.append(entry)
+	return updated
+
+
+def with_reservation_removed(config: dict, mac: str) -> dict:
+	"""A copy of config without the reservation for this MAC."""
+	updated = copy.deepcopy(config)
+	subnet = updated["subnet4"][0]
+	subnet["reservations"] = [r for r in subnet.get("reservations", []) if not _matches_mac(r, mac)]
+	return updated
+
+
+def is_quarantined_reservation(reservation: dict) -> bool:
+	"""True when the quarantine service's DROP class is on this reservation."""
+	return "DROP" in (reservation.get("client-classes") or [])

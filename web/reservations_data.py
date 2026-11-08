@@ -2,19 +2,26 @@
 reservations_data.py — Pure shaping, rules and config edits for the
 Reservations screen.
 
-The config edits here never rebuild a reservation from the form alone. A
-reservation can carry fields KeaNexus doesn't show, the important one being
-the quarantine service's client-classes ["DROP"]. Rebuilding it from the form
-would silently let a quarantined device back onto DHCP. So an edit copies the
-existing entry and changes only the address and MAC.
+The config edits (with_reservation_saved / with_reservation_removed) live in
+helpers.py and are re-exported here. They never rebuild a reservation from
+the form: a reservation can carry fields KeaNexus doesn't show, above all the
+quarantine service's client-classes ["DROP"], and rebuilding it would silently
+let a quarantined device back onto DHCP. An edit copies the existing entry and
+changes only the address and MAC.
 """
 
-import copy
 import ipaddress
 import re
 from typing import Optional
 
-from helpers import build_hostname_override_sets, lease_for_reservation, real_hostname
+from helpers import (
+	build_hostname_override_sets,
+	is_quarantined_reservation,
+	lease_for_reservation,
+	real_hostname,
+	with_reservation_removed,
+	with_reservation_saved,
+)
 from kea import KeaClient
 
 _MAC_PATTERN = re.compile(r"^[0-9a-f]{2}(:[0-9a-f]{2}){5}$")
@@ -67,7 +74,7 @@ def reservation_rows(
 				"label": labels.get(mac) or reservation.get("hostname") or "",
 				"hostname": hostname,
 				"hostname_state": state,
-				"quarantined": "DROP" in (reservation.get("client-classes") or []),
+				"quarantined": is_quarantined_reservation(reservation),
 				# Kea can also key a reservation on client-id, DUID or circuit-id.
 				# KeaNexus only edits MAC reservations; the rest are shown, not touched.
 				"editable": bool(mac),
@@ -106,47 +113,19 @@ def validate_reservation(
 	return None
 
 
-def with_reservation_saved(config: dict, original_mac: str, mac: str, ip: str) -> dict:
-	"""A copy of config with the reservation added, or edited in place.
-
-	An edit keeps every field the form doesn't show (client-classes,
-	option-data, ...). Kea's own hostname is always dropped: a non-empty one
-	overrides the name the device reports, and the label now lives in
-	db.reservation_labels instead.
-	"""
-	updated = copy.deepcopy(config)
-	reservations = updated["subnet4"][0].setdefault("reservations", [])
-	existing = next(
-		(
-			r
-			for r in reservations
-			if original_mac and (r.get("hw-address") or "").lower() == original_mac
-		),
-		None,
-	)
-	entry = existing if existing is not None else {}
-	entry["hw-address"] = mac
-	entry.pop("hostname", None)
-	if ip:
-		entry["ip-address"] = ip
-	else:
-		entry.pop("ip-address", None)
-	if existing is None:
-		reservations.append(entry)
-	return updated
-
-
-def with_reservation_removed(config: dict, mac: str) -> dict:
-	"""A copy of config without the reservation for this MAC."""
-	updated = copy.deepcopy(config)
-	subnet = updated["subnet4"][0]
-	subnet["reservations"] = [
-		r for r in subnet.get("reservations", []) if (r.get("hw-address") or "").lower() != mac
-	]
-	return updated
-
-
 def find_reservation(config: Optional[dict], mac: str) -> Optional[dict]:
 	return next(
 		(r for r in _reservations(config) if (r.get("hw-address") or "").lower() == mac), None
 	)
+
+
+__all__ = [
+	"find_reservation",
+	"reservation_rows",
+	"validate_reservation",
+	"with_reservation_removed",
+	"with_reservation_saved",
+	"HOSTNAME_MASKED",
+	"HOSTNAME_NOT_REPORTED",
+	"HOSTNAME_OFFLINE",
+]

@@ -200,6 +200,12 @@ override_macs)` / `distinct_real_hostnames(leases, config)` — a Kea
   `distinct_real_hostnames` feeds the Quarantine screen's Add/Edit device
   hostname picker so it only offers hostnames that will actually match a
   live lease, rather than a reservation label that never will
+- `with_reservation_saved(config, original_mac, mac, ip)` /
+  `with_reservation_removed(config, mac)` / `is_quarantined_reservation(r)` —
+  reservation edits that return a copy, changing only MAC and address and
+  keeping every other field (the quarantine service's DROP class above all).
+  Kea's own `hostname` is always dropped. Callers pass a config read fresh
+  from Kea
 - `lease_for_reservation(reservation, leases)` — the live lease matching a
   reservation, by MAC (falling back to IP if the reservation has no
   hw-address), or `None` if the device isn't currently leased. Used by the
@@ -486,8 +492,8 @@ Overview, and 1b adds its charts. Phase 2 is the Quarantine screen, phase 3 the 
       quarantine service edits the same config; saving a copy up to two minutes
       old would undo its change
     - **An edit keeps every field the form doesn't show**
-      (`with_reservation_saved` copies the entry and changes only MAC and
-      address). Kea's own `hostname` is always dropped, migrating a legacy
+      (`helpers.with_reservation_saved`, shared with the old Streamlit fix, copies
+      the entry and changes only MAC and address). Kea's own `hostname` is always dropped, migrating a legacy
       label. The Streamlit tab rebuilt the entry from the form, which dropped
       the quarantine service's `client-classes: ["DROP"]` and silently put a
       quarantined device back on DHCP

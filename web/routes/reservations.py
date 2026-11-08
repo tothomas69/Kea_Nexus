@@ -14,6 +14,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, Response
 
 import db
+from helpers import is_quarantined_reservation
 from kea import KeaClient, KeaError
 from web import cache
 from web.deps import current_user, kea_client, require_admin
@@ -179,7 +180,7 @@ def delete_reservation(
 	reservation = find_reservation(config, mac)
 	if reservation is None:
 		raise HTTPException(status_code=_HTTP_NOT_FOUND, detail="No reservation for that MAC.")
-	if "DROP" in (reservation.get("client-classes") or []):
+	if is_quarantined_reservation(reservation):
 		# Deleting this entry would also delete the quarantine service's DROP
 		# class, putting the device back on DHCP behind the service's back.
 		return _delete_refused(
