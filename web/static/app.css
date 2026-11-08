@@ -89,7 +89,7 @@ a:hover {
 
 .masthead-logo img {
 	display: block;
-	height: 128px;
+	height: 64px;
 	width: auto;
 }
 
@@ -933,7 +933,7 @@ a:hover {
 		padding-right: 16px;
 	}
 	.masthead-logo img {
-		height: 88px;
+		height: 44px;
 	}
 	.toc-sections {
 		grid-template-columns: minmax(0, 1fr);
