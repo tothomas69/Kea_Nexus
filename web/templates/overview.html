@@ -1,6 +1,11 @@
 {% extends "base.html" %}
 {% block title %}Overview · KeaNexus{% endblock %}
-{% block head %}<script src="/static/overview.js" defer></script>{% endblock %}
+{% block head %}
+<script src="/static/vendor/vega-6.4.0.min.js" defer></script>
+<script src="/static/vendor/vega-lite-6.4.1.min.js" defer></script>
+<script src="/static/vendor/vega-embed-7.3.0.min.js" defer></script>
+<script src="/static/overview.js" defer></script>
+{% endblock %}
 {% block content %}
 
 {% if kea_error %}
@@ -38,11 +43,6 @@
 	</div>
 </div>
 
-<div class="modal-backdrop" x-data="{ dialogOpen: false }" x-show="dialogOpen" x-cloak
-	@open-dialog.window="dialogOpen = true" @close-dialog.window="dialogOpen = false"
-	@keydown.escape.window="dialogOpen = false" @click.self="dialogOpen = false">
-	<div class="modal modal-narrow" role="dialog" aria-modal="true" aria-label="Edit address">
-		<div id="dialog-body" class="modal-body"></div>
-	</div>
-</div>
+{% include "overview/_charts.html" %}
+
 {% endblock %}

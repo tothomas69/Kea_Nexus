@@ -1,15 +1,11 @@
 """
 helpers.py - Shared utilities and data transformers for KeaNexus.
 
-No UI framework here: both the Streamlit UI and the web app import this.
-Streamlit caching and the per-session Kea client live in streamlit_adapter.py.
+No UI framework here: the web app and keanexus-quarantine both import it.
 """
 
 import copy
-import time
 from typing import Optional
-
-import pandas as pd
 
 from kea import KeaClient
 
@@ -54,45 +50,6 @@ def fmt_ttl(seconds: int) -> str:
 	return f"{seconds // 3600}h {(seconds % 3600) // 60}m"
 
 
-def leases_to_df(leases: list[dict]) -> pd.DataFrame:
-	"""Build display DataFrame. Column named 'IP' (no space) to avoid Streamlit width issues."""
-	now = int(time.time())
-	rows = []
-	for lease in leases:
-		ttl = lease.get("cltt", 0) + lease.get("valid-lft", 86400) - now
-		state = lease.get("state", 0)
-		rows.append(
-			{
-				"IP": str(lease.get("ip-address", "")),
-				"Hostname": str(lease.get("hostname", "") or "-"),
-				"MAC": str(lease.get("hw-address", "") or "-"),
-				"Expires": fmt_ttl(ttl),
-				"Status": "[!!] declined" if state == 1 else "[OK] active",
-				"_state": state,
-			}
-		)
-	rows.sort(key=lambda r: KeaClient.ip_to_int(r["IP"]) if r["IP"] else 0)
-	return pd.DataFrame(rows)
-
-
-def chip(label: str, cls: str) -> str:
-	return f'<span class="chip {cls}">{label}</span>'
-
-
-def html_safe_mac(mac: str) -> str:
-	"""Encode a MAC address's colons before interpolating it into an
-	st.markdown(unsafe_allow_html=True) string.
-
-	Streamlit's markdown renderer expands ":xx:" shortcodes into emoji (Slack/
-	GitHub-style), and a MAC's hex byte pairs can spell a two-letter ISO
-	country code between colons — e.g. "d2:de:e1:..." renders "de" as the
-	German flag. HTML-entity-encoding the colons keeps the literal ":" on
-	screen while hiding it from the shortcode parser, which only matches
-	literal colon characters.
-	"""
-	return mac.replace(":", "&#58;") if mac else mac
-
-
 # --- Lease/reservation classification ------------------------------------------
 
 
@@ -130,7 +87,7 @@ def lease_type(lease: dict, fixed_ips: set, reserved_macs: set, name_hosts: set)
 #
 # A Kea reservation's "hostname" field, when set to a non-empty value, is
 # admin-typed free text that Kea echoes back on the live lease, discarding
-# the device's actual DHCP-negotiated name. ui_reservations.py no longer
+# the device's actual DHCP-negotiated name. KeaNexus no longer
 # writes that field to Kea — an admin label for a reservation lives in
 # db.reservation_labels instead. But a reservation created before that
 # change (or added to kea-dhcp4.conf by hand) can still carry a "hostname"

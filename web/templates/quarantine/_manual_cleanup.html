@@ -1,0 +1,51 @@
+{# Kept on the page for good: the moment these are needed is the moment the UI
+   can't help, and rebuilding them from memory under pressure is how a stranded
+   device stays stranded. Substitute the device's MAC and IP from its row. #}
+<p class="muted small">Run on the Docker host, top to bottom. Each block undoes one enforcement layer, and all of them have to go.</p>
+<h3 class="subhead">1. Kea DROP class (blocks DHCP, saved to disk)</h3>
+<pre><code># Find it (no output means nothing to clean up)
+docker exec kea-dhcp4 grep -n -B4 -A4 '"DROP"' /etc/kea/kea-dhcp4.conf
+
+# Back up before editing
+docker exec kea-dhcp4 cp /etc/kea/kea-dhcp4.conf \
+  /etc/kea/kea-dhcp4.conf.bak-$(date +%Y%m%d-%H%M%S)
+
+# Clear DROP on the client-classes line the grep reported (LINE_NO)
+docker exec kea-dhcp4 sed -i 'LINE_NOs/\[ "DROP" \]/[ ]/' \
+  /etc/kea/kea-dhcp4.conf
+
+# Validate BEFORE restarting: bad JSON takes DHCP down for everyone
+docker exec kea-dhcp4 kea-dhcp4 -t /etc/kea/kea-dhcp4.conf
+
+docker restart kea-dhcp4</code></pre>
+<h3 class="subhead">2. ARP disruption (in-memory thread)</h3>
+<pre><code># A restart clears every thread, which also releases any device
+# that is rightly quarantined right now.
+docker restart keanexus-quarantine</code></pre>
+<h3 class="subhead">3. Pi-hole client override (both instances)</h3>
+<pre><code>docker exec keanexus-quarantine python3 -c "
+import os
+from pihole import PiholeClient
+for url, pw in [
+    (os.environ.get('PIHOLE_API_URL',''),
+     os.environ.get('PIHOLE_API_PASSWORD','')),
+    (os.environ.get('PIHOLE_SECONDARY_API_URL',''),
+     os.environ.get('PIHOLE_SECONDARY_API_PASSWORD','')),
+]:
+    if not url: continue
+    try:
+        PiholeClient(base_url=url, password=pw).request(
+            'DELETE', '/clients/DEVICE_IP')
+        print(url, 'cleared')
+    except Exception as e:
+        print(url, 'ERR', e)
+"</code></pre>
+<h3 class="subhead">4. On the device</h3>
+<pre><code># Windows, as Administrator: clears the poisoned ARP entry
+# and the cached DNS failures left by steps 2 and 3
+arp -d *
+ipconfig /release
+ipconfig /renew
+ipconfig /flushdns
+ping 8.8.8.8</code></pre>
+<p class="muted small">Test with <code>ping 8.8.8.8</code>, not a name: that tells a routing failure from a DNS one. The gateway itself may not answer ping even when routing is fine.</p>

@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}Settings · KeaNexus{% endblock %}
+{% block content %}
+<div class="screen-head">
+	<div>
+		<h1>Settings</h1>
+		<p class="muted">{{ "Who can sign in to KeaNexus, and what they may do." if section == "users" else "The subnet's DHCP settings. Saving changes Kea at once and writes kea-dhcp4.conf." }}</p>
+	</div>
+</div>
+{% if is_admin %}
+<nav class="subnav" aria-label="Settings">
+	<a href="/settings" class="subnav-item{% if section == 'dhcp' %} subnav-current{% endif %}"{% if section == 'dhcp' %} aria-current="page"{% endif %}>DHCP</a>
+	<a href="/settings/users" class="subnav-item{% if section == 'users' %} subnav-current{% endif %}"{% if section == 'users' %} aria-current="page"{% endif %}>Users</a>
+</nav>
+{% endif %}
+{% if section == "users" %}
+{% include "settings/_users.html" %}
+{% else %}
+{% if kea_error %}<p class="banner banner-error" role="alert">Kea can't be reached right now, so the settings below may be blank and can't be saved.</p>{% endif %}
+{% if not is_admin %}<p class="muted small">Viewers can see these settings but can't change them.</p>{% endif %}
+{% include "settings/_dhcp_form.html" %}
+{% endif %}
+{% endblock %}

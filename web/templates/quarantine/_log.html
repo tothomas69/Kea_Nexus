@@ -1,0 +1,30 @@
+<section id="quarantine-log" class="card" aria-labelledby="log-title"
+	hx-get="/fragments/quarantine-log" hx-trigger="every 30s, quarantine-changed from:body" hx-swap="outerHTML">
+	<h2 id="log-title">Audit log</h2>
+	<p class="muted small">One row per enforcement step, newest first. Each step retries up to 3 times before it is logged.</p>
+	{% if log %}
+	<div class="table-wrap">
+	<table class="data-table">
+		<thead><tr>
+			<th scope="col">When</th><th scope="col">Device</th><th scope="col">Action</th><th scope="col">Step</th>
+			<th scope="col">Result</th><th scope="col">Attempts</th><th scope="col">Detail</th>
+		</tr></thead>
+		<tbody>
+		{% for entry in log %}
+			<tr>
+				<td class="muted nowrap">{{ entry.when }}</td>
+				<td class="strong">{{ entry.name }}</td>
+				<td>{{ entry.action }}</td>
+				<td class="mono">{{ entry.step }}</td>
+				<td class="{{ 'step-ok' if entry.ok else 'step-failed' }}">{{ "✓ ok" if entry.ok else "✗ failed" }}</td>
+				<td>{{ entry.attempts }}</td>
+				<td class="small">{{ entry.detail or "—" }}</td>
+			</tr>
+		{% endfor %}
+		</tbody>
+	</table>
+	</div>
+	{% else %}
+	<p class="muted">Nothing has been quarantined or released yet.</p>
+	{% endif %}
+</section>

@@ -502,3 +502,26 @@ class TestReadOnlyKeaClient:
 		with pytest.raises(KeaReadOnlyError):
 			read_only.wipe_leases()
 		assert not http_mock.post.called
+
+
+class TestGetDhcpEnabled:
+	@pytest.mark.parametrize(("globally_disabled", "enabled"), [(False, True), (True, False)])
+	def test_reads_dhcp_state(self, http_mock, globally_disabled, enabled):
+		state = {"disabled-by-user": globally_disabled, "globally-disabled": globally_disabled}
+		http_mock.post.return_value = make_kea_response(
+			[{"result": 0, "arguments": {"pid": 1, "dhcp-state": state}}]
+		)
+		assert KeaClient().get_dhcp_enabled() is enabled
+		assert http_mock.post.call_args.kwargs["json"]["command"] == "status-get"
+
+	@pytest.mark.parametrize(
+		"arguments", [{"pid": 1}, {"dhcp-state": "on"}, {"dhcp-state": {}}, None]
+	)
+	def test_unknown_when_kea_does_not_say(self, http_mock, arguments):
+		http_mock.post.return_value = make_kea_response([{"result": 0, "arguments": arguments}])
+		assert KeaClient().get_dhcp_enabled() is None
+
+	def test_error(self, http_mock):
+		http_mock.post.return_value = make_kea_response([{"result": 1, "text": "nope"}])
+		with pytest.raises(KeaError, match="nope"):
+			KeaClient().get_dhcp_enabled()

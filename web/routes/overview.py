@@ -24,12 +24,19 @@ from address_map import (
 	subnet_prefix,
 	subnet_reservations,
 )
-from helpers import build_hostname_override_sets, pool_stats_with_fallback
-from kea import KeaClient, KeaError
+from dashboard_charts import (
+	HISTORY_WINDOW_HOURS,
+	composition_chart,
+	expiry_chart,
+	utilisation_chart,
+)
+from helpers import build_hostname_override_sets
+from kea import KeaClient
 from quarantine_client import QuarantineServiceError, trigger_quarantine, trigger_release
-from web import cache
+from web import cache, liveness
 from web.deps import current_user, kea_client, require_admin
 from web.health import service_health
+from web.kea_reads import read_kea
 from web.overview_data import (
 	activity,
 	issued_recently,
@@ -42,11 +49,9 @@ from web.templating import render
 
 router = APIRouter()
 
-_LEASES_CACHE_SECONDS = 30
-_POOL_STATS_CACHE_SECONDS = 30
-_CONFIG_CACHE_SECONDS = 120
 _HEALTH_CACHE_SECONDS = 20
-_HISTORY_WINDOW_SECONDS = 26 * 60 * 60  # a day of samples, plus the issued-count baseline
+_SECONDS_PER_HOUR = 60 * 60
+_HISTORY_WINDOW_SECONDS = 26 * _SECONDS_PER_HOUR  # a day of samples, plus the issued-count baseline
 _ACTIVITY_LINES = 6
 _ACTIVITY_LOG_ROWS = 200
 
@@ -60,29 +65,7 @@ BAD_MAC_MESSAGE = "MAC addresses look like aa:bb:cc:dd:ee:ff."
 # --- Reading Kea and the database -----------------------------------------------------
 
 
-def _safe_read(key: str, ttl_seconds: float, load) -> Optional[object]:
-	"""A cached Kea read that yields None, not an exception, when Kea is unreachable."""
-	try:
-		return cache.cached(key, ttl_seconds, load)
-	except KeaError:
-		return None
-
-
-def _read_kea(kea: KeaClient) -> dict:
-	leases = _safe_read("leases", _LEASES_CACHE_SECONDS, kea.get_leases)
-	config = _safe_read("config", _CONFIG_CACHE_SECONDS, kea.get_config)
-	stats = _safe_read(
-		"pool_stats", _POOL_STATS_CACHE_SECONDS, lambda: pool_stats_with_fallback(kea)
-	)
-	return {
-		"leases": leases or [],
-		"config": config,
-		"stats": stats,
-		"kea_error": leases is None or config is None,
-	}
-
-
-def _address_rows(kea: KeaClient, leases: list[dict], config: Optional[dict]) -> list[AddressRow]:
+def address_rows(kea: KeaClient, leases: list[dict], config: Optional[dict]) -> list[AddressRow]:
 	pool_start, pool_end, _ = kea.get_pool_range(config)
 	override_ips, override_macs = build_hostname_override_sets(config or {})
 	labels = {entry["mac_address"].lower(): entry["label"] for entry in db.get_reservation_labels()}
@@ -102,8 +85,8 @@ def _address_rows(kea: KeaClient, leases: list[dict], config: Optional[dict]) ->
 
 
 def _map_context(kea: KeaClient) -> dict:
-	data = _read_kea(kea)
-	rows = _address_rows(kea, data["leases"], data["config"])
+	data = read_kea(kea)
+	rows = address_rows(kea, data["leases"], data["config"])
 	return {
 		"cells": map_cells(rows, db.get_devices()),
 		"legend": legend(),
@@ -119,7 +102,8 @@ def _quarantine_context(notice: Optional[dict] = None) -> dict:
 
 def _activity_context() -> dict:
 	log_entries = db.get_quarantine_log(limit=_ACTIVITY_LOG_ROWS)
-	return {"activity": activity(log_entries, _ACTIVITY_LINES)}
+	admin_entries = db.get_activity(limit=_ACTIVITY_LINES)
+	return {"activity": activity(log_entries, _ACTIVITY_LINES, admin_entries)}
 
 
 def _kpi_context(stats: Optional[dict], config: Optional[dict]) -> dict:
@@ -133,6 +117,38 @@ def _kpi_context(stats: Optional[dict], config: Optional[dict]) -> dict:
 		"reservation_count": len(reservations),
 		"fixed_count": sum(1 for reservation in reservations if reservation.get("ip-address")),
 		"quarantined_names": [d["friendly_name"] for d in devices if d.get("is_quarantined")],
+		**_online_context(),
+	}
+
+
+def _online_context() -> dict:
+	"""How many devices answered the latest ARP sweep, or None before the first one."""
+	sweep = liveness.latest()
+	if sweep is None:
+		return {"online_count": None, "online_age": ""}
+	return {
+		"online_count": len(sweep.responding),
+		"online_age": liveness.age_label(sweep, time.time()),
+	}
+
+
+def _charts_context(leases: list[dict], config: Optional[dict]) -> dict:
+	"""The three Dashboard charts as Vega-Lite specs plus their table twins.
+
+	Same builders as the Streamlit Dashboard (dashboard_charts.py), so both UIs
+	draw identical charts. The trend is None until there are two samples.
+	"""
+	since = datetime.fromtimestamp(
+		time.time() - HISTORY_WINDOW_HOURS * _SECONDS_PER_HOUR, tz=timezone.utc
+	)
+	trend = utilisation_chart(db.get_pool_samples(since=since.isoformat()))
+	expiry, expiry_table = expiry_chart(leases, datetime.now(timezone.utc))
+	composition, composition_table = composition_chart(leases, config)
+	return {
+		"history_hours": HISTORY_WINDOW_HOURS,
+		"trend": {"spec": trend[0].to_dict(), "table": trend[1]} if trend else None,
+		"expiry": {"spec": expiry.to_dict(), "table": expiry_table},
+		"composition": {"spec": composition.to_dict(), "table": composition_table},
 	}
 
 
@@ -151,6 +167,7 @@ def overview(
 	context.update(_kpi_context(context["stats"], context["config"]))
 	context.update(_quarantine_context())
 	context.update(_activity_context())
+	context.update(_charts_context(context["leases"], context["config"]))
 	return render(request, "overview.html", {"user": user, "is_admin": _is_admin(user), **context})
 
 
@@ -227,8 +244,8 @@ def release_device(
 
 def _editable_row(kea: KeaClient, ip: str) -> AddressRow:
 	"""The address's current row, refusing any address that can't hold a static record."""
-	data = _read_kea(kea)
-	for row in _address_rows(kea, data["leases"], data["config"]):
+	data = read_kea(kea)
+	for row in address_rows(kea, data["leases"], data["config"]):
 		if row.ip == ip:
 			if not row.editable:
 				raise HTTPException(status_code=_HTTP_NOT_FOUND, detail=STATIC_NOT_ALLOWED_MESSAGE)
@@ -286,6 +303,7 @@ def save_static_entry(
 	db.upsert_static_entry(
 		ip, values["hostname"], values["mac_address"], values["description"], values["notes"]
 	)
+	db.insert_activity(user["username"], f"saved the static entry for {ip}")
 	return _closed_dialog()
 
 
@@ -298,6 +316,7 @@ def delete_static_entry(
 ) -> Response:
 	_editable_row(kea, ip)
 	db.delete_static_entry(ip)
+	db.insert_activity(user["username"], f"deleted the static entry for {ip}")
 	return _closed_dialog()
 
 

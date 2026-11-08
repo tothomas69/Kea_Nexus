@@ -154,6 +154,25 @@ class TestOverviewPage:
 			"Kea can&#39;t be reached" in response.text or "Kea can't be reached" in response.text
 		)
 
+	def test_charts_ship_their_specs(self, client):
+		_sign_in(client)
+		page = client.get("/").text
+		assert 'id="chart-expiry"' in page
+		assert 'id="chart-composition"' in page
+		assert "Show the numbers" in page
+
+	def test_trend_waits_for_history(self, client):
+		_sign_in(client)
+		page = client.get("/").text
+		assert 'id="chart-trend"' not in page
+		assert "Not enough history yet" in page
+
+	def test_trend_drawn_once_samples_exist(self, client):
+		_sign_in(client)
+		for _ in range(2):
+			db.insert_pool_sample(total=100, assigned=40, declined=0, available=60, cumulative=0)
+		assert 'id="chart-trend"' in client.get("/").text
+
 	def test_fragments(self, client):
 		_sign_in(client)
 		assert 'id="address-map"' in client.get("/fragments/address-map", headers=_HTMX).text
@@ -345,3 +364,38 @@ class TestHealth:
 			patch("web.health.httpx.get", side_effect=httpx.ConnectError("no route")),
 		):
 			assert service_health(StubKea())[-1] == {"name": "Quarantine svc", "up": False}
+
+
+class TestActivityRecorded:
+	def test_static_entry_logged_and_shown(self, client):
+		headers = _sign_in(client)
+		client.post("/address/172.16.17.10/static", data={"hostname": "nas"}, headers=headers)
+		assert db.get_activity()[0]["summary"] == "saved the static entry for 172.16.17.10"
+		assert (
+			"tom saved the static entry for 172.16.17.10"
+			in client.get("/fragments/activity", headers=_HTMX).text
+		)
+		client.delete("/address/172.16.17.10/static", headers=headers)
+		assert db.get_activity()[0]["summary"] == "deleted the static entry for 172.16.17.10"
+
+
+class TestSearch:
+	def test_needs_sign_in(self, client):
+		assert client.get("/search?q=kids", follow_redirects=False).status_code == 303
+
+	def test_results(self, client):
+		_sign_in(client)
+		_register_kids_ipad()
+		text = client.get("/search?q=kids", headers=_HTMX).text
+		assert "kids_ipad" in text and "/leases?q=172.16.17.164" in text
+
+	def test_no_match_and_too_short(self, client):
+		_sign_in(client)
+		assert "Nothing matches" in client.get("/search?q=zzzz", headers=_HTMX).text
+		assert "search-results" not in client.get("/search?q=z", headers=_HTMX).text
+
+	def test_box_is_live(self, client):
+		_sign_in(client)
+		page = client.get("/").text
+		assert 'hx-get="/search"' in page
+		assert "disabled" not in page.split('name="q"')[1].split(">")[0]

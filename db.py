@@ -99,6 +99,17 @@ def init_db() -> None:
 		# scans the whole table on every dashboard render.
 		conn.execute("CREATE INDEX IF NOT EXISTS idx_pool_samples_at ON pool_samples (sampled_at)")
 		conn.execute("""
+			CREATE TABLE IF NOT EXISTS activity_log (
+				log_id       INTEGER PRIMARY KEY AUTOINCREMENT,
+				occurred_at  TEXT NOT NULL,
+				username     TEXT NOT NULL,
+				summary      TEXT NOT NULL
+			)
+		""")
+		conn.execute(
+			"CREATE INDEX IF NOT EXISTS idx_activity_log_occurred_at ON activity_log (occurred_at)"
+		)
+		conn.execute("""
 			CREATE TABLE IF NOT EXISTS quarantine_log (
 				log_id         INTEGER PRIMARY KEY AUTOINCREMENT,
 				friendly_name  TEXT NOT NULL,
@@ -180,7 +191,7 @@ def delete_static_entry(ip_address: str) -> None:
 # A Kea reservation's own "hostname" field is admin-typed free text that Kea
 # echoes back on the live lease, discarding the device's real DHCP-negotiated
 # hostname (see helpers.py's real_hostname/build_hostname_override_sets).
-# ui_reservations.py no longer sends that field to Kea at all — an admin
+# KeaNexus no longer sends that field to Kea at all — an admin
 # label for a reservation lives here instead, keyed by MAC address, entirely
 # decoupled from Kea's own config.
 
@@ -344,6 +355,38 @@ def delete_device(friendly_name: str) -> None:
 # Append-only audit trail written by the (future) keanexus-quarantine
 # service. Lives here now so the schema and read path can be built and
 # tested ahead of the orchestration logic that will write to it.
+
+
+_MAX_ACTIVITY_SUMMARY_LENGTH = 300
+
+
+def insert_activity(username: str, summary: str) -> None:
+	"""Append one line to the activity log: who changed what, in plain words.
+
+	Written by the web UI's write routes after the change succeeded. Quarantine
+	and release are not recorded here; quarantine_log already has them step by
+	step. occurred_at is stamped here as UTC.
+	"""
+	assert username, "username must be a non-empty string"
+	assert summary, "summary must be a non-empty string"
+	occurred_at = datetime.now(timezone.utc).isoformat()
+	with _connect() as conn:
+		conn.execute(
+			"INSERT INTO activity_log (occurred_at, username, summary) VALUES (?, ?, ?)",
+			(occurred_at, username, summary[:_MAX_ACTIVITY_SUMMARY_LENGTH]),
+		)
+		conn.commit()
+
+
+def get_activity(limit: int = 50) -> list[dict]:
+	"""The newest activity_log rows first."""
+	assert limit > 0, "limit must be positive"
+	with _connect() as conn:
+		rows = conn.execute(
+			"SELECT occurred_at, username, summary FROM activity_log ORDER BY occurred_at DESC, log_id DESC LIMIT ?",
+			(limit,),
+		).fetchall()
+	return [dict(row) for row in rows]
 
 
 def insert_quarantine_log_entry(

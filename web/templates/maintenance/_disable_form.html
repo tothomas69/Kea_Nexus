@@ -1,0 +1,16 @@
+<form class="form" hx-post="/maintenance/dhcp/disable" hx-target="this" hx-swap="outerHTML">
+	<div class="dialog-head">
+		<h2>Turn DHCP off?</h2>
+		<button type="button" class="icon-button" aria-label="Close" @click="$dispatch('close-dialog')">×</button>
+	</div>
+	<p class="form-error">Kea stops answering every device at once. Nothing new can join the network and no lease can be renewed.</p>
+	<p class="muted small">Devices keep the addresses they already have until their leases run out.</p>
+	{% if error %}<p class="form-error" role="alert">{{ error }}</p>{% endif %}
+	<label class="field"><span>Turn back on by itself after (seconds)</span>
+		<input name="seconds" type="number" min="0" max="{{ max_seconds }}" step="60" value="{{ seconds }}" required>
+		<small class="muted">Kea's own timer, so it works even if KeaNexus goes down. 0 means it stays off until someone turns it on.</small></label>
+	<div class="form-actions">
+		<button type="submit" class="button button-danger">Turn DHCP off</button>
+		<button type="button" class="button button-quiet" @click="$dispatch('close-dialog')">Cancel</button>
+	</div>
+</form>

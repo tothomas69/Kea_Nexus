@@ -1,0 +1,12 @@
+{% if query | length >= min_length %}
+<ul class="search-results" role="listbox" aria-label="Search results">
+	{% for result in results %}
+	<li role="option"><a href="{{ result.href }}" class="search-result">
+		<span class="search-kind search-kind-{{ result.kind }}" aria-hidden="true"></span>
+		<span><span class="strong">{{ result.title }}</span><br><span class="muted small">{{ result.detail }}</span></span>
+	</a></li>
+	{% else %}
+	<li class="search-empty muted small">Nothing matches "{{ query }}".</li>
+	{% endfor %}
+</ul>
+{% endif %}

@@ -1,7 +1,7 @@
 """
 test_docs_library.py — Tests for docs_library.py's article allowlist and reads.
 
-The allowlist is the security boundary here: `ui_docs.py` hands a filename
+The allowlist is the security boundary here: the Help route hands a filename
 straight from a UI control into `read_article`, so anything that is not an
 explicitly listed article must be refused rather than resolved against the
 docs directory.

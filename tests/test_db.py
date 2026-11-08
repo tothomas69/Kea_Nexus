@@ -435,3 +435,16 @@ class TestPoolSamples:
 	def test_zero_retention_raises(self, temp_db):
 		with pytest.raises(AssertionError):
 			db.prune_pool_samples(retention_days=0)
+
+
+class TestActivityLog:
+	def test_newest_first_and_limited(self, temp_db):
+		db.insert_activity("tom", "first")
+		db.insert_activity("pat", "second")
+		rows = db.get_activity(limit=1)
+		assert [(row["username"], row["summary"]) for row in rows] == [("pat", "second")]
+		assert rows[0]["occurred_at"].endswith("+00:00")
+
+	def test_long_summary_trimmed(self, temp_db):
+		db.insert_activity("tom", "x" * 1000)
+		assert len(db.get_activity()[0]["summary"]) == 300

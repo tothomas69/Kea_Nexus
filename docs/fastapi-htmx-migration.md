@@ -107,7 +107,7 @@ The address map is re-rendered every 30 s with `hx-trigger="every 30s"`.
 
 These need a decision before their phase starts:
 
-1. **Activity feed.** `quarantine_log` covers quarantine and release.
+1. **Activity feed.** *(Done: `activity_log`, written by every web write route, merged into the Overview's Activity by time.)* `quarantine_log` covers quarantine and release.
    Reservation, static-entry and DHCP enable/disable changes are not logged
    anywhere. Proposal: a new append-only `activity_log` table, written by the
    web app's write routes. New leases are not logged: Kea does not report them
@@ -140,8 +140,9 @@ signed-in user. Routes marked **admin** also depend on `require_admin`.
 | `DELETE /address/{ip}/static` **admin** | delete a static entry |
 | `GET /quarantine` | registry, group actions, audit log |
 | `POST /quarantine/{name}` · `POST /quarantine/{name}/release` **admin** | quarantine or release one device |
-| `POST /quarantine/group/{tag}` · `.../release` **admin** | group actions |
-| `POST /quarantine/devices` · `PUT`/`DELETE /quarantine/devices/{name}` **admin** | registry CRUD |
+| `POST /devices/{name}/quarantine` · `.../release` **admin** | the Quarantine screen's per-device actions |
+| `POST /groups/{tag}/quarantine` · `.../release` **admin** | group actions |
+| `GET /devices/new` · `GET /devices/{name}` · `POST /devices` · `PUT`/`DELETE /devices/{name}` **admin** | registry CRUD (moved out of `/quarantine/...` in phase 2: `POST /quarantine/{name}` would have collided with a device called "devices") |
 | `GET /leases` | leases table, filter, search by MAC or hostname |
 | `POST /leases/sweep` | "Check who's online" (allowed for viewers, as today) |
 | `POST /leases`, `PUT /leases/{ip}` **admin** | add or edit a lease |
@@ -150,7 +151,7 @@ signed-in user. Routes marked **admin** also depend on `require_admin`.
 | `GET /settings` · `PUT /settings/dhcp` **admin** | DHCP settings |
 | `GET /settings/users` · `POST`/`PUT /settings/users/{username}` **admin** | users |
 | `GET /help` · `GET /help/{article}` | docs table of contents and article (allowlist in `docs_library.py`) |
-| `GET /search?q=` | ⌘K results: IP, MAC, label, hostname |
+| `GET /search?q=` | ⌘K results: IP, MAC, label, hostname *(done)* |
 | `GET /healthz` | container healthcheck |
 
 ## Deployment
@@ -195,16 +196,22 @@ old UI working the whole time.
    decision 1 is made. *(Done. The charts were split out to keep this PR
    reviewable.)*
    - **1b. Charts.** The utilisation trend, expiry and composition charts from
-     `ui_dashboard.py`, via vendored vega-embed.
-2. **Quarantine.**
-3. **Leases**, with the background liveness sweep (decision 3).
-4. **Reservations.**
-5. **Maintenance.**
-6. **Settings + Users.**
-7. **Cutover.** Point NPM at `keanexus-web`, then remove `app.py`, `ui_*.py`,
-   `style.css`, `.streamlit/`, the Streamlit pin, `extra-streamlit-components`,
-   pandas (if nothing else needs it), and the Streamlit compose service.
-   ⌘K search lands here, or right after.
+     `ui_dashboard.py`, via vendored vega-embed. *(Done. The builders moved to
+     `dashboard_charts.py`, shared by both UIs, which also fixed the trend
+     axis showing UTC as local time.)*
+2. **Quarantine.** *(Done.)*
+3. **Leases**, with the background liveness sweep (decision 3). *(Done. The sweep has its own switch, `KEANEXUS_WEB_LIVENESS_SWEEP`, and runs during the overlap, since Streamlit has no background sweep to collide with. The "Online now" figure sits in the Active leases tile rather than a fifth tile.)*
+4. **Reservations.** *(Done. Edits keep fields the form doesn't show, writes read the config fresh, and delete refuses a quarantined device; see the as-built guide.)*
+5. **Maintenance.** *(Done. DHCP state is now read from Kea's `status-get`, not remembered in the session. The by-MAC/hostname lookup was dropped, since the Leases filter covers it.)*
+6. **Settings + Users.** *(Done. Users sit at `/settings/users`; DHCP saves are applied to a fresh config.)*
+7. **Cutover.** *(Done.)* Removed `app.py`, `ui_*.py`, `streamlit_adapter.py`,
+   `style.css`, `.streamlit/`, the Streamlit-only helpers and tests, and the
+   Streamlit, Pillow, pandas and `extra-streamlit-components` requirements;
+   Altair is now a direct requirement (pinned to 6.x to match the vendored
+   Vega-Lite). The image runs uvicorn and its HEALTHCHECK probes `/healthz`.
+   Instead of repointing NPM, the web UI took over the `keanexus` compose
+   service and Streamlit's host port 8502, so NPM's upstream is unchanged. The
+   pool sampler now runs in the web app. ⌘K search shipped just before.
 
 ## Risks
 

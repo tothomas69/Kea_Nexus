@@ -174,7 +174,7 @@ class TestQuarantineRows:
 class TestActivity:
 	def test_one_line_per_action_counting_only_enforcement_steps(self):
 		lines = activity(_action("kids_ipad", "quarantine", 0), limit=5)
-		assert lines == [
+		assert [{key: line[key] for key in ("when", "text", "tone")} for line in lines] == [
 			{"when": "12:00", "text": "kids_ipad quarantined — 4/4 steps ok", "tone": "quarantine"}
 		]
 
@@ -212,3 +212,38 @@ class TestActivity:
 
 	def test_empty_log(self):
 		assert activity([], limit=5) == []
+
+
+class TestActivityMerge:
+	def test_admin_changes_interleave_by_time(self):
+		admin = [
+			{
+				"occurred_at": "2026-11-07T17:30:00+00:00",
+				"username": "tom",
+				"summary": "turned DHCP on",
+			},
+			{
+				"occurred_at": "2026-11-07T16:00:00+00:00",
+				"username": "pat",
+				"summary": "saved the DHCP settings",
+			},
+		]
+		lines = activity(_action("kids_ipad", "quarantine", 0), limit=5, admin_entries=admin)
+		assert [line["text"] for line in lines] == [
+			"tom turned DHCP on",
+			"kids_ipad quarantined — 4/4 steps ok",
+			"pat saved the DHCP settings",
+		]
+		assert lines[0]["tone"] == "admin"
+
+	def test_limit_applies_across_both(self):
+		admin = [
+			{
+				"occurred_at": f"2026-11-07T18:0{n}:00+00:00",
+				"username": "tom",
+				"summary": f"change {n}",
+			}
+			for n in range(3)
+		]
+		lines = activity(_action("kids_ipad", "quarantine", 0), limit=2, admin_entries=admin)
+		assert [line["text"] for line in lines] == ["tom change 2", "tom change 1"]

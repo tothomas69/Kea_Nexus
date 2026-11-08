@@ -1,0 +1,69 @@
+{# Loaded into the page dialog. Errors re-render just this form; success closes
+   the dialog and redraws the registry. #}
+{% set name = existing.friendly_name if existing else "" %}
+<form class="form" hx-target="this" hx-swap="outerHTML"
+	{% if existing %}hx-put="/devices/{{ name | urlencode }}"{% else %}hx-post="/devices"{% endif %}>
+	<div class="dialog-head">
+		<h2>{{ "Edit " ~ name if existing else "Register a device" }}</h2>
+		<button type="button" class="icon-button" aria-label="Close" @click="$dispatch('close-dialog')">×</button>
+	</div>
+	{% if error %}<p class="form-error" role="alert">{{ error }}</p>{% endif %}
+
+	{% if not existing %}
+	<label class="field"><span>Friendly name</span>
+		<input name="friendly_name" value="{{ values.friendly_name }}" required autocomplete="off" spellcheck="false" placeholder="tommy_laptop">
+		<small class="muted">What you say to Siri, and what Quarantine acts on. It can't be changed later: delete and re-add instead.</small></label>
+	{% endif %}
+
+	<label class="field"><span>Hostname</span>
+		{% if hostname_options %}
+		<select name="hostname" required>
+			{% if not values.hostname %}<option value="">Choose a hostname</option>{% endif %}
+			{% for option in hostname_options %}
+			<option value="{{ option }}"{% if option == values.hostname %} selected{% endif %}>{{ option }}</option>
+			{% endfor %}
+		</select>
+		<small class="muted">Hostnames reported on live leases. A reservation label never matches a lease, so it isn't offered.</small>
+		{% else %}
+		<input name="hostname" value="{{ values.hostname }}" required autocomplete="off" spellcheck="false">
+		<small class="muted">No device is reporting a hostname right now. Type the name the device sends; a reservation label won't match.</small>
+		{% endif %}
+	</label>
+	<label class="field"><span>Group tag</span>
+		<input name="group_tag" value="{{ values.group_tag }}" autocomplete="off" placeholder="kids">
+		<small class="muted">Optional. Devices with the same tag can be quarantined together.</small></label>
+	<label class="field"><span>Notes</span>
+		<textarea name="notes" rows="3">{{ values.notes }}</textarea></label>
+
+	{% if existing %}
+	<p class="muted small">OS fingerprint: {{ existing.os_fingerprint or "—" }}. Written by the quarantine service, not editable here.</p>
+	{% endif %}
+
+	{% if existing and existing.is_quarantined %}
+	{% if may_force %}
+	<div class="notice notice-error" role="alert">
+		<p>Release has failed {{ failed_releases }} times for {{ name }}. Deleting now leaves its Kea DROP entry, Pi-hole block and ARP disruption in place with nothing tracking them, so you would clear them by hand (see Manual cleanup on this page).</p>
+		<label class="check"><input type="checkbox" x-data @change="$el.closest('form').querySelector('[data-force]').disabled = !$el.checked">
+			I understand this orphans enforcement. Delete anyway.</label>
+	</div>
+	{% elif failed_releases %}
+	<p class="notice notice-error">Release has failed {{ failed_releases }} of {{ max_release_attempts }} times. A forced delete is offered after {{ max_release_attempts }}.</p>
+	{% else %}
+	<p class="muted small">{{ name }} is quarantined. Delete releases it first, and won't delete unless the release fully works.</p>
+	{% endif %}
+	{% endif %}
+
+	<div class="form-actions">
+		<button type="submit" class="button button-primary">Save</button>
+		{% if existing %}
+		<button type="button" class="button button-danger-soft" hx-delete="/devices/{{ name | urlencode }}"
+			hx-target="closest form" hx-swap="outerHTML" hx-disabled-elt="this" hx-params="none"
+			hx-confirm="Delete {{ name }} from the registry?{{ ' It will be released first.' if existing.is_quarantined else '' }}">Delete</button>
+		{% if may_force %}
+		<button type="button" class="button button-danger-soft" data-force disabled
+			hx-delete="/devices/{{ name | urlencode }}?force=true" hx-target="closest form" hx-swap="outerHTML" hx-params="none">Force delete</button>
+		{% endif %}
+		{% endif %}
+		<button type="button" class="button button-quiet" @click="$dispatch('close-dialog')">Cancel</button>
+	</div>
+</form>

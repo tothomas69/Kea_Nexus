@@ -1,8 +1,8 @@
 """
-docs_library.py — The operator-facing articles the Docs sidebar entry offers.
+docs_library.py — The operator-facing articles offered under Help.
 
-Pure file lookup, no Streamlit, so the allowlist and the read path are
-unit-testable. `ui_docs.py` renders what this returns.
+Pure file lookup, so the allowlist and the read path are unit-testable.
+web/help_content.py renders what this returns.
 
 Only the articles named in ARTICLES can be read. That is an allowlist, not a
 convenience: the alternative — taking a filename from the UI and joining it

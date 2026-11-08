@@ -33,38 +33,24 @@ Do NOT include:
 
 ```
 keanexus/
-├── app.py              — Entry point: page config, CSS, sidebar, tab routing
 ├── version.py          — APP_VERSION constant (single source of truth)
-├── auth.py             — Authentication and user management: argon2 login, roles, signed session cookie
+├── auth.py             — Authentication and user management: argon2 login, roles, signed session token
 ├── kea.py              — Kea direct HTTP API client (Kea 3.0+)
 ├── pihole.py           — Pi-hole v6 REST API client (session auth); used by quarantine_service
 ├── quarantine_client.py — Thin client KeaNexus uses to call keanexus-quarantine's own API
-├── helpers.py          — Pure data helpers and format utilities (no UI framework)
-├── streamlit_adapter.py — Streamlit-only glue: session state, per-session Kea client, cached loaders
-├── dashboard_data.py   — Pure metric/chart shaping for the Dashboard tab
-├── address_map.py      — Pure /24 classifier shared by the IPAM tab and the web Address Map
-├── docs_library.py     — Allowlist + reader for the operator docs shown in-app
-├── ui_docs.py          — Documentation sidebar entry and the article dialog
+├── helpers.py          — Pure lease/reservation helpers shared by the web UI and the quarantine service
+├── dashboard_data.py   — Pure metric shaping behind the Overview's figures and charts
+├── dashboard_charts.py — Altair chart builders for the Overview
+├── address_map.py      — Pure /24 classifier behind the Address Map
+├── docs_library.py     — Allowlist + reader for the operator docs shown under Help
 ├── pool_history.py     — Background sampler building the pool utilisation time series
-├── db.py               — SQLite persistence layer (IPAM static records, users, registry, logs)
-├── ui_login.py         — Login page: logo, username/password form
-├── ui_dashboard.py     — Dashboard tab: KPI tiles, gauge, service health, Altair charts
-├── ui_leases.py        — Leases tab: HTML table with type classification
-├── ui_ipam.py          — IPAM tab: full /24 subnet map + static entry management
-├── ui_reservations.py  — Reservations tab: Kea config CRUD
-├── ui_maintenance.py   — Maintenance tab: DHCP enable/disable, wipe leases
-├── ui_quarantine.py    — Quarantine tab: device registry CRUD + read-only audit log
-├── ui_settings.py      — Settings tab: subnet/pool/lease on one row, DHCP options in a 2x2 grid
-├── ui_users.py         — Users panel (Settings → Users, admins only): add, edit, disable logins
-├── ui_access.py        — Viewer read-only helpers: read_only(), the tab notice, refuse_if_viewer()
-├── style.css           — Global CSS overrides for Streamlit internals
+├── db.py               — SQLite persistence layer (static records, labels, registry, logs, users)
 ├── Makefile            — Developer setup (`make setup`) and test runner (`make test`)
-├── static/             — Static assets (keanexus_logo.png)
+├── static/             — Brand assets (keanexus_logo.png), served at /brand
+├── web/                — The KeaNexus UI: FastAPI + HTMX (routes/, templates/, static/)
 ├── quarantine_service/ — Optional keanexus-quarantine FastAPI service (compose profile "quarantine")
-├── web/                — New FastAPI + HTMX UI (routes/, templates/, static/), built beside Streamlit
-├── docs/               — PRD, this guide, design docs (incl. the FastAPI + HTMX migration plan)
-├── .githooks/          — Committed git hooks (pre-commit, pre-push); activated per-clone with `make setup`
-└── .streamlit/         — Streamlit config (theme)
+├── docs/               — PRD, this guide, design docs (incl. the FastAPI + HTMX migration record)
+└── .githooks/          — Committed git hooks (pre-commit, pre-push); activated per-clone with `make setup`
 ```
 
 Data persisted in Docker named volume `keanexus_data` mounted at `/app/data/`.
@@ -78,7 +64,7 @@ Data persisted in Docker named volume `keanexus_data` mounted at `/app/data/`.
   `auth.py` is the only module that ever handles a plaintext password, and
   `db.py` only stores and returns hashes
 - **First admin from the old env-var login.** `bootstrap_admin_from_env()`
-  runs at startup (`app.py`, right after `init_db()`). When the users table is
+  runs at startup (the web app's lifespan, right after `init_db()`). When the users table is
   empty it creates an admin from `KEANEXUS_USERNAME` / `KEANEXUS_PASSWORD`, so
   an existing deployment keeps working on upgrade with no manual database step.
   A no-op once any user exists, so changing those env vars later does nothing.
@@ -86,10 +72,8 @@ Data persisted in Docker named volume `keanexus_data` mounted at `/app/data/`.
   the env-var password predates the rule, and refusing it would lock the owner
   out of their own upgrade
 - **No UI framework and no session state in `auth.py`.** It holds the rules and
-  the token logic; where a session lives is the caller's business.
-  `streamlit_adapter.py` keeps it in `st.session_state` plus a cookie for the
-  Streamlit UI, and `web/deps.py` keeps it in a cookie only. Both UIs share
-  every rule below
+  the token logic; `web/deps.py` and `web/security.py` keep the session in a
+  signed cookie
 - `check_credentials(username, password)` — returns the stored user row or
   `None`, and records the login. Username lookup is case-insensitive. Unknown
   and disabled users return the same `None` as a wrong password, after the same
@@ -100,85 +84,37 @@ Data persisted in Docker named volume `keanexus_data` mounted at `/app/data/`.
   `session_version` has moved on (password, role or disable change). So
   revoking someone takes effect at their next click, not their next login.
   `public_user(row)` strips a row down to `{"username", "role"}`
-- Streamlit side (`streamlit_adapter.py`): `attempt_login`, `current_user`,
-  `is_authenticated`, `is_admin`, `logout`, `session_token`,
-  `restore_session_from_cookie`, same behaviour as before the split, built on
-  the functions above
 - **Signed session token.** `sign_session(username, session_version)` returns
   `username|session_version|signature`, signed with HMAC-SHA256 under
   `KEANEXUS_SECRET` (or `""` with no secret). `user_from_session_token(token)`
   rejects anything malformed, wrongly signed, or carrying an old
-  `session_version`. The Streamlit UI needs it because a full page reload starts
-  a brand-new Streamlit session with blank `session_state`; the web UI uses it as
-  its only session store. Still
-  stateless (no server-side session store). The previous design derived the
+  `session_version`. It is the web UI's only session store: stateless, with no
+  server-side session table. The previous design derived the
   cookie from the single shared password, which could not tell users apart or
   revoke one person; the signed username plus version replaces it. Usernames
   are restricted to letters, digits, `.`, `_` and `-`, which keeps the `|`
   separator out of them so the cookie splits unambiguously
-- **`KEANEXUS_SECRET` unset:** `sign_session()` returns `""`. In the Streamlit
-  UI, `ui_login.py` skips setting the cookie, so login still works for that
-  session and every reload asks again. The web UI has no other session store,
-  so it refuses sign-in with a message saying to set the secret. Changing the
-  secret signs everyone out
+- **`KEANEXUS_SECRET` unset:** `sign_session()` returns `""`, and the web UI,
+  having no other session store, refuses sign-in with a message saying to set
+  the secret. Changing the secret signs everyone out
 - **User-management rules live here, not in the UI**: `create_user`,
   `reset_password`, `change_role`, `set_disabled`. They raise
   `UserManagementError` (a `ValueError` whose message is safe to show) for bad
   usernames, passwords under `MIN_PASSWORD_LENGTH` (12), unknown roles,
   duplicates, demoting or disabling the last active admin, and an admin
-  disabling their own account. Kept in `auth.py` so they are unit-tested,
-  since `ui_*.py` is excluded from coverage
-- `app.py` guards `main()` with `is_authenticated()` — unauthenticated requests
-  see only the login page
-- `app.py` owns the actual cookie I/O (via `extra_streamlit_components.CookieManager`,
-  constructed each run by `_cookie_manager()`) and calls
-  `restore_session_from_cookie` on every fresh session before falling back to
-  the login page — `auth.py` itself stays free of the CookieManager/component
-  dependency, just the token logic. `_cookie_manager()` is deliberately _not_
-  `@st.cache_resource` — `CookieManager.__init__` itself calls a Streamlit
-  component (a widget-like command), and Streamlit forbids that inside a cached
-  function (`CachedWidgetWarning`); the component already stabilizes itself
-  across reruns via its own internal `key="init"`, not Python object identity
-- `main()` waits for the CookieManager component's first round trip before
-  deciding a session is unauthenticated: `cookie_manager.get_all()` returns
-  `{}` on a brand-new session regardless of what's actually stored in the
-  browser, until the component's JS reports back. `_COOKIE_SYNC_FLAG` in
-  `st.session_state` gates a single `st.stop()` per session on that first
-  empty result — a changed component return value always triggers exactly
-  one automatic Streamlit rerun, so this waits for that rerun instead of
-  racing it and incorrectly falling through to the login page. Gated to at
-  most once per session (not called unconditionally on every empty result)
-  so a genuinely cookie-less visitor still reaches the login page normally
-  rather than getting stuck
-- **The cookie is written and deleted one run later, never right before an
-  `st.rerun()`.** `CookieManager` only acts when its component actually renders
-  in the browser, and `st.rerun()` discards the current run's output first. Both
-  login and Sign out used to call the cookie method and then rerun immediately,
-  so the cookie was never written (every reload logged the user out) and never
-  deleted (a reload after Sign out signed straight back in). Confirmed in a
-  headless browser against the old code; both bugs predate multi-user. Now:
-  `ui_login.py`'s `render_login` only sets `_session_cookie_pending` and reruns,
-  and `write_pending_session_cookie(cookie_manager)`, called from `main()` right
-  after the authentication gate, writes the cookie on that next full run. Sign
-  out (`app.py`'s `render_sidebar`) sets `_cookie_delete_pending` and reruns;
-  `_delete_cookie_after_sign_out` deletes it on the next run, and `main()` skips
-  cookie restore on that run so it can't sign back in from the cookie it is
-  deleting. The delete stays guarded against `KeyError`, since `.delete()`
-  raises if the cookie hasn't synced into the component's cache yet
-- The cookie has a 24h rolling expiry — the CookieManager library always
-  attaches an expiry (no true zero-expiry "clears only when the browser closes"
-  option), so this is the closest practical approximation
-
+  disabling their own account. The Users panel (`web/routes/settings.py`)
+  only shows their messages
 ### Kea Client (`kea.py`)
 
 - `KeaClient` — synchronous HTTP client talking directly to the `kea-dhcp4` HTTP listener (Kea 3.0+)
 - Connection configured via `KEA_API_URL`, `KEA_API_USER`, `KEA_API_PASSWORD` env vars
 - The `"service"` key is never sent — direct listeners don't support forwarding and reject it
 - Key methods: `get_leases()`, `get_pool_stats()`, `get_config()`, `save_config()`, `get_status()`, `get_pool_range(config)`
+- `get_dhcp_enabled()` — `True`/`False` from `status-get`'s `dhcp-state.globally-disabled`, or `None` when Kea doesn't report it. `status-get` is in `READ_ONLY_COMMANDS`
 - `get_status()` returns both `"ca"` and `"dhcp4"` keys for UI compatibility; `"ca"` is a static placeholder (`up=True`, `version="n/a"`) since the Control Agent no longer exists in Kea 3.0+
 - `ReadOnlyKeaClient` — a `KeaClient` whose `call()` refuses any command outside
   `READ_ONLY_COMMANDS` with `KeaReadOnlyError`, before a request is sent. Handed to
-  viewer sessions by `helpers.get_client()`. An allowlist on purpose: a write
+  viewer sessions by `web/deps.py`'s `kea_client`. An allowlist on purpose: a write
   method added to `KeaClient` later is refused for viewers by default.
   `KeaReadOnlyError` subclasses `KeaError`, so every existing UI `except KeaError`
   shows the refusal as an ordinary error
@@ -229,76 +165,26 @@ Data persisted in Docker named volume `keanexus_data` mounted at `/app/data/`.
 
 ### Version (`version.py`)
 
-- `APP_VERSION` — single string constant, rendered as the sidebar's top row
-  (`app.py`'s `render_sidebar`)
+- `APP_VERSION` — single string constant, given to every template by
+  `web/templating.py`'s `render()`
 - Bump on every release; no other source of truth for the app version
-
-### Sidebar Version Block (`app.py`)
-
-- Info rows above it: Pool Range, Subnet, Address Pool, Lease Time. Router and
-  Stats Source were removed as noise
-- `_sidebar_version_block(status)` — renders two info rows near the bottom of the sidebar
-- Displays: Kea DHCP daemon version (from `get_status()`), API Mode (always "Direct API")
-- Always rendered regardless of Kea connectivity — aids diagnosis when Kea is unreachable
-- `_sidebar_item(label, value, show_divider=True)` — the Kea DHCP row passes
-  `show_divider=False` so only the last row in the cluster (API Mode) keeps a
-  trailing divider line
-- `_sidebar_value_only(value, show_divider=True)` — same visual slot as
-  `_sidebar_item` but without the uppercase label line above the value; used
-  for the top `vX.X.X` row, where a "KeaNexus" heading would be redundant
-  directly above the app's own logo image right below it. Tighter vertical
-  padding than `_sidebar_item` too, so that row reads as sitting close above
-  the logo rather than as another evenly-spaced row
-
-### Tab Routing (`app.py`)
-
-- `main()`'s `st.tabs([...], key="main_tabs")` — the `key` is load-bearing, not
-  cosmetic: without it, `st.tabs()` has no persisted selection and always resets
-  to the first tab on any rerun. Several tabs trigger an explicit `st.rerun()`
-  after an action (e.g. `ui_quarantine.py`'s Quarantine/Release buttons, and its
-  Add/Edit Device dialog's Save), which otherwise bounced the user to the Dashboard
-  tab with the previous tab's content still visible fading out underneath —
-  `key=` makes the active tab persist across that rerun like any other keyed
-  widget's session-state value
-- `_render_settings_tab(config)` — admins get `DHCP` and `Users` sub-tabs
-  (`st.tabs(..., key="settings_tabs")`, keyed for the same rerun reason as
-  `main_tabs`); viewers get the DHCP settings alone, with no Users tab at all
-- **Nested tab bars must stay in normal flow.** `style.css` pins the tab bar
-  with `position: fixed`, and that selector matches every tablist on the page.
-  The Settings sub-tabs once inherited it, landed on the same spot as the main
-  bar and covered it, so Settings had no way out. A nested-tablist rule resets
-  them to `position: static`; any future `st.tabs()` inside a tab gets the same
-  treatment for free
 
 ### Helpers (`helpers.py`)
 
-- **No UI framework.** `helpers.py` (and `dashboard_data.py`, which imports it)
-  load without Streamlit, so the web UI shares them
+- Plain functions, shared by the web UI and the quarantine service
 - `pool_stats_with_fallback(client)` — `stat-lease4-summary`, or counters
   worked out from the lease list and pool range when Kea lacks the `stat_cmds`
   hook (`cumulative` is 0 then); `None` if Kea can't be read at all
-- Moved to `streamlit_adapter.py`: `get_client()` (a cached `KeaClient` for
-  admins, a cached `ReadOnlyKeaClient` for viewers — the real enforcement of
-  read-only access for every Kea write in the Streamlit UI) and
-  `load_leases/load_pool_stats/load_config/load_status` (`@st.cache_data` with TTL).
-  The web UI's equivalent is `web/deps.py`'s `kea_client`
 - `fmt_ttl(seconds)` — formats seconds to "Xh Ym" or "expired"
-- `html_safe_mac(mac)` — HTML-entity-encodes a MAC address's colons before it's
-  interpolated into an `st.markdown(unsafe_allow_html=True)` string. Streamlit's
-  markdown renderer expands `:xx:` shortcodes into emoji (Slack/GitHub-style),
-  and a MAC's hex byte pairs can spell a two-letter ISO country code between
-  colons — confirmed live: `d2:de:e1:...` rendered the `de` byte as a German
-  flag in the IPAM table. Used at every MAC-address render site: `ui_ipam.py`,
-  `ui_leases.py`, `ui_quarantine.py`, `ui_reservations.py`
 - `build_reservation_type_sets(config)` / `lease_type(lease, ...)` — classifies a
   lease as fixed/reserved/name-only/dynamic by cross-referencing it against Kea
-  reservations (moved here from `ui_leases.py` so it's shared and unit-testable).
+  reservations.
   Purely descriptive — says nothing about whether the lease's hostname is real
 - `build_hostname_override_sets(config)` / `real_hostname(lease, override_ips,
 override_macs)` / `distinct_real_hostnames(leases, config)` — a Kea
   reservation's `hostname` field, when set to a **non-empty value**, is
   admin-typed free text that Kea echoes back on the live lease, discarding
-  the device's actual DHCP-negotiated name. `ui_reservations.py` no longer
+  the device's actual DHCP-negotiated name. KeaNexus no longer
   writes that field to Kea at all (the admin label lives in
   `db.reservation_labels` instead — see below), but a reservation created
   before that change, or added to `kea-dhcp4.conf` by hand, can still carry
@@ -311,7 +197,7 @@ override_macs)` / `distinct_real_hostnames(leases, config)` — a Kea
   of this check used `"hostname" in r`, which treated every reservation as
   permanently overridden regardless of value, making the masked state
   unfixable by any resave since there was nothing left to strip.
-  `distinct_real_hostnames` feeds the Quarantine tab's Add/Edit device
+  `distinct_real_hostnames` feeds the Quarantine screen's Add/Edit device
   hostname picker so it only offers hostnames that will actually match a
   live lease, rather than a reservation label that never will
 - `with_reservation_saved(config, original_mac, mac, ip)` /
@@ -335,9 +221,8 @@ override_macs)` / `distinct_real_hostnames(leases, config)` — a Kea
   accumulated from readings taken over time. This module is the only writer of
   `db.pool_samples`
 - `start_pool_sampler()` starts one daemon thread per process, idempotent
-  (a second loop would double every sample). `app.py` calls it behind
-  `@st.cache_resource` so Streamlit runs it once per process rather than on
-  every script rerun. `stop_pool_sampler()` and `is_sampling()` exist for tests;
+  (a second loop would double every sample). The web app's lifespan starts it
+  at container start. `stop_pool_sampler()` and `is_sampling()` exist for tests;
   production never stops the loop, the daemon thread dies with the process
 - `take_sample_now(kea=None)` takes and stores one reading; returns False rather
   than raising when Kea is unreachable, since that is an ordinary recoverable
@@ -345,42 +230,27 @@ override_macs)` / `distinct_real_hostnames(leases, config)` — a Kea
 - `_run_sampler_loop` catches every exception per pass — a sampler that dies on
   one bad pass stops producing history silently, and nothing notices until
   someone opens the chart and finds it frozen
-- **Known limitation:** Streamlit does not execute `app.py` until a browser
-  session connects (the same trap documented for `init_db()` under the
-  quarantine service), so after a container restart sampling does not resume
-  until somebody next opens KeaNexus. Once started it runs for the life of the
-  process regardless of whether anyone is watching — which is the property that
-  matters, and the reason this is a background thread rather than a sample taken
-  during page render. Consumers must treat gaps as gaps and never interpolate
-  across a period with no samples
+- Runs for the life of the process whether or not anyone is watching, which is
+  why it is a background thread rather than a sample taken during page render.
+  Gaps still happen (container down, Kea down); consumers treat them as gaps
+  and never interpolate across them
 - Configured via `POOL_SAMPLE_INTERVAL_SECONDS` (default 300, floored at 1) and
   `POOL_SAMPLE_RETENTION_DAYS` (default 30); each pass prunes older rows
 
-### In-App Docs (`docs_library.py`, `ui_docs.py`)
+### In-App Docs (`docs_library.py`)
 
-- A **Documentation** expander near the bottom of the sidebar lists operator-facing
-  articles; clicking one opens it in a wide modal (`st.dialog`). The sidebar is
-  210px, enough for titles and nowhere near enough for articles full of code
-  blocks and tables — so the sidebar is navigation only
+- Help in the masthead opens a table of contents built from each article's
+  own `## ` headings (`web/help_content.py`); an article opens in the Help modal
 - `docs_library.ARTICLES` is the allowlist: currently Siri Shortcut Setup and
   Quarantine Design. The as-built guide and PRD are developer notes and stay out
   of the app deliberately
 - **`read_article` refuses anything not in `ARTICLES`, before any path is
-  built.** The filename arrives from a UI control, so joining it onto the docs
+  built.** The filename arrives from a URL, so joining it onto the docs
   directory would be a path-traversal hole in a page one login away from the
-  internet; the article set is known at build time, so there is no reason to
-  accept arbitrary paths. Covered by tests for `../.env`, absolute paths and
-  unlisted docs
-- Article entries are `st.button`s styled as links in every state (rest, hover,
-  focus): hover and keyboard focus underline rather than drawing a box, so they
-  never look like a second Sign out button
+  internet. Covered by tests for `../.env`, absolute paths and unlisted docs
 - `available_articles()` hides an article whose file is missing, so a deployment
   that missed the `./docs` bind-mount offers nothing rather than entries that
   fail on click
-- The button lives in the sidebar and the dialog opens from `main()`, wired
-  through one session-state key that is cleared on read — Streamlit gives no
-  callback for the reader dismissing a modal, so it must not reopen on the next
-  rerun
 
 ### Database (`db.py`)
 
@@ -409,6 +279,13 @@ override_macs)` / `distinct_real_hostnames(leases, config)` — a Kea
   friendly_name, action, step, succeeded, attempt_count, detail, occurred_at).
   Written by the `keanexus-quarantine` service (see below) on every enforcement
   step attempt.
+- Table: `activity_log` — who changed what through the web UI, one plain-words
+  line per change (log_id PK autoincrement, occurred_at UTC, username,
+  summary up to 300 characters), indexed on `occurred_at`. Written by every web
+  write route after the change succeeded; refused changes are not logged.
+  Quarantine and release are not written here, since `quarantine_log` already
+  has them step by step. `insert_activity(username, summary)`,
+  `get_activity(limit)` (newest first)
 - Table: `users` — app login accounts (username PK `COLLATE NOCASE`, password_hash,
   role `admin`/`viewer` enforced by a CHECK, session_version, is_disabled,
   created_at, last_login_at). Usernames compare case-insensitively so "Tom" and
@@ -430,9 +307,7 @@ override_macs)` / `distinct_real_hostnames(leases, config)` — a Kea
 ### Dashboard Data (`dashboard_data.py`)
 
 Pure shaping for every number the Dashboard shows — plain data in, plain data
-out, no Streamlit/Kea/SQLite. Lives outside `ui_dashboard.py` because `ui_*.py`
-needs a live Streamlit server and is excluded from coverage, so logic placed
-there would be untestable. 100% covered by `tests/test_dashboard_data.py`.
+out, no web framework, Kea or SQLite, so every rule is unit-tested. 100% covered by `tests/test_dashboard_data.py`.
 
 - `lease_expiry_buckets(leases, now_epoch)` — counts active leases into the fixed
   `EXPIRY_BUCKETS` (`< 1h`, `1–6h`, `6–12h`, `12–24h`, `> 24h`). The 12h split is
@@ -465,64 +340,11 @@ there would be untestable. 100% covered by `tests/test_dashboard_data.py`.
 - `quarantined_count(devices)` — counts `is_quarantined`, never
   `last_quarantined_at`, which is never cleared on release
 
-### Dashboard Tab (`ui_dashboard.py`)
-
-Render-only; all figures come from `dashboard_data.py`. Layout top to bottom:
-KPI tile row → gauge / service health / lease summary cards → utilisation trend
-→ expiry distribution + lease composition.
-
-- `render_dashboard(stats, config, status, leases=None)` — takes `leases` (added
-  for the charts) and reads `pool_samples`/`device_registry` from `db` directly
-- **Two rendering paths, deliberately.** Stat tiles, the gauge and health rows
-  stay hand-written HTML, consistent with the "HTML tables (not st.dataframe)"
-  and "CSS conic-gradient gauge" decisions. Charts are Altair (already a
-  Streamlit dependency — nothing added to `requirements.txt`), themed to the
-  app's monospace/palette, because hand-rolling axis ticks, binning and scales in
-  SVG buys nothing the existing convention was protecting
-- **Chart colours were validated, not chosen by eye.** `_SERIES_1` is the app's
-  own accent `#0969da` (passes lightness band, chroma floor, 3:1 contrast on the
-  white card surface). `_EXPIRY_RAMP` is a single-hue _ordinal_ ramp, because the
-  expiry buckets are an ordered scale rather than identities — assigned
-  darkest-first so the eye lands on the soonest-expiring bucket. Composition bars
-  are nominal, so every bar takes the same slot-1 hue rather than spending the
-  identity channel re-encoding bar length
-- Trend chart: single series so no legend; `%a %H:%M` axis labels because
-  `%H:%M` alone repeats every label across a multi-day window; no interpolation
-  curve, since readings are minutes apart and smoothing would draw values that
-  were never measured; a transparent full-height rule per sample drives the
-  crosshair and tooltip, because a 2px line is too small a hover target
-- Both count axes use an explicit zero-anchored domain from `_count_headroom`,
-  never `Scale(padding=...)`. Vega-Lite's scale padding expands the domain at
-  _both_ ends, so on a count axis it pushes the minimum below zero and the axis
-  draws `-1`/`-2` ticks for a quantity that cannot be negative. `tickMinStep=1`
-  keeps ticks whole — a "0.5 leases" gridline is meaningless
-- Both bar charts pass `alt.Data(values=...)` rather than a DataFrame. Altair
-  turns a DataFrame into a _named_ dataset the spec only references, and Vega
-  evaluates the spec before that name resolves — logging "Infinite extent for
-  field count: [Infinity, -Infinity]" against an empty array on first paint.
-  Inline values have nothing to resolve, and `dashboard_data` already returns
-  JSON-shaped rows, so pandas is not in the path at all. The trend chart still
-  uses a DataFrame — it needs pandas for the UTC-to-local conversion
-- Both bar charts carry a value label past each bar's end via
-  `_bar_value_labels`, never inside the bar — a short bar cannot fit one, and
-  a label clipped by its own mark is worse than no label. The composition
-  chart's x-scale gets extra padding so the label past the longest bar isn't
-  clipped by the plot edge. Labels wear a text token, not the bar's colour
-- Every chart has a "Show the numbers" expander — a table-view twin, so no value
-  is reachable only by reading a mark or hovering
-- Degrades rather than throwing: fewer than two samples shows an explanatory
-  caption instead of the chart; `leases_issued_since` returning `None` shows "—"
-  with a "needs more history" note
-- `_gauge(pct, used, total, avail)` — CSS conic-gradient donut ring; green <75%, amber 75–90%, red ≥90%
-- `_stat_tile(label, value, color, note)` — one KPI tile
-- `_health_row(label, detail, up)` — service health row with status badge
-- `_metric_row(label, value)` — lease summary metric row
-
 ### Address Map (`address_map.py`)
 
 - **Pure and shared.** The per-address classification that used to live inside
-  `ui_ipam.py`, moved out unchanged so the IPAM tab and the web UI's Address Map
-  can never disagree about an address, and so it is unit-tested
+  old IPAM tab, moved out unchanged and unit-tested; the Address Map, search and
+  static-entry routes all classify addresses through it
 - `classify_addresses(prefix, pool_start_octet, pool_end_octet, gateway, leases,
   reservations, static_entries, labels, override_ips, override_macs, now_epoch)` —
   one `AddressRow` per address .0–.255: network, broadcast, gateway, leased,
@@ -532,206 +354,22 @@ KPI tile row → gauge / service health / lease summary cards → utilisation tr
 - `subnet_prefix(config)`, `gateway_ip(config)`, `subnet_reservations(config)`,
   `last_octet(ip)` — the config lookups both UIs need
 
-### IPAM Tab (`ui_ipam.py`)
+### Web UI (`web/`) — FastAPI + HTMX
 
-- `render_ipam(leases, config)` — full /24 subnet map (256 addresses), classified by `address_map.classify_addresses`
-- Static entries stored in SQLite; only permitted for out-of-scope addresses
-- Edit is a per-row `st.dialog` (`_edit_dialog`); `upsert_static_entry` / `delete_static_entry`
-- Columns: IP Address, Status, Label, Real Hostname, MAC, Expires. Label and Real
-  Hostname follow the same split as the Reservations tab, so an admin-typed name
-  never shows up as the device's own name:
-    - **Label** is any admin-assigned name. For a reservation it comes from
-      `db.reservation_labels` (by MAC), falling back to a legacy Kea-side
-      `hostname` on a reservation not yet resaved. For a static entry it is the
-      entry's `hostname`, since that is typed by an admin, not reported by a device.
-      The gateway row's `gateway` is a label too
-    - **Real Hostname** is only `helpers.real_hostname(...)` from a live lease. Rows
-      with no lease (static, offline reservation, gateway) show `-`
-    - **Expires** is the lease time left (`fmt_ttl`), or `offline` for a
-      reservation with no current lease
-- A static entry's description and notes have no column. They show as the
-  hover tooltip on the status chip (`_chip` HTML-escapes the tooltip, since it is
-  free text in an attribute)
-- The filter box matches IP, label, real hostname, or MAC
-
-### Leases Tab (`ui_leases.py`)
-
-- `render_leases(leases, config)` — HTML table, sorted by IP
-- Hostname column shows `helpers.real_hostname(lease, override_ips, override_macs)`
-  — blank (`—`) only when the lease's matching reservation still carries a Kea
-  `hostname` override, not based on lease type (see `helpers.py` above)
-- **"Check who's online"** button (beside the filter box) ARP-sweeps every lease
-  address via `quarantine_client.trigger_liveness_sweep` and redraws responding
-  rows in green (`_TD_LIVE`). Answers a question Kea structurally cannot: a lease
-  outlives the device by hours, so "leased" never meant "powered on"
-    - Sweeps **all** leases, not the filtered subset — captured before the filter
-      narrows the list, so the result doesn't go stale on every filter keystroke
-    - Result lives in `st.session_state` under `_LIVE_IPS_KEY`. `None` (no sweep
-      run yet) is deliberately distinct from an empty set (a sweep ran, nothing
-      answered) — the first says nothing about liveness, the second says every
-      lease looked dead, and collapsing them would make "never checked" render
-      identically to "everything is off"
-    - `_render_liveness_caption` states how many answered and how long ago.
-      Without the age a sweep from an hour back looks identical to one from a
-      second back, and a device switched off since would still read green
-    - `QuarantineServiceError` is caught and shown via `st.error` — the sweep runs
-      in an optional-profile service, so unreachable is an ordinary condition and
-      must not take the tab down
-- Dialogs: `add_lease_dialog()`, `edit_lease_dialog(lease)`
-
-### Reservations Tab (`ui_reservations.py`)
-
-- `render_reservations(config, leases)` — CSS-grid header + `st.columns` data
-  rows with per-row Edit buttons
-- Reservations sent to Kea carry only `hw-address` (+ `ip-address` when fixed) —
-  no `hostname` field. The "Label" column/input is a KeaNexus-only display name
-  stored in `db.reservation_labels` (keyed by MAC), never written to Kea, so Kea
-  always preserves the device's real DHCP-negotiated hostname on the lease —
-  see `helpers.py`'s hostname-override note above
-- "Real Hostname" column — `_real_hostname_cell(reservation, leases,
-override_ips, override_macs)` shows what Kea actually sees the device
-  broadcast, distinct from the admin-chosen Label. Four states, not two —
-  `real_hostname()` returning `""` is ambiguous on its own (masked vs.
-  genuinely empty), so this checks override membership directly rather than
-  inferring it from an empty return value. **`offline`**: no matching lease
-  at all (`lease_for_reservation` returned `None`). **`masked — resave to
-fix`**: a lease exists and its matching reservation still carries a
-  Kea-side `hostname` override; editing and saving that reservation clears
-  it, same as the Label-migration path below. **`no hostname reported`**: a
-  lease exists, no override is in effect, but the device simply didn't send
-  a hostname on this lease (some clients, notably recent iOS, don't always
-  broadcast one) — nothing to fix here. Otherwise, the real hostname: a
-  lease exists, no override, and the device did report one
-- `_labels_by_mac()` — `{mac_address: label}` from `db.reservation_labels`, built
-  once per render and threaded through to the table and dialogs
-- A reservation saved before this change (or hand-edited in `kea-dhcp4.conf`)
-  can still carry Kea's own `hostname` field; `_render_table` falls back to that
-  value only when no `reservation_labels` row exists yet for the MAC. Editing
-  and saving that reservation migrates it automatically — `updated` never
-  includes `hostname`, so it's stripped from Kea's config, and the label moves
-  to `reservation_labels` in the same save
-- `_sorted_reservations(reservations)` — fixed-IP entries first (by IP), then name-only
-- Dialogs: `add_reservation_dialog(config)`, `_edit_dialog(reservation, config,
-current_label)` (includes Delete). Deleting a reservation, or changing its MAC
-  on save, also deletes/moves its `reservation_labels` row
-- Each save writes immediately via `config-set` + `config-write`; no deferred "Save" step
-- **Every write reads Kea's config fresh and edits it in place**
-  (`_apply_to_fresh_config` with `helpers.with_reservation_saved` /
-  `with_reservation_removed`). The tab used to rebuild an edited reservation
-  from the form (`hw-address` and `ip-address` only) and save the cached config
-  the page was drawn from. That dropped the quarantine service's
-  `client-classes: ["DROP"]`, silently putting a quarantined device back on
-  DHCP, and could undo any DROP added in the 2 minutes since the cache was
-  filled. Delete now refuses a quarantined device: release it on the
-  Quarantine tab first
-
-### Quarantine Tab (`ui_quarantine.py`)
-
-- `render_quarantine(leases, config)` — device registry table with per-device
-  Quarantine/Release buttons, plus a read-only quarantine audit log. Takes
-  `leases`/`config` (passed down from `app.py`) purely to populate the
-  Add/Edit dialog's hostname picker
-- Manages `device_registry` directly (add/edit/delete via `_edit_dialog`), and
-  triggers enforcement via `quarantine_client.py`, which calls the
-  `keanexus-quarantine` service's own API — same endpoint a Siri Shortcut would call
-- `_edit_dialog(friendly_name, leases, config)` — add/edit/delete a registry entry;
-  friendly*name is immutable once created (delete and re-add instead of renaming).
-  Hostname is a dropdown built from `helpers.distinct_real_hostnames(leases, config)`
-  rather than free text — picking from hostnames Kea has actually observed on a
-  live lease avoids registering a device with a Kea reservation \_label*
-  (see `helpers.py` above), which would never match and would make
-  `quarantine_service/identity.py`'s `resolve_target` fail with
-  `DeviceNotOnNetworkError` even though the device is online. Falls back to a
-  free-text input, with an explanatory caption, only when no real hostnames are
-  currently observed in leases at all. On Save, calls
-  `quarantine_client.trigger_presence_check(name)` best-effort (wrapped in
-  `st.spinner`, failures swallowed) so Last MAC/Last IP/Last Seen populate
-  immediately rather than sitting blank until the quarantine service's
-  5-minute background loop gets to the new device
-- Fingerprint and last-seen fields are displayed read-only in the dialog — they're
-  written by the quarantine service, not editable from this tab
-- `_render_enforcement_step_legend()` — a collapsed `st.expander` right below the
-  tab's top caption, explaining in plain language what each of the four
-  enforcement steps (Kea, ARP, Pi-hole, Fingerprint) actually does and why —
-  the ✓/✗ summary line after a Quarantine/Release action only shows step
-  names, which aren't self-explanatory on their own
-- `_trigger_action(friendly_name, action)` — calls `trigger_quarantine`/
-  `trigger_release`, stashes a pass/fail summary in `st.session_state`, then calls
-  `st.rerun()`. The stash-then-rerun pattern is necessary because `st.rerun()` wipes
-  whatever was drawn this run — `_render_pending_action_result()` displays and clears
-  the stashed result at the top of the next run
-- `_summarize_step_results(action_label, result)` — turns the API's `step_results`
-  into a one-line-per-device pass/fail summary; flags `skipped_due_to_identity_drift`
-  distinctly from a step actually failing
-- `_row_cell_styles(is_quarantined)` — returns the device table's normal cell
-  styles, or all-red (`_QUARANTINED_TEXT_COLOR`) variants when the device is
-  currently quarantined, so the whole row reads as quarantined rather than a
-  separate Status column. Exists because `last_quarantined_at` alone can't
-  answer "is this quarantined right now" — it's never cleared on release
-- `_render_log_table(entries)` — renders the 50 most recent `quarantine_log` rows
-
-### Users Panel (`ui_users.py`)
-
-- `render_users()` — the Settings tab's Users sub-tab, admins only. One table row
-  per login (username, role chip, active/disabled, last login in local time) with
-  an Edit button, plus `+ Add`
-- Collects input only. Every rule (password length, last active admin, no
-  disabling yourself) is enforced by `auth.py`'s `create_user` / `change_role` /
-  `reset_password` / `set_disabled`, and their `UserManagementError` message is
-  what the dialog shows. Keeps the rules unit-tested, since `ui_*.py` is excluded
-  from coverage
-- `_add_user_dialog()` / `_edit_user_dialog(user)`. Edit changes role and password
-  in one Save, and has a Disable/Enable button. The password pair is checked
-  (match and length) **before** anything is saved, so a combined role and
-  password edit can't save the role and then refuse the password
-- Each dialog re-checks `is_admin()` itself: a dialog survives reruns, and the
-  admin's own role could change from another session while it is open
-- Editing your own account shows a warning first, because a role or password
-  change bumps `session_version` and ends your current session too
-- Dialog errors are drawn below the button row, not inside a button column,
-  where they were squeezed to a third of the dialog width
-- Success uses the stash-then-rerun pattern (`_PENDING_NOTICE_KEY`), the same as
-  `ui_quarantine.py`, because `st.rerun()` wipes anything drawn in that run
-
-### Viewer Read-Only Access (`ui_access.py`)
-
-Viewers can see every tab but change nothing. Three layers:
-
-1. **Disabled buttons + notice.** Every write trigger passes `disabled=read_only()`,
-   and each tab calls `read_only_notice()`, a one-line caption shown to viewers
-   only. Search, Refresh and "Check who's online" stay enabled, since they change
-   nothing. `style.css` dims disabled buttons, because the `_chip*` colour rules
-   otherwise override Streamlit's disabled look and a disabled red button still
-   looked live
-2. **Streamlit drops clicks on disabled widgets server-side.** Confirmed with
-   `AppTest`: clicking a disabled button as a viewer never ran the handler. Not
-   relied on, just observed
-3. **Guards at every write.** Kea writes are refused by `ReadOnlyKeaClient`
-   through `helpers.get_client()`, one choke point for every tab. Writes that
-   bypass Kea call `refuse_if_viewer()` first: IPAM static entries, Quarantine
-   registry save and delete, and the quarantine service triggers
-   (`_trigger_action`, delete with auto-release). Reservation labels are only
-   written after a Kea save succeeds, so the Kea guard covers them
-
-Verified end to end against a fake Kea listener that logged every command: a
-viewer session sent only read commands, and calling the write functions
-directly as a viewer was refused with nothing reaching Kea or the quarantine
-service.
-
-### Web UI (`web/`) — FastAPI + HTMX, phases 0–1
-
-Being built beside the Streamlit UI; the plan, route map and phase order are in
-`docs/fastapi-htmx-migration.md`. Runs as the `keanexus-web` compose service
-(`uvicorn web.main:app`, host port **8503**). Phase 0 is the groundwork: sign
+The only UI since the cutover (phase 7). The plan and the record of each phase
+are in `docs/fastapi-htmx-migration.md`. Runs as the `keanexus` compose service
+(`uvicorn web.main:app` on 8000, host port **8502**, the port the Streamlit UI
+used, so Nginx Proxy Manager's upstream did not change). Phase 0 is the groundwork: sign
 in/out, the page layout, Help and the health check. Phase 1 is the real
-Overview (charts follow in phase 1b). Other tabs show greyed out in the nav
-until their phase lands.
+Overview, and 1b adds its charts. Phase 2 is the Quarantine screen, phase 3 the Leases screen and the background liveness sweep, phase 4 Reservations, phase 5 Maintenance, phase 6 Settings and Users. Every screen is now built; phase 7 is the cutover.
 
-- `main.py` — `create_app(start_background_work)`. The lifespan runs
-  `init_db()`, `bootstrap_admin_from_env()` and, when allowed, the pool sampler,
-  all at container start. **`KEANEXUS_WEB_BACKGROUND_WORK=off` is set in compose
-  during the overlap:** the Streamlit container still runs the sampler, and two
-  samplers would write every reading twice. Flip it at cutover. Mounts
+- `main.py` — `create_app(start_background_work, start_liveness_sweep)`. The
+  lifespan runs `init_db()`, `bootstrap_admin_from_env()` and, when allowed, the
+  pool sampler and the liveness sweep loop, all at container start. The sweep
+  has its own switch (`KEANEXUS_WEB_LIVENESS_SWEEP`, default on) and only
+  starts when `QUARANTINE_SERVICE_URL` is set. `KEANEXUS_WEB_BACKGROUND_WORK=off`
+  stops the pool sampler; it was set during the overlap with Streamlit, which
+  ran its own, and is unset since the cutover. Mounts
   `web/static` at `/static` and the repo's `static/` (logos) at `/brand`. No
   OpenAPI or docs pages
 - `security.py` — the session cookie (`keanexus_web_session`: HttpOnly,
@@ -779,7 +417,9 @@ until their phase lands.
     - **Activity** folds `quarantine_log` (one row per step) into one line per
       Quarantine/Release, counting only the enforcement steps (Kea, ARP, both
       Pi-holes). Like `_enforcement_succeeded`, an inconclusive nmap refresh is
-      not a problem. Rows for one action within 5 minutes are one line
+      not a problem. Rows for one action within 5 minutes are one line. Every
+      other change comes from `activity_log` as "<user> <summary>" in blue,
+      and the two are merged by timestamp
     - **Static entries** moved here from the IPAM tab: `GET /address/{ip}/static`
       (form into the page dialog), `POST` (save; MAC must look like
       `aa:bb:cc:dd:ee:ff`), `DELETE`. Admin-only, and refused (404) for any
@@ -788,6 +428,132 @@ until their phase lands.
       `POST /quarantine/{name}/release`, admin-only, 404 for an unregistered
       name. A `QuarantineServiceError` becomes a red notice on the card, never
       a 500
+    - **Charts (1b):** the Dashboard's three charts, built by
+      `dashboard_charts.py` and shipped as Vega-Lite JSON in
+      `overview/_charts.html`; `overview.js`'s `drawCharts()` renders them as
+      SVG with vega-embed at the card's width. Each has a "Show the numbers"
+      table. They draw once on page load and are not re-polled: a 48 h trend
+      gains nothing from a 30 s refresh
+- **Quarantine (`routes/quarantine.py`, `quarantine_data.py`).** The registry
+  table (quarantined rows in red with a chip), per-device and per-group
+  Quarantine/Release, Add/Edit/Delete in the page dialog, the step explainer,
+  the manual cleanup commands, and the audit log (50 newest rows). Rules and
+  shaping live in the pure `quarantine_data.py`: `device_rows`, `group_tags`,
+  `log_rows`, `step_outcomes`, `enforcement_succeeded` (same rule as the
+  service: fingerprint doesn't count), `validate_device` and `ReleaseAttempts`
+    - **Paths are `/devices/...` and `/groups/...`, not `/quarantine/...`.** The
+      Overview already owns `POST /quarantine/{name}`, so a device called
+      "devices" or a group called "release" would have collided with a sibling
+      route. `new` is a reserved friendly name, since `GET /devices/new` is the
+      Add form
+    - **Delete releases first.** The registry row is the only way back to a
+      device's Kea DROP class, Pi-hole overrides and ARP thread, so deleting a
+      quarantined device runs a release and keeps the row unless every
+      enforcement step came off. After `MAX_RELEASE_ATTEMPTS_BEFORE_FORCE` (3)
+      failures the form offers a forced delete behind a checkbox; the route
+      ignores `force=true` before then. Failures are counted in memory per
+      process (`release_attempts`), shared by every admin
+    - **Hostname picker** offers only hostnames on live leases
+      (`distinct_real_hostnames`), plus the entry's own if it has gone quiet,
+      and falls back to free text when Kea reports none. A save carries over
+      every column the service owns (fingerprint, last-seen, quarantine state),
+      then runs `trigger_presence_check` best effort
+    - **Live updates:** an action returns the registry with the outcome (the
+      service's summary plus a ✓/✗ per step per device) and sends
+      `quarantine-changed`, which redraws the audit log. Dialog saves and
+      deletes send `registry-changed, quarantine-changed, close-dialog`
+    - **htmx gotcha:** `hx-swap` is inherited. A button inside an
+      `hx-swap="outerHTML"` section that loads a form into `#dialog-body` must
+      set `hx-swap="innerHTML"` itself, or it replaces `#dialog-body` and every
+      later dialog has nowhere to load
+- **Leases (`routes/leases.py`, `leases_data.py`).** Every lease sorted by
+  address (hostname via `real_hostname`, so a reservation label never shows as
+  the device's name), type chip, expiry, and an Online column. A live filter
+  (`?q=`, 250 ms debounce) matches IP, hostname or MAC. Admins add or edit a
+  lease in the page dialog (`lease4-add` / `lease4-update`); the form checks the
+  address is in the subnet, the MAC's shape, and a duration of 60 s to one week
+  before anything reaches Kea, and shows Kea's own refusal if it says no. A save
+  forgets the cached leases and pool stats and sends `leases-changed`
+    - **Online column:** `—` before any sweep, `yes` (green row) or `no answer`
+      after one. Never "offline": an ARP sweep only proves presence. The caption
+      says how many answered and how long ago
+    - **Check who's online** (`POST /leases/sweep`) is open to viewers, as in
+      Streamlit, since it changes nothing. It sweeps every lease, not the
+      filtered ones, so the result stays valid as the filter changes. A
+      `QuarantineServiceError` becomes a notice above the table
+- **Reservations (`routes/reservations.py`, `reservations_data.py`).** Kea's
+  host reservations with KeaNexus labels, fixed first by address then
+  name-only. Hostname shows four states: the name, `offline`, `none sent`, or
+  `hidden, save to fix` (an old Kea `hostname` override). A quarantined
+  device's row is red with a chip. Reservations Kea keys on something other
+  than a MAC are listed but not editable. Admins add, edit and delete in the
+  page dialog
+    - **Writes read Kea's config fresh**, never from the cache, because the
+      quarantine service edits the same config; saving a copy up to two minutes
+      old would undo its change
+    - **An edit keeps every field the form doesn't show**
+      (`helpers.with_reservation_saved`, shared with the old Streamlit fix, copies
+      the entry and changes only MAC and address). Kea's own `hostname` is always dropped, migrating a legacy
+      label. The Streamlit tab rebuilt the entry from the form, which dropped
+      the quarantine service's `client-classes: ["DROP"]` and silently put a
+      quarantined device back on DHCP
+    - **Delete refuses a quarantined device** (one with `DROP`): release it on
+      the Quarantine screen first, so the service stays the only thing that
+      adds or removes its DROP class
+    - Labels are written only after Kea accepts the change (`config-set` +
+      `config-write`), and move with the MAC when it changes
+- **Maintenance (`routes/maintenance.py`, `maintenance_data.py`).** DHCP on/off,
+  declined leases, and wiping the lease database; every action admin-only
+    - **DHCP state comes from Kea**, via `KeaClient.get_dhcp_enabled()`
+      (`status-get`'s `dhcp-state.globally-disabled`), read on every render and
+      never cached. The Streamlit tab kept it in session state, which was wrong
+      after a restart, in another browser, or once Kea's own re-enable timer
+      fired. When Kea doesn't include `dhcp-state` the screen says so rather
+      than guessing, and shows both buttons
+    - Turning DHCP off goes through a dialog with Kea's auto re-enable timer
+      (default 300 s, 0 to 3600, 0 = stay off). Kea runs the timer itself, so
+      it works even if KeaNexus is down
+    - Declined leases (state 1) can be cleared one by one or all at once. The
+      single-address route refuses any address that isn't a declined lease, so
+      it can never delete a live one
+    - Wipe needs the word `WIPE` typed (checked in the browser and again on
+      the server) and wipes the subnet id from Kea's own config instead of a
+      hard-coded 1
+- **Settings (`routes/settings.py`, `settings_data.py`).** `/settings` edits the
+  subnet's pool range, lease length (sets `valid-lifetime` and its min and max
+  to the same value, with renew/rebind at 50% and 87.5%) and four options
+  (gateway, DNS, domain, NTP; blank removes an option). Every problem is listed
+  at once; pool ends and gateway must sit inside the subnet and the pool must
+  run forwards. Saved onto a config **read fresh from Kea**, touching only those
+  fields, so reservations and their DROP classes are left alone. Viewers see a
+  disabled form
+- **Users (`/settings/users`, admins only).** List, add, edit role and
+  password, disable and enable. All rules come from `auth.py`
+  (`UserManagementError` is shown as-is); the route only checks the two
+  password boxes match and are long enough **before** saving anything, so a
+  role change can't land without its password. Changing your own role or
+  password ends your session, so the response sends you to `/login`. You can't
+  disable yourself (no button, and `auth.set_disabled` refuses)
+- **Search (`routes/search.py`, `search_data.py`).** The header box; ⌘K or
+  Ctrl+K focuses it from any screen, Escape clears it. Each keystroke (200 ms
+  debounce) asks `GET /search?q=` for up to 8 links: registered devices first
+  (by friendly name, hostname, last IP or MAC, linking to Quarantine), then
+  map addresses (by IP, label, hostname or MAC). An address holding a lease
+  links to Leases filtered to it; anything else links to the map. Free
+  addresses match by IP only, and queries under 2 characters find nothing
+- `liveness.py` — the latest ARP sweep, kept in memory for the process
+  (`latest()`, `sweep_now(addresses)`), plus a daemon loop
+  (`start_sweep_loop`, every `LIVENESS_SWEEP_INTERVAL_SECONDS`, default 300,
+  floor 30) that sweeps every leased address through
+  `quarantine_client.trigger_liveness_sweep`. The loop catches every failure
+  per pass, like the pool sampler, so an absent quarantine service never stops
+  it. Feeds the Leases Online column and the Overview's "N online · swept
+  X min ago" line. A failed sweep keeps the previous result
+- `kea_reads.py` — `read_kea(kea)`: cached leases, config and pool stats plus a
+  `kea_error` flag, shared by every screen. An unreachable Kea gives `None`s and
+  a banner, never a 500
+- The page dialog (`#dialog-body`, opened by `open-dialog`, closed by
+  `close-dialog`) lives in `base.html`, so every screen shares one
 - `cache.py` — `cached(key, ttl_seconds, load)`: a small TTL cache replacing
   `@st.cache_data` for Kea reads (leases 30 s, pool stats 30 s, config 120 s,
   health 20 s). A failed load is never cached
@@ -798,16 +564,34 @@ until their phase lands.
   Pi-hole is answering without the web container ever holding a Pi-hole password
 - Routes: `GET/POST /login`, `POST /logout`, `GET /` (Overview),
   `GET /fragments/{address-map,quarantine,activity,health}`,
+  `GET /quarantine`, `GET /fragments/{quarantine-registry,quarantine-log}`,
+  `POST /devices/{name}/{quarantine,release}`, `POST /groups/{tag}/{quarantine,release}`,
+  `GET /devices/new`, `GET /devices/{name}`, `POST /devices`,
+  `PUT /devices/{name}`, `DELETE /devices/{name}[?force=true]` (all writes admin-only),
+  `GET /leases[?q=]`, `GET /fragments/leases[?q=]`, `POST /leases/sweep` (any
+  signed-in user), `GET /leases/new`, `GET /leases/{ip}`, `POST /leases`,
+  `PUT /leases/{ip}` (admin), `GET /reservations`, `GET /fragments/reservations`,
+  `GET /reservations/new`, `GET /reservations/{mac}`, `POST /reservations`,
+  `PUT /reservations/{mac}`, `DELETE /reservations/{mac}` (admin),
+  `GET /maintenance`, `GET /fragments/maintenance`, `GET`/`POST /maintenance/dhcp/disable`,
+  `POST /maintenance/dhcp/enable`, `POST /maintenance/declined/clear`,
+  `POST /maintenance/declined/{ip}/clear`, `GET`/`POST /maintenance/wipe` (admin),
+  `GET /settings` (any user), `PUT /settings/dhcp`, `GET /settings/users`,
+  `GET /fragments/users`, `GET /settings/users/new`, `GET /settings/users/{name}`,
+  `POST /settings/users`, `PUT /settings/users/{name}`,
+  `POST /settings/users/{name}/{disable,enable}` (admin),
+  `GET /search?q=` (any signed-in user),
   `GET /help` (table of contents: fragment for HTMX, full page otherwise),
   `GET /help/{filename}` (404 off the allowlist), `GET /healthz` (no auth; the
-  compose healthcheck, since the image's own HEALTHCHECK probes Streamlit)
-- `static/vendor/` — htmx and Alpine.js, vendored at pinned versions with
+  image's HEALTHCHECK)
+- `static/vendor/` — htmx, Alpine.js and vega / vega-lite / vega-embed, vendored at pinned versions with
   hashes in `VERSIONS.md`. No CDN (must work when the WAN is down) and no Node
-  build step. Fonts fall back to the system stack until they are vendored too
-- Templates: `base.html` (the B2 masthead with the real logo, search placeholder,
+  build step. Vega-Lite's version must match the schema Altair emits; see
+  `VERSIONS.md`. Fonts fall back to the system stack until they are vendored too
+- Templates: `base.html` (the B2 masthead with the real logo, the ⌘K search box,
   account + Sign out, tabs, Help modal), `login.html` + `_login_form.html`
   (a failed sign-in re-renders only the form, with status 200 because HTMX does
-  not swap 4xx bodies), `overview.html`, `help/`
+  not swap 4xx bodies), `overview.html`, `quarantine.html` + `quarantine/`, `leases.html` + `leases/`, `reservations.html` + `reservations/`, `maintenance.html` + `maintenance/`, `settings.html` + `settings/`, `help/`
 
 ### keanexus-quarantine Service (`quarantine_service/`)
 
@@ -854,7 +638,7 @@ folded into the descriptions below rather than tracked as separate PR numbers.
     - `GET /status/{friendly_name}` — returns recent `quarantine_log` rows for one device
     - `POST /presence-check/{friendly_name}` — immediately ARP-probes one registered
       device via `presence_check.probe_device_now`, bypassing that module's 5-minute
-      background loop. Called by `ui_quarantine.py` right after a device is added or
+      background loop. Called by the web Quarantine screen right after a device is added or
       edited, so Last MAC/Last IP/Last Seen don't sit blank until the loop's next pass.
       Returns `{"friendly_name": ..., "seen": bool}`
     - `POST /liveness-sweep` `{"ip_addresses": [...]}` — ARP-sweeps the supplied
@@ -868,9 +652,8 @@ folded into the descriptions below rather than tracked as separate PR numbers.
       still needs the token
     - All the others require `Authorization: Bearer <token>` via `require_bearer_token`
     - `@app.on_event("startup")` calls `init_db()` eagerly. Discovered on first real
-      deployment: KeaNexus's own Streamlit script also calls `init_db()`, but Streamlit
-      defers running `app.py` until a browser session connects — it doesn't execute
-      just because the container started. A fresh deploy where nobody had opened the
+      deployment, when KeaNexus was still a Streamlit app: Streamlit deferred running
+      its script, and so `init_db()`, until a browser session connected. A fresh deploy where nobody had opened the
       KeaNexus dashboard yet left `quarantine_log`/`device_registry` missing entirely,
       which this service hit before anyone ever loaded the dashboard. FastAPI runs
       startup handlers eagerly on process start, making this service self-sufficient
@@ -879,7 +662,7 @@ folded into the descriptions below rather than tracked as separate PR numbers.
     - `_get_kea_client()` / `_get_pihole_clients()` are factories (not module-level
       singletons) specifically so tests can patch them per-call with a stub
     - `_get_gateway_ip(kea)` extracts the subnet's router IP from the live Kea config
-      (same `option-data` lookup pattern as `ui_ipam.py`) — needed by the ARP step to
+      (same `option-data` lookup as `address_map.gateway_ip`) — needed by the ARP step to
       know which IP to impersonate
 - `auth.py` — `require_bearer_token(authorization)`, a FastAPI dependency. Reads
   `QUARANTINE_API_TOKEN` from the environment on every call (not cached at import
@@ -1064,38 +847,24 @@ All endpoints except `GET /health` require `Authorization: Bearer <QUARANTINE_AP
 
 **Direct Kea HTTP listener (not Control Agent)** — Kea 3.0 deprecated and removed the Control Agent. `kea-dhcp4` now exposes its own HTTP listener on port 8004. KeaNexus talks directly to it; the `"service"` forwarding key is never sent.
 
-**CSS conic-gradient gauge (not SVG)** — Pool utilisation shown as a donut ring using `conic-gradient`. Simpler than SVG with equivalent visual quality; no JS required.
-
 **SQLite for IPAM static records** — Local SQLite in a named Docker volume. Static IP records are KeaNexus-managed metadata (not sent to Kea); they exist purely for documentation/visibility of non-DHCP addresses.
 
-**HTML tables (not st.dataframe)** — All data tables rendered as raw HTML to allow custom chip/badge formatting. Streamlit's native components don't support per-cell HTML.
+**UI moved from Streamlit to FastAPI + HTMX** — `docs/fastapi-htmx-migration.md`
+records why, the route map, auth and CSRF, and each phase. The two UIs ran side
+by side (the web UI on 8503) until the cutover removed Streamlit and moved the
+web UI onto Streamlit's old host port, 8502. Streamlit's DOM was effectively an
+API this app styled against, which made every Streamlit bump a styling risk;
+the web UI owns its markup outright.
 
-**UI moving from Streamlit to FastAPI + HTMX (in progress: phases 0–1 done)** —
-`docs/fastapi-htmx-migration.md` has the plan: why, the route map, auth and
-CSRF, deployment beside the current UI on port 8503, and a phase-by-phase PR
-order. Phase 0 split `auth.py` and `helpers.py` from Streamlit (into
-`streamlit_adapter.py`) and added the `web/` skeleton; phase 1 built the
-Overview and moved the address classifier into `address_map.py`. Until cutover (phase 7),
-everything below about Streamlit stays true. Check that doc before adding new
-Streamlit-only UI, which would only have to be rebuilt.
+**Pool history sampled in-process, with gaps left as gaps** — A utilisation trend needs data Kea does not keep, so KeaNexus samples it itself. The sampler is a background thread started with the web app rather than a sample taken during page render, because rendering-time sampling only records while a browser is open and would draw a flat line across every overnight gap — a chart that lies. (Under Streamlit it only started once someone opened the app; the web app starts it at container start.) The two alternatives were rejected deliberately: the quarantine service's existing always-on loop is behind an optional Compose profile, so a core tab's history would silently be empty for anyone not running it, and a dedicated sampler container is more infrastructure than a home deployment warrants. Because gaps are therefore expected, nothing interpolates across them — `get_pool_samples` returns exactly the readings taken.
 
-**Streamlit is pinned, not floated** — `requirements.txt` pins `streamlit==1.66.1` (bumped from 1.62.0 because 1.62 through 1.66.0 cap `pillow<13`, and only Pillow 13 fixes the advisories pip-audit flagged; `pillow>=13.0.0` is listed as a floor so the fix can't silently regress). It previously allowed `>=1.40.0`, which let a container rebuild land on a Streamlit whose tabs are React Aria (`data-rac`, `react-aria-*` ids, a `.react-aria-SelectionIndicator` child per tab) while the local venv had one whose tabs are BaseWeb (`data-baseweb="tab-highlight"`). Different DOM, different CSS hooks — so `style.css` selectors verified locally silently matched nothing in production, and reading the local bundle to diagnose a live styling bug gave confidently wrong answers. This app styles Streamlit's internals heavily, so its DOM is effectively an API here: bump the pin deliberately and re-check `style.css`'s widget selectors when you do. For the 1.66.1 bump, every `data-testid` `style.css` targets was confirmed present in the new frontend bundle and tabs are still React Aria, but the sidebar's state attribute changed from `aria-expanded` to `data-collapsed`, which a test-id check cannot catch: the width pin silently stopped matching and the sidebar widened under the tab bar. `style.css` now targets both attributes. Check attributes, not just test ids, on the next bump; `stDecoration` and BaseWeb's `tab-highlight` match nothing in either version and are kept only as harmless fallbacks. `style.css` still targets both libraries' selection indicators, since that cost nothing.
-
-**Chip labels are pinned to their own line box (`style.css`)** — inside `st.columns`, Streamlit 1.66.1 renders a button's label `<p>` inline inside a wrapper with a 22.4px line-height, so table-row chips drew their text about 10px from the top and 5px from the bottom. One shared rule gives every chip family's wrapper the chip's own line-height and makes the `<p>` a block. Re-check this on the next Streamlit bump along with the other widget selectors.
-
-**Sidebar collapsible at every viewport (`style.css`)** — One behaviour, not two. This app hides Streamlit's whole `stHeader` bar, and Streamlit renders the re-open arrow inside it, so collapsing the sidebar originally left no control to bring it back; the first fix pinned the panel open, and a later one pinned it open on desktop only. Both were working around a hidden control rather than un-hiding it. Now both controls are always visible — the in-sidebar collapse button (Streamlit reveals it on hover only, which a touch screen never triggers and a desktop user rarely discovers) and the header's re-open arrow, exposed by rendering `stHeader` as a transparent, click-through strip with pointer events re-enabled on that one button. The header needs `background: transparent` and `pointer-events: none` forced, because Streamlit gives it an opaque background and `pointer-events: auto` exactly when the expand button is present, which would otherwise paint over and swallow clicks in the top ~60px of the page. `stToolbarActions`/`stStatusWidget`/`stAppDeployButton`/`stMainMenu` are hidden individually rather than by hiding the header, since the expand button sits in a separate branch of the header tree.
-
-Two consequences worth knowing. The width pin is scoped to `[aria-expanded="true"]`: Streamlit collapses by animating `min-width`/`max-width` to `0` alongside a `translateX`, so an unconditional `!important` pin overrides the `0` and leaves the panel holding 210px of layout while sliding out of sight — a dead gutter, and a collapse that appears to do nothing. And the tab bar is `position: fixed`, so it cannot reflow with the content: its `left` offset follows the sidebar's state explicitly via `body:has([data-testid="stSidebar"][aria-expanded="false"])`, dropping to `0` with padding for the re-open arrow, or a collapsed sidebar leaves a 210px gap beside the tabs. The only genuinely phone-specific rule left is horizontal scrolling on the tab bar, since seven tabs never fit a ~390px screen. The bar is anchored at `top: 0` with its visual offset in `padding-top`, not at `top: 0.75rem`: the band above a top-offset bar is covered only by the transparent `stHeader`, so scrolled content showed through it.
-
-**Pool history sampled in-process, with gaps left as gaps** — A utilisation trend needs data Kea does not keep, so KeaNexus samples it itself. The sampler is a background thread in the Streamlit container rather than a sample taken during page render, because rendering-time sampling only records while a browser is open and would draw a flat line across every overnight gap — a chart that lies. The tradeoff is that Streamlit does not execute `app.py` until a session connects, so sampling does not resume after a container restart until somebody opens KeaNexus; once started it runs for the process's life regardless of who is watching. The two alternatives were rejected deliberately: the quarantine service's existing always-on loop is behind an optional Compose profile, so a core tab's history would silently be empty for anyone not running it, and a dedicated sampler container is more infrastructure than a home deployment warrants. Because gaps are therefore expected, nothing interpolates across them — `get_pool_samples` returns exactly the readings taken.
-
-**KeaNexus's modules are bind-mounted file-by-file** — `docker-compose.yml` lists each Python module as its own `./x:/app/x` mount (so `--server.runOnSave` picks up host edits), rather than mounting the directory. That drifts silently: a renamed module leaves a mount pointing at a path that no longer exists, and Docker creates a _directory_ there; a new module goes unmounted, so the container runs a stale copy from the image alongside current mounted modules — which is how `ui_pool.py` → `ui_dashboard.py` turned into an ImportError at container start with nothing in the suite noticing. `tests/test_docker_compose_mounts.py` now fails on either condition. Modules the KeaNexus container genuinely never imports are listed in that test's `_NOT_REQUIRED_IN_KEANEXUS` (currently just `pihole.py`, which exists at the repo root only so `quarantine_service` can import it via its own Dockerfile `COPY`).
+**KeaNexus's modules are bind-mounted file-by-file** — `docker-compose.yml` lists each Python module as its own `./x:/app/x` mount rather than mounting the directory (`web/` is the exception, mounted whole). Edits on the host take effect at the next container restart; uvicorn runs without `--reload`. File-by-file mounts drift silently: a renamed module leaves a mount pointing at a path that no longer exists, and Docker creates a _directory_ there; a new module goes unmounted, so the container runs a stale copy from the image alongside current mounted modules — which is how a Streamlit-era module rename turned into an ImportError at container start with nothing in the suite noticing. `tests/test_docker_compose_mounts.py` now fails on either condition. Modules the KeaNexus container genuinely never imports are listed in that test's `_NOT_REQUIRED_IN_KEANEXUS` (currently just `pihole.py`, which exists at the repo root only so `quarantine_service` can import it via its own Dockerfile `COPY`).
 
 **Secret scanning split across two hooks** - `pre-commit` checks only staged files with `detect-secrets-hook`, which fails only on a secret missing from `.secrets.baseline`. The earlier hook scanned the whole tree and demanded an exact match with the baseline, so any drift anywhere (a branch's test fixtures, or a known secret moving to a new line) blocked every commit, including ones that touched none of those files. `pre-push` keeps the whole-tree check as a backstop, comparing by file and secret hash rather than line number, so moved code does not false-alarm. pytest and coverage moved from `pre-commit` to `pre-push`, which keeps commits fast. Both hooks share one exclude pattern (`SECRETS_EXCLUDE`); keep it in sync with the command used to regenerate the baseline.
 
 **All times UTC internally** — Kea lease expiry timestamps are Unix epoch. Display formatting converts to human-readable durations via `fmt_ttl()`. `quarantine_log.occurred_at` is likewise stamped as UTC ISO8601 in `db.py`, not left to the caller.
 
-**Reservation labels decoupled from Kea's `hostname` field** — Kea's own docs confirm host-level reservation values (including `hostname`) always take priority: once a reservation sets `hostname`, Kea echoes that admin-typed string back on every lease for the device, permanently discarding whatever hostname the client itself requests. That made `device_registry` entries built from a reservation's hostname unable to ever match a live lease during quarantine identity resolution (`resolve_target` would raise `DeviceNotOnNetworkError` for a device that was clearly online), and made the Leases tab show a made-up label instead of the device's real name. Reservations created or edited via `ui_reservations.py` no longer send `hostname` to Kea at all — the admin-facing label lives in `db.reservation_labels` instead, keyed by MAC, so Kea always preserves the real DHCP-negotiated hostname on the lease. The tradeoff: a reservation's hostname can no longer drive Kea's own DDNS registration for that device, since Kea has nothing to register.
+**Reservation labels decoupled from Kea's `hostname` field** — Kea's own docs confirm host-level reservation values (including `hostname`) always take priority: once a reservation sets `hostname`, Kea echoes that admin-typed string back on every lease for the device, permanently discarding whatever hostname the client itself requests. That made `device_registry` entries built from a reservation's hostname unable to ever match a live lease during quarantine identity resolution (`resolve_target` would raise `DeviceNotOnNetworkError` for a device that was clearly online), and made the Leases tab show a made-up label instead of the device's real name. Reservations created or edited in KeaNexus no longer send `hostname` to Kea at all — the admin-facing label lives in `db.reservation_labels` instead, keyed by MAC, so Kea always preserves the real DHCP-negotiated hostname on the lease. The tradeoff: a reservation's hostname can no longer drive Kea's own DDNS registration for that device, since Kea has nothing to register.
 
 **Lease liveness is swept by ARP from the quarantine service, never ICMP from
 KeaNexus** — Kea reports which addresses are _leased_, which is not the same
@@ -1133,31 +902,38 @@ little benefit over just asking the caller to retry.
 ## Testing
 
 Unit tests live in `tests/`. Coverage is measured over every testable back-end
-module (`--cov=.` in `pyproject.toml`, with `app.py` and `ui_*.py` explicitly omitted
-since they require a live Streamlit server and can't be unit-tested). That includes
+module (`--cov=.` in `pyproject.toml`), `web/` included. That includes
 `auth.py`, `db.py`, `kea.py`, `helpers.py`, `pihole.py`, and everything in
 `quarantine_service/`.
 
 | File                                        | What is tested                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `tests/test_auth.py`                        | First-admin bootstrap; `check_credentials` (case-insensitive, wrong password, unknown/empty and disabled users, records login); `session_user_if_valid` (current vs old version, disabled, unknown); signed token round trip, no secret, stale version, tampered username, malformed and non-numeric values, `public_user` omits the hash; user-management rules (validation, duplicates, last-admin and self-disable protection)                                                                                                                                                                                                                                                                             |
-| `tests/test_streamlit_adapter.py`           | The Streamlit session glue: login (case-insensitive, wrong password, unknown, empty, disabled, corrupt hash), `current_user`/`is_admin` incl. sessions ended by password change, disable and deletion, logout; cookie round trip into a fresh session, stale version, tampered username, wrong secret, malformed values, no secret; `get_client` gives viewers `ReadOnlyKeaClient` |
 | `tests/test_web.py`                         | Web UI phase 0 via `TestClient`: `/healthz`; signed-out redirect (303, or `HX-Redirect` for HTMX); login sets an HttpOnly/SameSite cookie, wrong password shows the error with no session, missing secret explained, plain-form 303; sign-out; sessions ended by password change and disable; CSRF refused without token, with a mismatched token, without the cookie, token written into the page and not rotated; `require_admin`/`kea_client` by role; Help table of contents (fragment vs full page, every link lands on a real heading id, off-allowlist and missing files 404, code blocks skipped); lifespan admin bootstrap and the sampler switch |
 | `tests/test_address_map.py`                | `classify_addresses`: all 256 rows, network/broadcast/gateway, pool vs free and which are editable, dynamic lease (hostname, MAC, time left), declined beats reservation, leased reservation shows reserved with its stored label, legacy Kea hostname as label fallback, offline reservation, masked hostname never shown as real, static entry label/notes/editable, missing `valid-lft` uses Kea's default, malformed prefix rejected; the config helpers |
 | `tests/test_overview_data.py`               | `local_time`; `pool_figures` (declined counted as used, ok/warn/full, zero pool, no stats); `devices_by_ip` (live hostname first, last-seen fallback); `map_cells` display statuses (quarantined, unknown, named and reserved leases not unknown) and the full cell shape; legend order; `quarantine_rows` ordering and meta; `activity` (one line per action, nmap failure ignored, failed step flagged, identity-drift skip, separate actions, limit) |
-| `tests/test_web_overview.py`                | Overview routes with a stub Kea: needs sign-in, 256 squares + figures + subnet, hover JSON names the registered device, card lists devices, viewer switches disabled, Kea down still renders with a banner, all four fragments; Quarantine/Release (viewer 403, unknown 404, summary + `HX-Trigger`, release path, service failure shown, CSRF required); static entries (prefill, free address, pool/network/off-subnet refused, save + close trigger, bad MAC not written, delete, viewer 403); `cache` (reuse, expiry, failures not cached, forget, TTL check); `health` (Kea only, Kea down, Pi-hole any non-5xx is up, quarantine needs 2xx, unreachable is down) |
+| `tests/test_web_overview.py`                | Overview routes with a stub Kea (plus `/search`: sign-in, results, no match, too short, live box): needs sign-in, 256 squares + figures + subnet, hover JSON names the registered device, card lists devices, viewer switches disabled, Kea down still renders with a banner, chart specs and table twins present, trend waits for two samples, all four fragments; Quarantine/Release (viewer 403, unknown 404, summary + `HX-Trigger`, release path, service failure shown, CSRF required); static entries (prefill, free address, pool/network/off-subnet refused, save + close trigger, bad MAC not written, delete, viewer 403); `cache` (reuse, expiry, failures not cached, forget, TTL check); `health` (Kea only, Kea down, Pi-hole any non-5xx is up, quarantine needs 2xx, unreachable is down) |
+| `tests/test_quarantine_data.py`             | `device_rows` (order, fields, blanks), `group_tags` counts, `log_rows` (unreadable time shown raw), `step_outcomes` incl. skipped devices, `enforcement_succeeded` (fingerprint ignored, any other failure or nothing resolved fails), `validate_device` (bad, reserved and duplicate names, hostname required, edits skip name rules), `ReleaseAttempts` threshold and clear |
+| `tests/test_web_quarantine.py`              | Quarantine screen with the stub Kea and a patched service: sign-in, devices/groups/log listed, nav link, viewer view, fragments, empty registry; actions (viewer 403, CSRF, unknown 404, steps + `quarantine-changed`, partial failure, service down, group calls with `is_group`, unknown group); forms (lease hostnames offered, quiet hostname kept, free text when Kea is down, admin-only, unknown 404); create/update (presence check, its failure ignored, duplicate and bad names, viewer refused, service-owned fields kept, hostname required); delete (plain, release first, failed release keeps the row, force refused early, force offered and honoured after 3, viewer, unknown) |
+| `tests/test_leases_data.py`                 | `lease_rows` (numeric sort, fields, masked hostname, type from reservation, online none/true/false, declined, Kea's default lifetime), `filter_rows`, `validate_lease` (bad address, outside subnet, bad MAC, duration not a number or out of range), `normalized_mac` |
+| `tests/test_web_liveness.py`                | `sweep_now` keeps the latest and dedupes the count, a failed sweep keeps the previous result, leases without an address skipped; the loop runs, survives a failed pass, is idempotent and stops; interval env var (default, floor, junk); `age_label` |
+| `tests/test_web_leases.py`                  | Leases screen with a recording stub Kea: sign-in, table, filter and no match, Kea down, viewer sees no edit controls; sweep (viewer allowed, sweeps every lease not just the filtered ones, online rows, service down as a notice, CSRF) and the Overview's online count; forms (new, prefilled edit, unknown 404, admin-only); writes (add with MAC normalised, invalid not sent, Kea refusal shown, update, unknown 404, viewer 403); the liveness switch and the lifespan starting the loop |
+| `tests/test_reservations_data.py`           | `reservation_rows` (order, all four hostname states, label from KeaNexus then legacy Kea hostname, quarantined flag, non-MAC reservations not editable), `validate_reservation` (MAC, label, duplicates, address checks, editing itself), config edits (add leaves the input untouched, edit keeps DROP and other fields and drops Kea's hostname, remove, find) |
+| `tests/test_web_reservations.py`            | Reservations screen with an in-memory Kea config: table with labels, viewer view, Kea down; forms (new, edit by any-case MAC, unknown 404); writes (add writes Kea then the label, invalid not sent, Kea refusal leaves the label alone, Kea unreachable, edit reads a fresh config and keeps a DROP added after page load, label moves with the MAC, vanished reservation 404, delete, delete refused for a quarantined device, delete failures, viewer 403, CSRF) |
+| `tests/test_maintenance_data.py`            | `declined_rows` (only declined, numeric order, Kea's default lifetime), `validate_auto_enable` bounds, `wipe_confirmed` exact word |
+| `tests/test_web_maintenance.py`             | Maintenance screen with a recording stub Kea: on/off/unknown/unreachable states, clean pool, Kea down; disable with timer, bad timer not sent, refusals, enable; clear all and one declined, a live lease refused, failures reported; wipe needs the word, wipes the configured subnet, refusal shown; every route refused to viewers and without CSRF |
+| `tests/test_search_data.py`                 | `search`: too-short queries, devices before addresses, label as title with hostname and MAC in the detail, link to Leases only when an address holds a lease, empty addresses match by IP only, capped at 8 |
+| `tests/test_settings_data.py`               | `settings_values` (fields, lifetime fallbacks), `validate_settings` (every field, pool order, subnet-less config), `with_settings_applied` (pool, lifetimes and timers, list normalising, blank option removed, unrelated options and reservations kept, input untouched, no pools yet, `valid-lft` stripped) |
+| `tests/test_web_settings.py`                | Settings screen: DHCP page, viewer read-only, save onto a fresh config keeps a DROP added after page load, invalid not sent, Kea failures, viewer and CSRF refused, Kea down; Users: list and forms, viewer refused, create, create refusals (mismatch, short, missing, bad name, duplicate), edit another user, mismatch saves nothing, last admin can't be demoted, own password change signs you out, own no-op save doesn't, disable and enable, can't disable yourself |
 | `tests/test_db_users.py`                    | `users` table storage: case-insensitive usernames, duplicate rejection, role CHECK, list omits hashes, active-admin count, `session_version` bumps on every change, `record_login`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| `tests/test_db.py`                          | Full CRUD on `ipam_static`, `reservation_labels`, `device_registry`, and `quarantine_log` via `temp_db` fixture (SQLite in tmp dir)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `tests/test_db.py`                          | Full CRUD on `ipam_static`, `reservation_labels`, `device_registry`, `quarantine_log` and `activity_log` (newest first, long summaries trimmed) via `temp_db` fixture (SQLite in tmp dir)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | `tests/test_kea.py`                         | All `KeaClient` methods; `ReadOnlyKeaClient` passes every read command and refuses every write and unknown command before any request; `httpx` patched via `http_mock` fixture                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| `tests/test_helpers.py`                     | `fmt_ttl`, `chip`, `leases_to_df`, `build_reservation_type_sets`, `lease_type`, `build_hostname_override_sets`, `real_hostname`, `distinct_real_hostnames`, `lease_for_reservation`, `pool_stats_with_fallback` (summary, lease-count fallback, unreachable)                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `tests/test_helpers.py`                     | `fmt_ttl`, `build_reservation_type_sets`, `lease_type`, `build_hostname_override_sets`, `real_hostname`, `distinct_real_hostnames`, `lease_for_reservation`, `pool_stats_with_fallback` (summary, lease-count fallback, unreachable)                                                                                                                                                                                                                                                                                                                                                                                                               |
 | `tests/test_dashboard_data.py`              | `lease_expiry_buckets` (bucket boundaries, expired leases, declined excluded, missing `valid-lft`), `lease_composition`, `utilisation_points` (gap breaking, declined counted as used, zero total), `leases_issued_since` (cumulative delta, stale baseline rejected, counter reset, insufficient history), `quarantined_count`                                                                                                                                                                                                                                                                                                                                                             |
+| `tests/test_dashboard_charts.py`            | Chart builders: trend needs two samples, timestamps keep their UTC offset (regression), gaps break the line, table newest first; expiry and composition tables and plain inline-data specs; `count_headroom` never zero |
 | `tests/test_version.py`                     | `APP_VERSION` is plain `MAJOR.MINOR.PATCH`, since the sidebar renders it as `v` + the value                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | `tests/test_docs_library.py`                | Article allowlist (listed files exist, developer docs excluded, missing file hidden) and `read_article` rejecting path traversal, absolute paths and unlisted names                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| `tests/test_ui_docs_render.py`              | Headless render via `AppTest` — one button per article, clicking one opens the dialog with the article's body, nothing opens without a click                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | `tests/test_docker_compose_mounts.py`       | Every `./x:/app/x` mount source in `docker-compose.yml` exists on disk (except gitignored runtime-state mounts in `_RUNTIME_STATE_MOUNTS`, currently `./data`, which a fresh clone doesn't have; a guard test checks each one really is gitignored), and every repo-root module is mounted (minus a checked exclusion list) — catches a rename or addition that would leave the container running stale code                                                                                                                                                                                                                                                                                |
-| `tests/test_ui_quarantine_render.py`        | Headless render via `AppTest` — renders with devices registered and with an empty registry, row buttons present, a quarantined row uses the alert colour, and a malformed `last_seen_at` doesn't crash the table                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| `tests/test_ui_leases_render.py`            | Headless render via `AppTest` — the tab draws, the sweep button is present, no row is green before a sweep, clicking sweeps every lease address, a responding row gets the live cell style and a non-responding one doesn't, the caption reports the count, and a `QuarantineServiceError` is shown rather than raised; `trigger_liveness_sweep` always patched                                                                                                                                                                                                                                                                                                                             |
-| `tests/test_ui_dashboard_render.py`         | Headless render via Streamlit's `AppTest` — page executes without raising, every section reaches the output, each chart has a table-view expander, missing stats shows an error not a crash, and an empty `pool_samples` degrades to a caption                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | `tests/test_pihole.py`                      | `PiholeClient` session auth (caching, reuse, re-auth on expiry), CSRF header logic, error mapping, constructor overrides (base_url/password); `httpx` patched via `pihole_http_mock` fixture                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | `tests/test_quarantine_client.py`           | `trigger_quarantine`/`trigger_release` — request shape, auth header, is_group passthrough, missing-token error, connect error, HTTP error detail parsing; `trigger_liveness_sweep` — request shape, responders returned, empty list short-circuits without a request, missing `responding` key, missing token, unreachable service; `httpx` patched via `quarantine_client_http_mock` fixture                                                                                                                                                                                                                                                                                               |
 | `tests/test_quarantine_auth.py`             | `require_bearer_token` — missing config, missing/malformed header, wrong token, success                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
@@ -1184,13 +960,11 @@ module as `tests.conftest` — a bare `from conftest import StubKeaClient` in an
 test file won't resolve, but fixtures always will. Both stubs record every call made
 (`saved_configs` / `calls`) so tests can assert on exactly what would have been sent.
 
-**Streamlit cached loaders** (`load_leases`, `load_pool_stats`, `load_config`, `load_status` in `streamlit_adapter.py`) are thin `@st.cache_data` wrappers and are not tested directly; the logic they wrap (`pool_stats_with_fallback`) is.
-
 ## Validation and Error Handling Standards
 
-- UI components catch all errors and display via `st.error()`
+- Web routes catch recoverable errors (`KeaError`, `QuarantineServiceError`, `UserManagementError`) and show them in the form or a notice; an unreachable Kea gives a banner, never a 500
 - Internal modules raise `KeaError` for Kea API failures; callers handle at the tab level
-- IPAM edit form validates: IP must be in subnet, must be out-of-scope, must not be network/broadcast
+- Static entries are refused (404) for any address `address_map` doesn't mark editable: inside the pool, network, broadcast or off-subnet
 - DB functions assert IP is a non-empty string; SQLite PRIMARY KEY enforces uniqueness
 - `upsert_device` asserts friendly_name and hostname are non-empty; friendly_name is the SQLite PRIMARY KEY
 - `insert_quarantine_log_entry` asserts friendly_name is non-empty, action is `"quarantine"` or `"release"`, and attempt_count is at least 1

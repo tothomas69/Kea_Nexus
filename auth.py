@@ -9,9 +9,8 @@ This module holds no session state of its own and does not import any UI
 framework. A session is a signed token carrying the username and the user's
 session_version, signed with KEANEXUS_SECRET, so it needs no server-side
 session store, and any change that bumps session_version (password, role,
-disable) makes old tokens stop working. Where the token lives is the caller's
-business: streamlit_adapter.py keeps it in st.session_state plus a cookie for
-the current UI, and the web app keeps it in a cookie only.
+disable) makes old tokens stop working. The web app keeps it in a signed
+cookie (web/security.py).
 
 Callers re-check the user against the database on every request with
 session_user_if_valid() or user_from_session_token(), so a password change,
@@ -197,7 +196,7 @@ def public_user(stored_user: dict) -> dict:
 # --- User management (admin actions) ---------------------------------------------
 # The UI checks the user's role before offering these. The rules that protect the
 # system as a whole (never zero active admins, no disabling yourself) live
-# here rather than in ui_settings.py so they are enforced and tested no
+# here rather than in a route so they are enforced and tested no
 # matter which screen calls them.
 
 
