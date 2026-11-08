@@ -150,9 +150,9 @@ Data persisted in Docker named volume `keanexus_data` mounted at `/app/data/`.
   the far end retries up to 3 times with a 2s backoff, and the nmap step alone can
   take up to ~45s per attempt — a slow-but-working retry sequence shouldn't look
   like a client timeout from KeaNexus's side
-- `trigger_liveness_sweep(ip_addresses)` — called by the Leases tab's "Check who's
-  online" button. Returns the subset of the supplied addresses that answered an ARP
-  probe. Short-circuits to `[]` without a request when given no addresses. Its own
+- `trigger_liveness_sweep(ip_addresses)` — called by the web UI's sweep (button and
+  background loop). Returns `{ip: mac}` for the addresses that answered an ARP probe;
+  the MAC is `""` if the service is older and only sends `responding`. Short-circuits to `[]` without a request when given no addresses. Its own
   30s timeout (`_LIVENESS_SWEEP_TIMEOUT_SECONDS`) — a sweep is one batched send plus
   a single server-side wait regardless of address count, so it needs nothing like
   enforcement's 180s
@@ -407,7 +407,12 @@ Overview, and 1b adds its charts. Phase 2 is the Quarantine screen, phase 3 the 
       sits there) to admins. Two display-only statuses sit on top of
       `address_map`: **quarantined** (a registered device with
       `is_quarantined`) and **unknown** (a dynamic lease with no hostname, no
-      label and no registered device). Devices are placed by the hostname on
+      label and no registered device). The card's **On the wire** row shows the
+      latest sweep: the MAC that answered and how long ago, "No answer", or
+      "Not checked yet". When the answering MAC differs from the one Kea or the
+      static record holds, the card warns that a different device answered.
+      `map_cells(rows, devices, seen_macs, seen_age)` adds `seen`,
+      `seen_mac`, `seen_age` and `seen_mismatch` to each cell Devices are placed by the hostname on
       their live lease first, the way the quarantine service finds them, and by
       `last_seen_ip_address` otherwise, since a quarantined device holds no lease
     - **Live redraws:** the map and Activity re-fetch every 30 s and on the
@@ -478,8 +483,9 @@ Overview, and 1b adds its charts. Phase 2 is the Quarantine screen, phase 3 the 
       after one. Never "offline": an ARP sweep only proves presence. The caption
       says how many answered and how long ago
     - **Check who's online** (`POST /leases/sweep`) is open to viewers, as in
-      Streamlit, since it changes nothing. It sweeps every lease, not the
-      filtered ones, so the result stays valid as the filter changes. A
+      Streamlit, since it changes nothing. It sweeps the whole subnet, not the
+      filtered leases, so the result stays valid as the filter changes and the
+      Address Map gets it too. A Kea failure is shown as a notice. A
       `QuarantineServiceError` becomes a notice above the table
 - **Reservations (`routes/reservations.py`, `reservations_data.py`).** Kea's
   host reservations with KeaNexus labels, fixed first by address then
@@ -542,10 +548,14 @@ Overview, and 1b adds its charts. Phase 2 is the Quarantine screen, phase 3 the 
   links to Leases filtered to it; anything else links to the map. Free
   addresses match by IP only, and queries under 2 characters find nothing
 - `liveness.py` — the latest ARP sweep, kept in memory for the process
-  (`latest()`, `sweep_now(addresses)`), plus a daemon loop
+  (`latest()`, `sweep_now(addresses)`, `sweep_network(kea)`), plus a daemon loop
   (`start_sweep_loop`, every `LIVENESS_SWEEP_INTERVAL_SECONDS`, default 300,
-  floor 30) that sweeps every leased address through
-  `quarantine_client.trigger_liveness_sweep`. The loop catches every failure
+  floor 30) that sweeps through `quarantine_client.trigger_liveness_sweep`.
+  **Every sweep covers the whole /24** (`.1`–`.254`, plus any leased address
+  outside it, from `network_addresses`), not only leased addresses, and
+  `SweepResult.seen_macs` keeps the MAC that answered for each address. A
+  static device never talks to Kea, so an ARP reply is the only place
+  KeaNexus can see it or its MAC. `responding` is derived from `seen_macs`. The loop catches every failure
   per pass, like the pool sampler, so an absent quarantine service never stops
   it. Feeds the Leases Online column and the Overview's "N online · swept
   X min ago" line. A failed sweep keeps the previous result
@@ -647,8 +657,9 @@ folded into the descriptions below rather than tracked as separate PR numbers.
       edited, so Last MAC/Last IP/Last Seen don't sit blank until the loop's next pass.
       Returns `{"friendly_name": ..., "seen": bool}`
     - `POST /liveness-sweep` `{"ip_addresses": [...]}` — ARP-sweeps the supplied
-      addresses via `liveness.sweep` and returns `{"checked": N, "responding": [...]}`
-      (sorted, for a stable response). Stateless: writes nothing, and the addresses
+      addresses via `liveness.sweep` and returns `{"checked": N, "responding": [...],
+      "seen": {ip: mac}}` (sorted, for a stable response; `responding` stays for
+      an older KeaNexus). Stateless: writes nothing, and the addresses
       need not be registered devices. Backs the Leases tab's "Check who's online"
       button. Rejects more than `MAX_SWEEP_ADDRESSES` with HTTP 413 **at the route**,
       before a packet leaves the host
@@ -742,7 +753,8 @@ gateway_ip)` / `stop_arp_disruption(friendly_name)`. Unlike the Kea deny, ARP
   `POST /presence-check/{friendly_name}` for an on-demand probe outside the
   loop's interval — see below
 - `liveness.py` — `sweep(ip_addresses, timeout_seconds, interface)` ARP-probes an
-  arbitrary caller-supplied list of addresses and returns the subset that answered.
+  arbitrary caller-supplied list of addresses and returns `{ip: mac}` (MAC
+  lowercased, from the reply's `hwsrc`) for the ones that answered.
   Distinct from `presence_check.py` despite both sending ARP who-has requests: that
   one probes a single **registered** device on a timer and writes `last_seen_*`
   breadcrumbs, this one is stateless, touches no database, and the addresses need
@@ -844,7 +856,8 @@ All endpoints except `GET /health` require `Authorization: Bearer <QUARANTINE_AP
   background presence-check loop's 5-minute interval. Returns
   `{"friendly_name": ..., "seen": bool}`.
 - `POST /liveness-sweep` — body `{"ip_addresses": ["172.16.17.10", ...]}`. Batched
-  ARP sweep of arbitrary addresses; returns `{"checked": N, "responding": [...]}`.
+  ARP sweep of arbitrary addresses; returns `{"checked": N, "responding": [...],
+  "seen": {ip: mac}}`.
   Stateless — writes nothing and the addresses need not be registered devices.
   HTTP 413 above 1024 addresses.
 

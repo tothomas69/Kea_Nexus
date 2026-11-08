@@ -87,8 +87,11 @@ def address_rows(kea: KeaClient, leases: list[dict], config: Optional[dict]) -> 
 def _map_context(kea: KeaClient) -> dict:
 	data = read_kea(kea)
 	rows = address_rows(kea, data["leases"], data["config"])
+	sweep = liveness.latest()
+	seen_macs = sweep.seen_macs if sweep else None
+	seen_age = liveness.age_label(sweep, time.time()) if sweep else ""
 	return {
-		"cells": map_cells(rows, db.get_devices()),
+		"cells": map_cells(rows, db.get_devices(), seen_macs, seen_age),
 		"legend": legend(),
 		"subnet": ((data["config"] or {}).get("subnet4") or [{}])[0].get("subnet", ""),
 		"kea_error": data["kea_error"],

@@ -8,6 +8,11 @@ module keeps the latest sweep in memory, runs one every
 LIVENESS_SWEEP_INTERVAL_SECONDS in a background thread, and runs one on
 demand for the Leases screen's button.
 
+Every sweep covers the whole subnet, not only leased addresses, and keeps the
+MAC that answered for each address. A statically configured device never talks
+to Kea, so an ARP reply is the only place KeaNexus can learn it is there and
+what its hardware address is. Like the Address Map, this assumes a /24.
+
 A sweep only proves presence. A device that didn't answer is shown unchanged,
 never as offline, and nothing here outlives the process: after a restart the
 screens say "not checked yet" until the first sweep.
@@ -18,8 +23,10 @@ import os
 import threading
 import time
 from dataclasses import dataclass
-from typing import Callable, Optional
+from types import MappingProxyType
+from typing import Callable, Mapping, Optional
 
+from address_map import subnet_prefix
 from kea import KeaClient
 from quarantine_client import trigger_liveness_sweep
 
@@ -31,13 +38,23 @@ _MIN_INTERVAL_SECONDS = 30
 _STOP_JOIN_TIMEOUT_SECONDS = 5.0
 _SECONDS_PER_MINUTE = 60
 _MINUTES_PER_HOUR = 60
+# .0 is the network address and .255 the broadcast: neither is a host.
+_FIRST_HOST_OCTET = 1
+_LAST_HOST_OCTET = 254
 
 
 @dataclass(frozen=True)
 class SweepResult:
-	responding: frozenset[str]
+	"""One finished sweep. `seen_macs` is {ip: mac} for every address that
+	answered; the MAC is "" when the quarantine service didn't report one."""
+
+	seen_macs: Mapping[str, str]
 	checked: int
 	checked_at_epoch: float
+
+	@property
+	def responding(self) -> frozenset[str]:
+		return frozenset(self.seen_macs)
 
 
 _latest: Optional[SweepResult] = None
@@ -55,8 +72,8 @@ def latest() -> Optional[SweepResult]:
 def sweep_now(ip_addresses: list[str]) -> SweepResult:
 	"""Sweep these addresses and keep the result. Raises QuarantineServiceError."""
 	global _latest
-	responding = frozenset(trigger_liveness_sweep(ip_addresses))
-	result = SweepResult(responding, len(set(ip_addresses)), time.time())
+	seen_macs = MappingProxyType(dict(trigger_liveness_sweep(ip_addresses)))
+	result = SweepResult(seen_macs, len(set(ip_addresses)), time.time())
 	with _lock:
 		_latest = result
 	return result
@@ -77,10 +94,21 @@ def sweep_interval_seconds() -> int:
 	return max(configured, _MIN_INTERVAL_SECONDS)
 
 
-def sweep_leased_addresses(kea: KeaClient) -> SweepResult:
-	"""One background pass: every leased address. Raises on Kea or service failure."""
-	addresses = [lease["ip-address"] for lease in kea.get_leases() if lease.get("ip-address")]
-	return sweep_now(addresses)
+def network_addresses(config: Optional[dict], leases: list[dict]) -> list[str]:
+	"""Every host address in the subnet's /24, plus any leased address outside it."""
+	prefix = subnet_prefix(config)
+	addresses = {f"{prefix}.{octet}" for octet in range(_FIRST_HOST_OCTET, _LAST_HOST_OCTET + 1)}
+	addresses.update(lease["ip-address"] for lease in leases if lease.get("ip-address"))
+	return sorted(addresses, key=_address_sort_key)
+
+
+def _address_sort_key(ip_address: str) -> tuple:
+	return tuple(int(part) if part.isdigit() else 0 for part in ip_address.split("."))
+
+
+def sweep_network(kea: KeaClient) -> SweepResult:
+	"""Sweep the whole subnet. Raises on Kea or quarantine service failure."""
+	return sweep_now(network_addresses(kea.get_config(), kea.get_leases()))
 
 
 def _run_loop(
@@ -88,7 +116,7 @@ def _run_loop(
 ) -> None:
 	while not stop_event.is_set():
 		try:
-			sweep_leased_addresses(kea_factory())
+			sweep_network(kea_factory())
 		except Exception:
 			# The quarantine service is optional and Kea can blip: either is an
 			# ordinary condition, and a loop that died on it would stop sweeping

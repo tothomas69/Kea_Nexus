@@ -14,15 +14,20 @@ from quarantine_service.liveness import MAX_SWEEP_ADDRESSES, sweep
 
 
 class _Reply:
-	"""Minimal stand-in for a scapy ARP reply — sweep() only reads psrc."""
+	"""Minimal stand-in for a scapy ARP reply — sweep() reads psrc and hwsrc."""
 
-	def __init__(self, psrc: str):
+	def __init__(self, psrc: str, hwsrc: str):
 		self.psrc = psrc
+		self.hwsrc = hwsrc
+
+
+def _mac_for(ip_address: str) -> str:
+	return "AA:BB:CC:00:00:" + format(int(ip_address.rsplit(".", 1)[1]), "02X")
 
 
 def _answered(*ip_addresses: str) -> list:
 	"""srp returns (answered, unanswered); answered holds (sent, reply) pairs."""
-	return [(None, _Reply(ip)) for ip in ip_addresses]
+	return [(None, _Reply(ip, _mac_for(ip))) for ip in ip_addresses]
 
 
 class TestSweep:
@@ -33,7 +38,14 @@ class TestSweep:
 		):
 			result = sweep(["172.16.17.10", "172.16.17.11"])
 
-		assert result == {"172.16.17.10"}
+		assert result == {"172.16.17.10": "aa:bb:cc:00:00:0a"}
+
+	def test_answering_macs_are_lowercased(self):
+		with patch(
+			"quarantine_service.liveness.srp",
+			return_value=([(None, _Reply("172.16.17.40", "DE:AD:BE:EF:00:01"))], []),
+		):
+			assert sweep(["172.16.17.40"]) == {"172.16.17.40": "de:ad:be:ef:00:01"}
 
 	def test_probes_every_requested_address_in_one_call(self):
 		with patch("quarantine_service.liveness.srp", return_value=([], [])) as mock_srp:
@@ -58,17 +70,17 @@ class TestSweep:
 		):
 			result = sweep(["172.16.17.10"])
 
-		assert result == {"172.16.17.10"}
+		assert result == {"172.16.17.10": "aa:bb:cc:00:00:0a"}
 
 	def test_empty_input_sends_nothing(self):
 		with patch("quarantine_service.liveness.srp", return_value=([], [])) as mock_srp:
-			assert sweep([]) == set()
+			assert sweep([]) == {}
 
 		mock_srp.assert_not_called()
 
 	def test_blank_and_whitespace_addresses_are_dropped(self):
 		with patch("quarantine_service.liveness.srp", return_value=([], [])) as mock_srp:
-			assert sweep(["", "   "]) == set()
+			assert sweep(["", "   "]) == {}
 
 		mock_srp.assert_not_called()
 

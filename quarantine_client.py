@@ -69,9 +69,12 @@ def trigger_presence_check(friendly_name: str) -> dict:
 	return _post(f"/presence-check/{friendly_name}", None, _PRESENCE_CHECK_TIMEOUT_SECONDS)
 
 
-def trigger_liveness_sweep(ip_addresses: list[str]) -> list[str]:
-	"""Call POST /liveness-sweep and return the subset of `ip_addresses` that
-	answered an ARP probe.
+def trigger_liveness_sweep(ip_addresses: list[str]) -> dict[str, str]:
+	"""Call POST /liveness-sweep and return {ip: mac} for the addresses in
+	`ip_addresses` that answered an ARP probe.
+
+	The MAC is "" when the service predates MAC reporting and only sent
+	"responding": presence is still known, the hardware address is not.
 
 	Backs the Leases tab's "Check who's online" button. The sweep has to run
 	in keanexus-quarantine rather than here because that service uses
@@ -80,12 +83,14 @@ def trigger_liveness_sweep(ip_addresses: list[str]) -> list[str]:
 	quarantine_service/liveness.py.
 	"""
 	if not ip_addresses:
-		return []
+		return {}
 
 	payload = _post(
 		"/liveness-sweep", {"ip_addresses": ip_addresses}, _LIVENESS_SWEEP_TIMEOUT_SECONDS
 	)
-	return payload.get("responding", [])
+	if "seen" in payload:
+		return dict(payload["seen"])
+	return {ip_address: "" for ip_address in payload.get("responding", [])}
 
 
 def _base_url() -> str:

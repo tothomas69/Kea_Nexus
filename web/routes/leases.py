@@ -87,14 +87,13 @@ def sweep_leases(
 	user: dict = Depends(current_user),
 	kea: KeaClient = Depends(kea_client),
 ) -> Response:
-	"""ARP-sweep every leased address, not just the filtered ones, so the result
-	stays valid as the filter changes."""
-	addresses = [
-		lease["ip-address"] for lease in read_kea(kea)["leases"] if lease.get("ip-address")
-	]
+	"""ARP-sweep the whole subnet, not just the filtered leases, so the result
+	stays valid as the filter changes and the Address Map gets it too."""
 	error = None
 	try:
-		liveness.sweep_now(addresses)
+		liveness.sweep_network(kea)
+	except KeaError as exc:
+		error = f"Couldn't read Kea to know what to sweep: {exc}"
 	except QuarantineServiceError as exc:
 		error = f"The sweep needs the quarantine service, which didn't answer: {exc}"
 	context = {

@@ -616,8 +616,9 @@ class TestLivenessSweepEndpoint:
 		resp = client.post("/liveness-sweep", json={"ip_addresses": ["172.16.17.10"]})
 		assert resp.status_code == 401
 
-	def test_returns_responding_addresses_sorted(self, client):
-		with patch("quarantine_service.main.sweep", return_value={"172.16.17.20", "172.16.17.10"}):
+	def test_returns_responding_addresses_and_their_macs_sorted(self, client):
+		seen = {"172.16.17.20": "aa:bb:cc:00:00:14", "172.16.17.10": "aa:bb:cc:00:00:0a"}
+		with patch("quarantine_service.main.sweep", return_value=seen):
 			resp = client.post(
 				"/liveness-sweep",
 				json={"ip_addresses": ["172.16.17.10", "172.16.17.20", "172.16.17.30"]},
@@ -625,10 +626,15 @@ class TestLivenessSweepEndpoint:
 			)
 
 		assert resp.status_code == 200
-		assert resp.json() == {"checked": 3, "responding": ["172.16.17.10", "172.16.17.20"]}
+		assert resp.json() == {
+			"checked": 3,
+			"responding": ["172.16.17.10", "172.16.17.20"],
+			"seen": {"172.16.17.10": "aa:bb:cc:00:00:0a", "172.16.17.20": "aa:bb:cc:00:00:14"},
+		}
+		assert list(resp.json()["seen"]) == ["172.16.17.10", "172.16.17.20"]
 
 	def test_passes_requested_addresses_through_to_the_sweep(self, client):
-		with patch("quarantine_service.main.sweep", return_value=set()) as mock_sweep:
+		with patch("quarantine_service.main.sweep", return_value={}) as mock_sweep:
 			client.post(
 				"/liveness-sweep",
 				json={"ip_addresses": ["172.16.17.10", "172.16.17.11"]},
@@ -638,7 +644,7 @@ class TestLivenessSweepEndpoint:
 		mock_sweep.assert_called_once_with(["172.16.17.10", "172.16.17.11"])
 
 	def test_checked_count_is_distinct_addresses(self, client):
-		with patch("quarantine_service.main.sweep", return_value=set()):
+		with patch("quarantine_service.main.sweep", return_value={}):
 			resp = client.post(
 				"/liveness-sweep",
 				json={"ip_addresses": ["172.16.17.10", "172.16.17.10"]},
@@ -648,11 +654,11 @@ class TestLivenessSweepEndpoint:
 		assert resp.json()["checked"] == 1
 
 	def test_empty_request_is_allowed(self, client):
-		with patch("quarantine_service.main.sweep", return_value=set()):
+		with patch("quarantine_service.main.sweep", return_value={}):
 			resp = client.post("/liveness-sweep", json={"ip_addresses": []}, headers=_auth_header())
 
 		assert resp.status_code == 200
-		assert resp.json() == {"checked": 0, "responding": []}
+		assert resp.json() == {"checked": 0, "responding": [], "seen": {}}
 
 	def test_rejects_more_addresses_than_the_cap_without_sweeping(self, client):
 		"""The cap is enforced at the route so a hostile or malformed request

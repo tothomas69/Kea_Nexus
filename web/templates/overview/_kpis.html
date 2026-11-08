@@ -20,7 +20,7 @@
 			{% if pool and pool.declined %} · {{ pool.declined }} declined{% endif %}
 		</div>
 		<div class="kpi-note">
-			{% if online_count is none %}Online now: not checked yet{% else %}<span class="online-text">{{ online_count }} online</span> · swept {{ online_age }}{% endif %}
+			{% if online_count is none %}Online now: not checked yet{% else %}<span class="online-text">{{ online_count }} on the network</span> · swept {{ online_age }}{% endif %}
 		</div>
 	</div>
 	<div class="card kpi">

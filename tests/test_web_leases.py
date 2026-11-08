@@ -106,17 +106,19 @@ class TestTable:
 
 
 class TestSweep:
-	def test_viewer_may_sweep_every_lease(self, client):
+	def test_viewer_may_sweep_the_whole_subnet(self, client):
 		headers = _sign_in(client, role="viewer")
-		with patch(_SWEEP, return_value=["172.16.17.164"]) as sweep:
+		with patch(_SWEEP, return_value={"172.16.17.164": "aa:bb:cc:00:00:a4"}) as sweep:
 			response = client.post("/leases/sweep", data={"q": "macbook"}, headers=headers)
-		assert sorted(sweep.call_args.args[0]) == ["172.16.17.164", "172.16.17.177"]
+		swept = sweep.call_args.args[0]
+		assert len(swept) == 254
+		assert {"172.16.17.1", "172.16.17.164", "172.16.17.177", "172.16.17.254"} <= set(swept)
 		assert "1 answered" in response.text
 		assert "row-online" not in response.text
 
 	def test_online_rows_marked(self, client):
 		headers = _sign_in(client)
-		with patch(_SWEEP, return_value=["172.16.17.164"]):
+		with patch(_SWEEP, return_value={"172.16.17.164": "aa:bb:cc:00:00:a4"}):
 			response = client.post("/leases/sweep", headers=headers)
 		assert response.text.count("row-online") == 1
 		assert "no answer" in response.text
@@ -129,6 +131,15 @@ class TestSweep:
 		assert "unreachable" in response.text
 		assert "Not checked yet" in response.text
 
+	def test_kea_down_is_a_notice(self, client, kea):
+		headers = _sign_in(client)
+		kea.reachable = False
+		with patch(_SWEEP) as sweep:
+			response = client.post("/leases/sweep", headers=headers)
+		assert response.status_code == 200
+		assert "read Kea to know what to sweep" in response.text
+		sweep.assert_not_called()
+
 	def test_csrf_required(self, client):
 		_sign_in(client)
 		with patch(_SWEEP) as sweep:
@@ -138,9 +149,17 @@ class TestSweep:
 	def test_overview_shows_the_online_count(self, client):
 		headers = _sign_in(client)
 		assert "Online now: not checked yet" in client.get("/").text
-		with patch(_SWEEP, return_value=["172.16.17.164"]):
+		with patch(_SWEEP, return_value={"172.16.17.164": "aa:bb:cc:00:00:a4"}):
 			client.post("/leases/sweep", headers=headers)
-		assert "1 online" in client.get("/").text
+		assert "1 on the network" in client.get("/").text
+
+	def test_address_map_carries_the_mac_that_answered(self, client):
+		headers = _sign_in(client)
+		with patch(_SWEEP, return_value={"172.16.17.30": "de:ad:be:ef:00:1e"}):
+			client.post("/leases/sweep", headers=headers)
+		cells = client.get("/fragments/address-map", headers=_HTMX).text
+		assert "de:ad:be:ef:00:1e" in cells
+		assert '"seen_age": "just now"' in cells
 
 
 class TestForms:

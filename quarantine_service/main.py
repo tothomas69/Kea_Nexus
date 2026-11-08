@@ -443,8 +443,9 @@ def liveness_sweep(request: LivenessSweepRequest) -> dict:
 
 	Stateless — unlike /presence-check this writes nothing to the registry
 	and the addresses need not belong to registered devices. Backs the
-	Leases tab's "Check who's online" button, which passes the IPs of the
-	leases it's currently showing (see liveness.py for why ARP rather than
+	Leases tab's "Check who's online" button and the web UI's background
+	sweep of the whole subnet. Returns the MAC that answered for each address
+	under "seen" (see liveness.py for why ARP rather than
 	ICMP, and why this can't run inside KeaNexus's own container).
 	"""
 	if len(request.ip_addresses) > MAX_SWEEP_ADDRESSES:
@@ -454,9 +455,11 @@ def liveness_sweep(request: LivenessSweepRequest) -> dict:
 			f"got {len(request.ip_addresses)}.",
 		)
 
-	responding = sweep(request.ip_addresses)
+	seen_macs = sweep(request.ip_addresses)
 	return {
 		"checked": len(set(request.ip_addresses)),
-		# Sorted for a stable response; the sweep itself returns an unordered set.
-		"responding": sorted(responding),
+		# Sorted for a stable response. Kept alongside "seen" so a KeaNexus
+		# older than this service still reads the answer.
+		"responding": sorted(seen_macs),
+		"seen": dict(sorted(seen_macs.items())),
 	}

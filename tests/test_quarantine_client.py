@@ -149,12 +149,16 @@ class TestTriggerLivenessSweep:
 		monkeypatch.setenv("QUARANTINE_SERVICE_URL", "http://172.16.17.5:8600")
 		monkeypatch.setenv("QUARANTINE_SERVICE_TOKEN", "test-token")
 		quarantine_client_http_mock.post.return_value = _make_response(
-			{"checked": 2, "responding": ["172.16.17.10"]}
+			{
+				"checked": 2,
+				"responding": ["172.16.17.10"],
+				"seen": {"172.16.17.10": "aa:bb:cc:00:00:0a"},
+			}
 		)
 
 		result = trigger_liveness_sweep(["172.16.17.10", "172.16.17.11"])
 
-		assert result == ["172.16.17.10"]
+		assert result == {"172.16.17.10": "aa:bb:cc:00:00:0a"}
 		call = quarantine_client_http_mock.post.call_args
 		assert call.args[0] == "http://172.16.17.5:8600/liveness-sweep"
 		assert call.kwargs["json"] == {"ip_addresses": ["172.16.17.10", "172.16.17.11"]}
@@ -165,14 +169,24 @@ class TestTriggerLivenessSweep:
 	):
 		monkeypatch.setenv("QUARANTINE_SERVICE_TOKEN", "test-token")
 
-		assert trigger_liveness_sweep([]) == []
+		assert trigger_liveness_sweep([]) == {}
 		quarantine_client_http_mock.post.assert_not_called()
 
 	def test_missing_responding_key_returns_empty(self, quarantine_client_http_mock, monkeypatch):
 		monkeypatch.setenv("QUARANTINE_SERVICE_TOKEN", "test-token")
 		quarantine_client_http_mock.post.return_value = _make_response({"checked": 1})
 
-		assert trigger_liveness_sweep(["172.16.17.10"]) == []
+		assert trigger_liveness_sweep(["172.16.17.10"]) == {}
+
+	def test_older_service_without_macs_still_reports_presence(
+		self, quarantine_client_http_mock, monkeypatch
+	):
+		monkeypatch.setenv("QUARANTINE_SERVICE_TOKEN", "test-token")
+		quarantine_client_http_mock.post.return_value = _make_response(
+			{"checked": 1, "responding": ["172.16.17.10"]}
+		)
+
+		assert trigger_liveness_sweep(["172.16.17.10"]) == {"172.16.17.10": ""}
 
 	def test_missing_token_raises(self, monkeypatch):
 		monkeypatch.delenv("QUARANTINE_SERVICE_TOKEN", raising=False)

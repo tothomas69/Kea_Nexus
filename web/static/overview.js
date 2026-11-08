@@ -63,6 +63,15 @@ document.addEventListener("alpine:init", () => {
 			return horizontal + vertical;
 		},
 
+		// What the latest ARP sweep saw at this address. A sweep proves presence
+		// only, so silence reads as "no answer", never "offline".
+		seenText(cell) {
+			if (cell.seen === null) return "Not checked yet";
+			if (!cell.seen) return `No answer · ${cell.seen_age}`;
+			const mac = cell.seen_mac || "answered";
+			return `${mac} · ${cell.seen_age}`;
+		},
+
 		editStatic(cell) {
 			htmx.ajax("GET", `/address/${cell.ip}/static`, { target: "#dialog-body", swap: "innerHTML" });
 			this.$dispatch("open-dialog");
