@@ -195,7 +195,9 @@ old UI working the whole time.
    decision 1 is made. *(Done. The charts were split out to keep this PR
    reviewable.)*
    - **1b. Charts.** The utilisation trend, expiry and composition charts from
-     `ui_dashboard.py`, via vendored vega-embed.
+     `ui_dashboard.py`, via vendored vega-embed. *(Done. The builders moved to
+     `dashboard_charts.py`, shared by both UIs, which also fixed the trend
+     axis showing UTC as local time.)*
 2. **Quarantine.**
 3. **Leases**, with the background liveness sweep (decision 3).
 4. **Reservations.**

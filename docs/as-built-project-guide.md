@@ -42,6 +42,7 @@ keanexus/
 ├── helpers.py          — Pure data helpers and format utilities (no UI framework)
 ├── streamlit_adapter.py — Streamlit-only glue: session state, per-session Kea client, cached loaders
 ├── dashboard_data.py   — Pure metric/chart shaping for the Dashboard tab
+├── dashboard_charts.py — Altair chart builders shared by the Dashboard tab and the web Overview
 ├── address_map.py      — Pure /24 classifier shared by the IPAM tab and the web Address Map
 ├── docs_library.py     — Allowlist + reader for the operator docs shown in-app
 ├── ui_docs.py          — Documentation sidebar entry and the article dialog
@@ -461,7 +462,9 @@ there would be untestable. 100% covered by `tests/test_dashboard_data.py`.
 
 ### Dashboard Tab (`ui_dashboard.py`)
 
-Render-only; all figures come from `dashboard_data.py`. Layout top to bottom:
+Render-only; all figures come from `dashboard_data.py` and every chart from
+`dashboard_charts.py`, which the web Overview uses too, so the two UIs draw the
+same charts from the same code. Layout top to bottom:
 KPI tile row → gauge / service health / lease summary cards → utilisation trend
 → expiry distribution + lease composition.
 
@@ -473,9 +476,15 @@ KPI tile row → gauge / service health / lease summary cards → utilisation tr
   Streamlit dependency — nothing added to `requirements.txt`), themed to the
   app's monospace/palette, because hand-rolling axis ticks, binning and scales in
   SVG buys nothing the existing convention was protecting
-- **Chart colours were validated, not chosen by eye.** `_SERIES_1` is the app's
+- **Chart builders (`dashboard_charts.py`)**: `utilisation_chart(samples)`
+  (`None` with fewer than two samples), `expiry_chart(leases, now)`,
+  `composition_chart(leases, config)`. Each returns the chart and its table
+  twin as `(label, value)` rows. `themed()` and `count_headroom()` are shared.
+  No Streamlit import, so the web UI can call them; 100% covered by
+  `tests/test_dashboard_charts.py`
+- **Chart colours were validated, not chosen by eye.** `SERIES_1` is the app's
   own accent `#0969da` (passes lightness band, chroma floor, 3:1 contrast on the
-  white card surface). `_EXPIRY_RAMP` is a single-hue _ordinal_ ramp, because the
+  white card surface). `EXPIRY_RAMP` is a single-hue _ordinal_ ramp, because the
   expiry buckets are an ordered scale rather than identities — assigned
   darkest-first so the eye lands on the soonest-expiring bucket. Composition bars
   are nominal, so every bar takes the same slot-1 hue rather than spending the
@@ -485,18 +494,22 @@ KPI tile row → gauge / service health / lease summary cards → utilisation tr
   curve, since readings are minutes apart and smoothing would draw values that
   were never measured; a transparent full-height rule per sample drives the
   crosshair and tooltip, because a 2px line is too small a hover target
-- Both count axes use an explicit zero-anchored domain from `_count_headroom`,
+- Both count axes use an explicit zero-anchored domain from `count_headroom`,
   never `Scale(padding=...)`. Vega-Lite's scale padding expands the domain at
   _both_ ends, so on a count axis it pushes the minimum below zero and the axis
   draws `-1`/`-2` ticks for a quantity that cannot be negative. `tickMinStep=1`
   keeps ticks whole — a "0.5 leases" gridline is meaningless
-- Both bar charts pass `alt.Data(values=...)` rather than a DataFrame. Altair
+- Every chart passes `alt.Data(values=...)` rather than a DataFrame. Altair
   turns a DataFrame into a _named_ dataset the spec only references, and Vega
   evaluates the spec before that name resolves — logging "Infinite extent for
   field count: [Infinity, -Infinity]" against an empty array on first paint.
   Inline values have nothing to resolve, and `dashboard_data` already returns
-  JSON-shaped rows, so pandas is not in the path at all. The trend chart still
-  uses a DataFrame — it needs pandas for the UTC-to-local conversion
+  JSON-shaped rows, so pandas is not in the path at all
+- **Trend timestamps carry their UTC offset.** The trend once converted to
+  local time on the server with `tz_convert(None)`, which strips the zone and
+  leaves UTC wall-clock values that Vega then reads as the browser's local
+  time, so the axis ran five hours ahead in Michigan. It now sends ISO-8601
+  strings with `+00:00` and lets each browser show its own local time
 - Both bar charts carry a value label past each bar's end via
   `_bar_value_labels`, never inside the bar — a short bar cannot fit one, and
   a label clipped by its own mark is worse than no label. The composition
@@ -703,13 +716,13 @@ viewer session sent only read commands, and calling the write functions
 directly as a viewer was refused with nothing reaching Kea or the quarantine
 service.
 
-### Web UI (`web/`) — FastAPI + HTMX, phases 0–1
+### Web UI (`web/`) — FastAPI + HTMX, phases 0–1b
 
 Being built beside the Streamlit UI; the plan, route map and phase order are in
 `docs/fastapi-htmx-migration.md`. Runs as the `keanexus-web` compose service
 (`uvicorn web.main:app`, host port **8503**). Phase 0 is the groundwork: sign
 in/out, the page layout, Help and the health check. Phase 1 is the real
-Overview (charts follow in phase 1b). Other tabs show greyed out in the nav
+Overview, and 1b adds its charts. Other tabs show greyed out in the nav
 until their phase lands.
 
 - `main.py` — `create_app(start_background_work)`. The lifespan runs
@@ -773,6 +786,12 @@ until their phase lands.
       `POST /quarantine/{name}/release`, admin-only, 404 for an unregistered
       name. A `QuarantineServiceError` becomes a red notice on the card, never
       a 500
+    - **Charts (1b):** the Dashboard's three charts, built by
+      `dashboard_charts.py` and shipped as Vega-Lite JSON in
+      `overview/_charts.html`; `overview.js`'s `drawCharts()` renders them as
+      SVG with vega-embed at the card's width. Each has a "Show the numbers"
+      table. They draw once on page load and are not re-polled: a 48 h trend
+      gains nothing from a 30 s refresh
 - `cache.py` — `cached(key, ttl_seconds, load)`: a small TTL cache replacing
   `@st.cache_data` for Kea reads (leases 30 s, pool stats 30 s, config 120 s,
   health 20 s). A failed load is never cached
@@ -786,9 +805,10 @@ until their phase lands.
   `GET /help` (table of contents: fragment for HTMX, full page otherwise),
   `GET /help/{filename}` (404 off the allowlist), `GET /healthz` (no auth; the
   compose healthcheck, since the image's own HEALTHCHECK probes Streamlit)
-- `static/vendor/` — htmx and Alpine.js, vendored at pinned versions with
+- `static/vendor/` — htmx, Alpine.js and vega / vega-lite / vega-embed, vendored at pinned versions with
   hashes in `VERSIONS.md`. No CDN (must work when the WAN is down) and no Node
-  build step. Fonts fall back to the system stack until they are vendored too
+  build step. Vega-Lite's version must match the schema Altair emits; see
+  `VERSIONS.md`. Fonts fall back to the system stack until they are vendored too
 - Templates: `base.html` (the B2 masthead with the real logo, search placeholder,
   account + Sign out, tabs, Help modal), `login.html` + `_login_form.html`
   (a failed sign-in re-renders only the form, with status 200 because HTMX does
@@ -1130,12 +1150,13 @@ since they require a live Streamlit server and can't be unit-tested). That inclu
 | `tests/test_web.py`                         | Web UI phase 0 via `TestClient`: `/healthz`; signed-out redirect (303, or `HX-Redirect` for HTMX); login sets an HttpOnly/SameSite cookie, wrong password shows the error with no session, missing secret explained, plain-form 303; sign-out; sessions ended by password change and disable; CSRF refused without token, with a mismatched token, without the cookie, token written into the page and not rotated; `require_admin`/`kea_client` by role; Help table of contents (fragment vs full page, every link lands on a real heading id, off-allowlist and missing files 404, code blocks skipped); lifespan admin bootstrap and the sampler switch |
 | `tests/test_address_map.py`                | `classify_addresses`: all 256 rows, network/broadcast/gateway, pool vs free and which are editable, dynamic lease (hostname, MAC, time left), declined beats reservation, leased reservation shows reserved with its stored label, legacy Kea hostname as label fallback, offline reservation, masked hostname never shown as real, static entry label/notes/editable, missing `valid-lft` uses Kea's default, malformed prefix rejected; the config helpers |
 | `tests/test_overview_data.py`               | `local_time`; `pool_figures` (declined counted as used, ok/warn/full, zero pool, no stats); `devices_by_ip` (live hostname first, last-seen fallback); `map_cells` display statuses (quarantined, unknown, named and reserved leases not unknown) and the full cell shape; legend order; `quarantine_rows` ordering and meta; `activity` (one line per action, nmap failure ignored, failed step flagged, identity-drift skip, separate actions, limit) |
-| `tests/test_web_overview.py`                | Overview routes with a stub Kea: needs sign-in, 256 squares + figures + subnet, hover JSON names the registered device, card lists devices, viewer switches disabled, Kea down still renders with a banner, all four fragments; Quarantine/Release (viewer 403, unknown 404, summary + `HX-Trigger`, release path, service failure shown, CSRF required); static entries (prefill, free address, pool/network/off-subnet refused, save + close trigger, bad MAC not written, delete, viewer 403); `cache` (reuse, expiry, failures not cached, forget, TTL check); `health` (Kea only, Kea down, Pi-hole any non-5xx is up, quarantine needs 2xx, unreachable is down) |
+| `tests/test_web_overview.py`                | Overview routes with a stub Kea: needs sign-in, 256 squares + figures + subnet, hover JSON names the registered device, card lists devices, viewer switches disabled, Kea down still renders with a banner, chart specs and table twins present, trend waits for two samples, all four fragments; Quarantine/Release (viewer 403, unknown 404, summary + `HX-Trigger`, release path, service failure shown, CSRF required); static entries (prefill, free address, pool/network/off-subnet refused, save + close trigger, bad MAC not written, delete, viewer 403); `cache` (reuse, expiry, failures not cached, forget, TTL check); `health` (Kea only, Kea down, Pi-hole any non-5xx is up, quarantine needs 2xx, unreachable is down) |
 | `tests/test_db_users.py`                    | `users` table storage: case-insensitive usernames, duplicate rejection, role CHECK, list omits hashes, active-admin count, `session_version` bumps on every change, `record_login`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | `tests/test_db.py`                          | Full CRUD on `ipam_static`, `reservation_labels`, `device_registry`, and `quarantine_log` via `temp_db` fixture (SQLite in tmp dir)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | `tests/test_kea.py`                         | All `KeaClient` methods; `ReadOnlyKeaClient` passes every read command and refuses every write and unknown command before any request; `httpx` patched via `http_mock` fixture                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | `tests/test_helpers.py`                     | `fmt_ttl`, `chip`, `leases_to_df`, `build_reservation_type_sets`, `lease_type`, `build_hostname_override_sets`, `real_hostname`, `distinct_real_hostnames`, `lease_for_reservation`, `pool_stats_with_fallback` (summary, lease-count fallback, unreachable)                                                                                                                                                                                                                                                                                                                                                                                                               |
 | `tests/test_dashboard_data.py`              | `lease_expiry_buckets` (bucket boundaries, expired leases, declined excluded, missing `valid-lft`), `lease_composition`, `utilisation_points` (gap breaking, declined counted as used, zero total), `leases_issued_since` (cumulative delta, stale baseline rejected, counter reset, insufficient history), `quarantined_count`                                                                                                                                                                                                                                                                                                                                                             |
+| `tests/test_dashboard_charts.py`            | Chart builders: trend needs two samples, timestamps keep their UTC offset (regression), gaps break the line, table newest first; expiry and composition tables and plain inline-data specs; `count_headroom` never zero |
 | `tests/test_version.py`                     | `APP_VERSION` is plain `MAJOR.MINOR.PATCH`, since the sidebar renders it as `v` + the value                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | `tests/test_docs_library.py`                | Article allowlist (listed files exist, developer docs excluded, missing file hidden) and `read_article` rejecting path traversal, absolute paths and unlisted names                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | `tests/test_ui_docs_render.py`              | Headless render via `AppTest` — one button per article, clicking one opens the dialog with the article's body, nothing opens without a click                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
