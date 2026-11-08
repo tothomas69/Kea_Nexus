@@ -27,6 +27,25 @@ class _UnreachableKeaClient:
 	def get_pool_stats(self) -> dict:
 		raise KeaError("connection refused")
 
+	def get_leases(self) -> list:
+		raise KeaError("connection refused")
+
+
+class _KeaWithoutStatCmds:
+	"""A Kea without the stat_cmds hook: no summary, but leases and config."""
+
+	def get_pool_stats(self) -> dict:
+		raise KeaError("'stat-lease4-summary' command not supported.")
+
+	def get_leases(self) -> list:
+		return [{"state": 0}, {"state": 0}, {"state": 1}]
+
+	def get_config(self) -> dict:
+		return {}
+
+	def get_pool_range(self, config: dict) -> tuple:
+		return ("172.16.17.100", "172.16.17.199", 100)
+
 
 class TestTakeSampleNow:
 	def test_writes_a_row_from_kea_stats(self, temp_db, stub_kea_client):
@@ -46,6 +65,13 @@ class TestTakeSampleNow:
 		kea = stub_kea_client(pool_stats={"total": 200, "assigned": 40, "declined": 2})
 		pool_history.take_sample_now(kea)
 		assert db.get_pool_samples()[0]["available"] == 158
+
+	def test_kea_without_stat_cmds_still_records_from_leases(self, temp_db):
+		assert pool_history.take_sample_now(_KeaWithoutStatCmds()) is True
+		sample = db.get_pool_samples()[0]
+		assert (sample["total"], sample["assigned"], sample["declined"]) == (100, 2, 1)
+		assert sample["available"] == 97
+		assert sample["cumulative"] == 0
 
 	def test_unreachable_kea_writes_nothing_and_does_not_raise(self, temp_db):
 		assert pool_history.take_sample_now(_UnreachableKeaClient()) is False
