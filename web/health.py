@@ -6,10 +6,15 @@ without credentials:
 
 - Kea: version-get through the read-only client.
 - keanexus-quarantine: its unauthenticated GET /health.
-- Pi-hole primary and secondary: any HTTP response from the instance at all,
-  even a 401, means it is up. No password is needed, so the web container
-  never holds Pi-hole credentials. Shown only when PIHOLE_API_URL /
-  PIHOLE_SECONDARY_API_URL are set for this container.
+- Pi-hole primary and secondary: GET /api/auth must come back as Pi-hole's
+  own JSON, which always holds a "session" object, signed in or not (a 401
+  included). No password is needed, so the web container never holds Pi-hole
+  credentials. Shown only when PIHOLE_API_URL / PIHOLE_SECONDARY_API_URL are
+  set for this container.
+
+  Any answer below 500 used to count, which turned a dot green for whatever
+  else listened at that address: a NAS's own web UI on 443 passed for a
+  Pi-hole that was really on 8080.
 
 Pi-hole URLs are read the way people actually write them: with or without
 "http://", with or without a trailing "/api", and over https with Pi-hole v6's
@@ -39,20 +44,29 @@ _PIHOLE_URL_ENVS = (("DNS1", "PIHOLE_API_URL"), ("DNS2", "PIHOLE_SECONDARY_API_U
 _HTTP_SERVER_ERROR = 500
 
 
-def _answers(
-	url: str,
-	require_success: bool,
-	timeout_seconds: float = _CHECK_TIMEOUT_SECONDS,
-	verify_tls: bool = True,
-) -> bool:
+def _get(url: str, timeout_seconds: float, verify_tls: bool) -> Optional[httpx.Response]:
+	"""The response, or None (logged) when nothing answered at all."""
 	try:
-		response = httpx.get(url, timeout=timeout_seconds, verify=verify_tls)
+		return httpx.get(url, timeout=timeout_seconds, verify=verify_tls)
 	except httpx.HTTPError as error:
 		logger.warning("Health check for %s failed: %s", url, error)
+		return None
+
+
+def _answers_with_success(url: str) -> bool:
+	response = _get(url, _CHECK_TIMEOUT_SECONDS, verify_tls=True)
+	return response is not None and response.is_success
+
+
+def _is_pihole_auth_reply(response: httpx.Response) -> bool:
+	"""True when the body is Pi-hole's /api/auth JSON, not some other server's page."""
+	if response.status_code >= _HTTP_SERVER_ERROR:
 		return False
-	if require_success:
-		return response.is_success
-	return response.status_code < _HTTP_SERVER_ERROR
+	try:
+		body = response.json()
+	except ValueError:
+		return False
+	return isinstance(body, dict) and isinstance(body.get("session"), dict)
 
 
 def pihole_auth_url(base_url: str) -> str:
@@ -70,12 +84,19 @@ def _pihole_answers(base_url: str) -> bool:
 	# verify_tls is off because Pi-hole v6 ships a self-signed certificate and
 	# this probe sends nothing secret: no password, no cookie, no body. All it
 	# learns is whether something answers HTTP at that address.
-	return _answers(
-		pihole_auth_url(base_url),
-		require_success=False,
-		timeout_seconds=_PIHOLE_CHECK_TIMEOUT_SECONDS,
-		verify_tls=False,
+	url = pihole_auth_url(base_url)
+	response = _get(url, _PIHOLE_CHECK_TIMEOUT_SECONDS, verify_tls=False)
+	if response is None:
+		return False
+	if _is_pihole_auth_reply(response):
+		return True
+	logger.warning(
+		"Health check for %s failed: HTTP %s, but not Pi-hole's /api/auth reply"
+		" (another service at this address?)",
+		url,
+		response.status_code,
 	)
+	return False
 
 
 def _kea_entry(kea: KeaClient) -> dict:
@@ -97,7 +118,7 @@ def service_health(kea: KeaClient) -> list[dict]:
 		entries.append(
 			{
 				"name": "Quarantine svc",
-				"up": _answers(quarantine_url.rstrip("/") + "/health", True),
+				"up": _answers_with_success(quarantine_url.rstrip("/") + "/health"),
 			}
 		)
 	return entries

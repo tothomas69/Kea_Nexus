@@ -324,6 +324,10 @@ class TestCache:
 			cache.cached("k", 0, lambda: 1)
 
 
+# What Pi-hole v6 answers on GET /api/auth without a session.
+_PIHOLE_SIGNED_OUT = {"session": {"valid": False, "totp": False, "sid": None, "validity": -1}}
+
+
 class TestHealth:
 	def test_kea_only_when_nothing_else_is_configured(self):
 		with patch.dict(os.environ, {}, clear=True):
@@ -333,11 +337,11 @@ class TestHealth:
 		with patch.dict(os.environ, {}, clear=True):
 			assert service_health(StubKea(reachable=False)) == [{"name": "Kea", "up": False}]
 
-	def test_pihole_counts_any_non_5xx_answer_as_up(self):
+	def test_pihole_needs_its_own_auth_reply(self):
 		env = {"PIHOLE_API_URL": "http://pihole1", "PIHOLE_SECONDARY_API_URL": "http://pihole2/"}
 		responses = {
-			"http://pihole1/api/auth": httpx.Response(401),
-			"http://pihole2/api/auth": httpx.Response(503),
+			"http://pihole1/api/auth": httpx.Response(401, json=_PIHOLE_SIGNED_OUT),
+			"http://pihole2/api/auth": httpx.Response(503, json=_PIHOLE_SIGNED_OUT),
 		}
 		with (
 			patch.dict(os.environ, env, clear=True),
@@ -392,12 +396,45 @@ class TestPiholeHealth:
 		env = {"PIHOLE_API_URL": "https://172.16.17.212"}
 		with (
 			patch.dict(os.environ, env, clear=True),
-			patch("web.health.httpx.get", return_value=httpx.Response(401)) as get,
+			patch(
+				"web.health.httpx.get",
+				return_value=httpx.Response(401, json=_PIHOLE_SIGNED_OUT),
+			) as get,
 		):
 			assert service_health(StubKea())[-1] == {"name": "DNS1", "up": True}
 		_args, kwargs = get.call_args
 		assert kwargs["verify"] is False
 		assert kwargs["timeout"] > 2.0
+
+	@pytest.mark.parametrize(
+		"response",
+		[
+			httpx.Response(200, text="<html>TerraMaster TOS</html>"),
+			httpx.Response(404, text="Not Found"),
+			httpx.Response(200, json={"error": "nope"}),
+			httpx.Response(200, json=["session"]),
+			httpx.Response(200, json={"session": "yes"}),
+		],
+	)
+	def test_another_server_at_the_address_is_down(self, response, caplog):
+		"""Something else on 443 (a NAS UI, a proxy's 404) is not Pi-hole."""
+		env = {"PIHOLE_API_URL": "https://172.16.17.252"}
+		with (
+			patch.dict(os.environ, env, clear=True),
+			patch("web.health.httpx.get", return_value=response),
+			caplog.at_level("WARNING", logger="web.health"),
+		):
+			assert service_health(StubKea())[-1] == {"name": "DNS1", "up": False}
+		assert "not Pi-hole" in caplog.text
+
+	def test_signed_in_reply_is_up_too(self):
+		env = {"PIHOLE_API_URL": "http://172.16.17.212:8080"}
+		reply = httpx.Response(200, json={"session": {"valid": True, "sid": None}})
+		with (
+			patch.dict(os.environ, env, clear=True),
+			patch("web.health.httpx.get", return_value=reply),
+		):
+			assert service_health(StubKea())[-1] == {"name": "DNS1", "up": True}
 
 	def test_quarantine_probe_still_verifies_tls(self):
 		env = {"QUARANTINE_SERVICE_URL": "https://q:8600"}
