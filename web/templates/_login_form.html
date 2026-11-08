@@ -3,13 +3,14 @@
 	{% if error %}
 	<p class="form-error" role="alert">{{ error }}</p>
 	{% endif %}
+	{# The placeholder is the visible label; the hidden span keeps the field named for screen readers. #}
 	<label class="field">
-		<span>Username</span>
-		<input name="username" value="{{ username }}" autocomplete="username" autocapitalize="off" spellcheck="false" required autofocus>
+		<span class="visually-hidden">Username</span>
+		<input name="username" value="{{ username }}" placeholder="Username" autocomplete="username" autocapitalize="off" spellcheck="false" required autofocus>
 	</label>
 	<label class="field">
-		<span>Password</span>
-		<input name="password" type="password" autocomplete="current-password" required>
+		<span class="visually-hidden">Password</span>
+		<input name="password" type="password" placeholder="Password" autocomplete="current-password" required>
 	</label>
 	<button class="button button-primary" type="submit">Sign in</button>
 </form>
