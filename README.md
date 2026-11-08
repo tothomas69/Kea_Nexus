@@ -1,27 +1,57 @@
-# ◈ KeaNexus
+# KeaNexus
 
-Kea DHCP management dashboard for the home user.
+A web dashboard for a home Kea DHCP server. Version **2.0.0**.
 
-Built with Streamlit and talks directly to the **kea-dhcp4 HTTP listener** (Kea 3.0+) — no Control Agent or proxy layer needed.
+KeaNexus talks straight to the **kea-dhcp4 HTTP listener** (Kea 3.0+). It does
+not use the Control Agent or a proxy. The UI is FastAPI with server-rendered
+HTML, HTMX and Alpine.js. There is no Node build step, and nothing is loaded
+from a CDN, so it keeps working when the internet connection is down.
 
-## Features
+## Screens
 
-- **Pool** — live utilisation gauge, service health, lease summary metrics
-- **Leases** — filterable table of all active/declined leases with add/edit dialogs
-- **IPAM** — full /24 subnet map (all 256 addresses) with SQLite-backed static records for out-of-scope IPs
-- **Reservations** — per-row add/edit/delete dialogs, writes directly to `kea-dhcp4.conf` via `config-set` + `config-write`
-- **Maintenance** — DHCP enable/disable and declined lease wipe
-- **Sidebar** — live KeaNexus version, Kea daemon version, and API mode display
+- **Overview**: pool use, active leases, new leases in the last 24 hours,
+  reservations and quarantined devices. An address map shows all 256 addresses
+  in the /24, and hovering over one shows its details, including the MAC that
+  last answered an ARP sweep. Also charts, the quarantine card and an
+  activity feed.
+- **Leases**: every lease, with a live filter, add and edit, and an Online column.
+- **Reservations**: Kea host reservations with KeaNexus-only labels, add, edit
+  and delete, and an Online column.
+- **Quarantine**: the device registry, quarantine and release for one device or
+  a group, and the audit log. Needs the optional quarantine service.
+- **Maintenance**: turn DHCP off and on (with Kea's own re-enable timer),
+  clear declined leases, and wipe the lease database.
+- **Settings**: the pool range, lease length and DHCP options. Admins also
+  manage **Users** here.
+- **Search**: press ⌘K or Ctrl+K on any screen to find a device, IP address,
+  MAC address, hostname or label.
+- **Help**: the Siri Shortcut setup guide and the quarantine design notes.
+
+The header shows the health of Kea, the quarantine service, and the two
+Pi-holes (labelled DNS1 and DNS2).
+
+## Users and roles
+
+There are two roles. **Admins** can change things. **Viewers** can look but not
+change anything: they get a read-only Kea client, so a viewer can't write to Kea
+even by calling a route directly. Passwords are stored as argon2 hashes.
+
+The first time KeaNexus starts with no users, it creates an admin from
+`KEANEXUS_USERNAME` and `KEANEXUS_PASSWORD`. After that, manage users under
+**Settings → Users**.
 
 ## Requirements
 
-- **Kea 3.0+** with a direct HTTP listener configured on `kea-dhcp4` (see below)
-- Docker + Docker Compose
+- **Kea 3.0+** with an HTTP listener on `kea-dhcp4` (see below)
+- Docker and Docker Compose
+- Optional: the `keanexus-quarantine` service (Compose profile `quarantine`).
+  It powers quarantine, the ARP sweep behind the Online columns, and the
+  "On the wire" MAC addresses on the map.
 
 ## Kea configuration
 
-KeaNexus requires a `control-sockets` HTTP listener block in `kea-dhcp4.conf`.
-The Control Agent (`kea-ctrl-agent`) is not used and should not be running.
+Add a `control-sockets` HTTP listener to `kea-dhcp4.conf`. KeaNexus does not use
+the Control Agent (`kea-ctrl-agent`), so it should not be running.
 
 ```json
 "control-sockets": [
@@ -32,78 +62,86 @@ The Control Agent (`kea-ctrl-agent`) is not used and should not be running.
     "authentication": {
       "type": "basic",
       "realm": "kea-dhcp4",
-      "clients": [
-        {
-          "user": "admin",
-          "password": "yourpassword"
-        }
-      ]
+      "clients": [{ "user": "admin", "password": "yourpassword" }]
     }
   }
 ]
 ```
 
-> Bind `socket-address` to the LAN IP (not loopback) if KeaNexus runs in Docker,
-> since Docker is a separate network namespace from the host.
+> If KeaNexus runs in Docker, set `socket-address` to the host's LAN IP, not
+> loopback. The container has its own network, so loopback inside it is not
+> the host.
 
-## Local development
+## Configuration
+
+Copy `.env.example` to `.env` and fill it in.
+
+| Variable | What it is for |
+| --- | --- |
+| `KEA_API_URL`, `KEA_API_USER`, `KEA_API_PASSWORD` | The Kea HTTP listener and its basic-auth login |
+| `KEANEXUS_SECRET` | Signs the session cookie. **Required**: sign-in is refused without it. Changing it signs everyone out |
+| `KEANEXUS_USERNAME`, `KEANEXUS_PASSWORD` | Used only once, to create the first admin |
+| `QUARANTINE_SERVICE_URL`, `QUARANTINE_SERVICE_TOKEN` | The quarantine service. Use the Docker host's LAN IP, not `localhost` |
+| `PIHOLE_API_URL`, `PIHOLE_SECONDARY_API_URL` | Optional. Adds the DNS1 and DNS2 health dots. Include the admin port, for example `http://172.16.17.212:8080` |
+| `POOL_SAMPLE_INTERVAL_SECONDS`, `POOL_SAMPLE_RETENTION_DAYS` | How often the pool chart takes a reading (default 300) and how long readings are kept (default 30 days) |
+
+The quarantine service has its own `quarantine_service/.env`. See
+`quarantine_service/.env.example`.
+
+## Running it
 
 ```bash
-# 1. Clone the repo
 git clone git@github.com:tothomas69/Kea_Nexus.git keanexus && cd keanexus
-
-# 2. Create .env from the template
-cp .env.example .env
-# Edit .env — fill in KEA_API_URL and credentials
-
-# 3. Start (hot-reload enabled via bind-mounts + --server.runOnSave=true)
-docker compose up
-
-# Open http://localhost:8502
+cp .env.example .env    # then fill it in
+docker compose --profile quarantine up -d --build
 ```
 
-## Production deployment
+The UI listens on host port **8502**. Leave out `--profile quarantine` to run
+without the quarantine service.
+
+### Updating
 
 ```bash
-# On the target host, pull and build
-git clone git@github.com:tothomas69/Kea_Nexus.git /opt/keanexus && cd /opt/keanexus
-cp .env.example .env && nano .env   # fill in KEA_API_URL and credentials
-
-docker compose up -d --build
+cd /root/keanexus && git fetch origin && git reset --hard origin/main
+docker compose --profile quarantine up -d --build --remove-orphans
 ```
 
-Then add to Nginx Proxy Manager as `keanexus.cyberwraith.net → <host>:8502`
-and a Pi-hole local DNS record pointing at NPM (`172.16.17.212`).
+Python modules are bind-mounted, so a code-only change takes effect after a
+container restart. A dependency change needs `--build`.
 
-## Files
+## Development
 
-| File                     | Purpose                                                |
-| ------------------------ | ------------------------------------------------------ |
-| `app.py`                 | Entry point: page config, CSS, sidebar, tab routing    |
-| `version.py`             | Single source of truth for the KeaNexus version string |
-| `kea.py`                 | Kea direct HTTP API client (Kea 3.0+)                  |
-| `auth.py`                | Login / session authentication                         |
-| `helpers.py`             | Cached data loaders (`@st.cache_data`) and utilities   |
-| `db.py`                  | SQLite persistence layer for IPAM static records       |
-| `ui_dashboard.py`        | Dashboard tab                                          |
-| `ui_leases.py`           | Leases tab                                             |
-| `ui_ipam.py`             | IPAM tab                                               |
-| `ui_reservations.py`     | Reservations tab                                       |
-| `ui_maintenance.py`      | Maintenance tab                                        |
-| `ui_settings.py`         | Settings tab                                           |
-| `ui_login.py`            | Login page                                             |
-| `style.css`              | Global CSS overrides for Streamlit internals           |
-| `Dockerfile`             | Production container image                             |
-| `docker-compose.yml`     | Compose file (bind-mounts for hot-reload in dev)       |
-| `.streamlit/config.toml` | Theme configuration                                    |
+```bash
+make setup    # turns on the git hooks in .githooks/ and checks your dev tools
+make test     # pytest with coverage
+```
+
+- The **pre-commit** hook runs Ruff and a secrets check on staged files.
+- The **pre-push** hook runs the full test suite (80% coverage minimum),
+  a whole-tree secrets scan, and pip-audit.
+
+`docs/as-built-project-guide.md` describes every module, route and design
+decision. Read it before adding anything.
+
+## Layout
+
+| Path | What it holds |
+| --- | --- |
+| `web/` | The UI: FastAPI app, routes, Jinja templates, static files and vendored JS |
+| `quarantine_service/` | The optional `keanexus-quarantine` service |
+| `kea.py` | The Kea HTTP client, plus the read-only client given to viewers |
+| `auth.py` | Users, roles, argon2 passwords and the signed session token |
+| `db.py` | SQLite: static records, labels, device registry, logs, users, pool samples |
+| `address_map.py`, `dashboard_data.py`, `helpers.py` | Pure shaping logic, unit-tested |
+| `version.py` | The version number shown in the UI |
+| `docs/` | The as-built guide, design docs, and the Help articles |
 
 ## Extending
 
-`kea.py` exposes a `KeaClient` with `call()` for any arbitrary Kea command, plus higher-level helpers.
-All commands available in your deployment can be listed with:
+`KeaClient.call()` sends any Kea command. To list what your Kea supports:
 
 ```python
 kea.call("list-commands")
 ```
 
-> Note: unlike Kea 2.x, the `service` parameter is never sent when using the direct HTTP listener.
+The `service` key is never sent: the direct HTTP listener doesn't accept it.
