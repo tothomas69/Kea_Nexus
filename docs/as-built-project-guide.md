@@ -390,7 +390,9 @@ Overview, and 1b adds its charts. Phase 2 is the Quarantine screen, phase 3 the 
   version and sets the CSRF cookie on first visit; `redirect()` sends
   `HX-Redirect` to HTMX (which would otherwise swap a whole page into a
   fragment) and a 303 to everything else. `NAV_ITEMS` marks unbuilt screens
-  with a `None` path
+  with a `None` path. `base.html` marks a tab current on its own path and on
+  any path under it (`/settings/users` keeps Settings underlined); `/` only
+  matches itself
 - `help_content.py` — Help's table of contents is built from each allowlisted
   article's own `## ` headings (skipping code blocks), with anchors from the
   same `slugify` the markdown `toc` extension uses, so links can't drift from

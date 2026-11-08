@@ -49,7 +49,8 @@
 			<nav class="tabs" aria-label="Main">
 				{% for label, path in nav_items %}
 					{% if path %}
-					<a href="{{ path }}" class="tab{% if path == current_path %} tab-current{% endif %}"{% if path == current_path %} aria-current="page"{% endif %}>{{ label }}</a>
+					{% set is_current = path == current_path or (path != "/" and current_path.startswith(path ~ "/")) %}
+					<a href="{{ path }}" class="tab{% if is_current %} tab-current{% endif %}"{% if is_current %} aria-current="page"{% endif %}>{{ label }}</a>
 					{% else %}
 					<span class="tab tab-pending" title="Still in the current KeaNexus UI. Moves here in a later phase.">{{ label }}</span>
 					{% endif %}
