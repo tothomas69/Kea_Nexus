@@ -15,6 +15,7 @@
 	--text: #111827;
 	--text-muted: #4b5563;
 	--text-faint: #6b7280;
+	--login-placeholder: #b8bec7;
 	--accent: #0b6fc2;
 	--accent-strong: #0b4f8a;
 	--accent-soft: #e8f2fb;
@@ -226,22 +227,38 @@ a:hover {
 }
 
 .login-logo {
-	height: 120px;
+	height: 240px;
 	width: auto;
 }
 
+/* No card: the form sits straight on the page background. */
 .login-card {
 	width: 100%;
-	max-width: 380px;
-	text-align: center;
+	max-width: 240px;
 }
 
 .login-card .form {
-	text-align: left;
+	gap: 10px;
+}
+
+.login-card .field input {
+	text-align: center;
+	font-size: 13px;
+	padding: 6px 10px;
+}
+
+.login-card .form-error {
+	text-align: center;
+}
+
+.login-card .field input::placeholder {
+	/* Lighter than --text-faint so the hint never reads as typed text. */
+	color: var(--login-placeholder);
 }
 
 .login-card .button {
 	align-self: stretch;
+	padding: 6px 12px;
 }
 
 .form {

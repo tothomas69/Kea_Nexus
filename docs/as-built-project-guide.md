@@ -611,7 +611,7 @@ Overview, and 1b adds its charts. Phase 2 is the Quarantine screen, phase 3 the 
   `VERSIONS.md`. Fonts fall back to the system stack until they are vendored too
 - Templates: `base.html` (the B2 masthead with the real logo, the ⌘K search box,
   account + Sign out, tabs, Help modal), `login.html` + `_login_form.html`
-  (no masthead and no version: just the logo and the form, centred; a failed sign-in re-renders only the form, with status 200 because HTMX does
+  (no masthead, version, card or heading: a 240px logo over a 240px-wide form on the page background, with light grey centred placeholders as the visible labels and visually hidden `<label>` text for screen readers; a failed sign-in re-renders only the form, with status 200 because HTMX does
   not swap 4xx bodies), `overview.html`, `quarantine.html` + `quarantine/`, `leases.html` + `leases/`, `reservations.html` + `reservations/`, `maintenance.html` + `maintenance/`, `settings.html` + `settings/`, `help/`
 
 ### keanexus-quarantine Service (`quarantine_service/`)
