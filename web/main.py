@@ -29,6 +29,7 @@ from web.routes import (
 	pages,
 	quarantine,
 	reservations,
+	settings,
 )
 from web.security import require_csrf
 from web.templating import redirect
@@ -97,6 +98,7 @@ def create_app(start_background_work: bool = True, start_liveness_sweep: bool = 
 	app.include_router(leases.router)
 	app.include_router(reservations.router)
 	app.include_router(maintenance.router)
+	app.include_router(settings.router)
 	app.include_router(help_routes.router)
 	return app
 
