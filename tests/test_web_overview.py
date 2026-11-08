@@ -19,7 +19,7 @@ from kea import KeaClient, KeaError, ServiceStatus
 from quarantine_client import QuarantineServiceError
 from web import cache
 from web.deps import kea_client
-from web.health import service_health
+from web.health import pihole_auth_url, service_health
 from web.main import create_app
 from web.security import CSRF_COOKIE_NAME, CSRF_HEADER_NAME
 
@@ -341,7 +341,7 @@ class TestHealth:
 		}
 		with (
 			patch.dict(os.environ, env, clear=True),
-			patch("web.health.httpx.get", side_effect=lambda url, timeout: responses[url]),
+			patch("web.health.httpx.get", side_effect=lambda url, **_: responses[url]),
 		):
 			entries = service_health(StubKea())
 		assert entries[1:] == [
@@ -364,6 +364,64 @@ class TestHealth:
 			patch("web.health.httpx.get", side_effect=httpx.ConnectError("no route")),
 		):
 			assert service_health(StubKea())[-1] == {"name": "Quarantine svc", "up": False}
+
+
+class TestPiholeHealth:
+	@pytest.mark.parametrize(
+		"base_url",
+		[
+			"http://172.16.17.212",
+			"http://172.16.17.212/",
+			"http://172.16.17.212/api",
+			"http://172.16.17.212/api/",
+			"172.16.17.212",
+			" http://172.16.17.212 ",
+		],
+	)
+	def test_auth_url_however_the_base_is_written(self, base_url):
+		assert pihole_auth_url(base_url) == "http://172.16.17.212/api/auth"
+
+	def test_https_and_port_kept(self):
+		assert pihole_auth_url("https://pi.hole:8443/api") == "https://pi.hole:8443/api/auth"
+
+	def test_empty_url_rejected(self):
+		with pytest.raises(AssertionError):
+			pihole_auth_url("  ")
+
+	def test_probe_skips_tls_verification_and_waits_longer(self):
+		env = {"PIHOLE_API_URL": "https://172.16.17.212"}
+		with (
+			patch.dict(os.environ, env, clear=True),
+			patch("web.health.httpx.get", return_value=httpx.Response(401)) as get,
+		):
+			assert service_health(StubKea())[-1] == {"name": "Pi-hole 1", "up": True}
+		_args, kwargs = get.call_args
+		assert kwargs["verify"] is False
+		assert kwargs["timeout"] > 2.0
+
+	def test_quarantine_probe_still_verifies_tls(self):
+		env = {"QUARANTINE_SERVICE_URL": "https://q:8600"}
+		with (
+			patch.dict(os.environ, env, clear=True),
+			patch("web.health.httpx.get", return_value=httpx.Response(200)) as get,
+		):
+			service_health(StubKea())
+		assert get.call_args.kwargs["verify"] is True
+
+	def test_blank_url_shows_no_dot(self):
+		with patch.dict(os.environ, {"PIHOLE_API_URL": "  "}, clear=True):
+			assert [entry["name"] for entry in service_health(StubKea())] == ["Kea 3.0.3"]
+
+	def test_failure_is_logged_with_its_reason(self, caplog):
+		env = {"PIHOLE_API_URL": "http://172.16.17.212"}
+		with (
+			patch.dict(os.environ, env, clear=True),
+			patch("web.health.httpx.get", side_effect=httpx.ConnectTimeout("timed out")),
+			caplog.at_level("WARNING", logger="web.health"),
+		):
+			assert service_health(StubKea())[-1]["up"] is False
+		assert "172.16.17.212/api/auth" in caplog.text
+		assert "timed out" in caplog.text
 
 
 class TestActivityRecorded:
