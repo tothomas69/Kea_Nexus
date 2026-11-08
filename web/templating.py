@@ -26,7 +26,7 @@ templates.env.globals["app_version"] = APP_VERSION
 # one in (see docs/fastapi-htmx-migration.md).
 NAV_ITEMS: list[tuple[str, Optional[str]]] = [
 	("Overview", "/"),
-	("Leases", None),
+	("Leases", "/leases"),
 	("Reservations", None),
 	("Quarantine", "/quarantine"),
 	("Maintenance", None),

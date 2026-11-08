@@ -33,7 +33,7 @@ from dashboard_charts import (
 from helpers import build_hostname_override_sets
 from kea import KeaClient
 from quarantine_client import QuarantineServiceError, trigger_quarantine, trigger_release
-from web import cache
+from web import cache, liveness
 from web.deps import current_user, kea_client, require_admin
 from web.health import service_health
 from web.kea_reads import read_kea
@@ -116,6 +116,18 @@ def _kpi_context(stats: Optional[dict], config: Optional[dict]) -> dict:
 		"reservation_count": len(reservations),
 		"fixed_count": sum(1 for reservation in reservations if reservation.get("ip-address")),
 		"quarantined_names": [d["friendly_name"] for d in devices if d.get("is_quarantined")],
+		**_online_context(),
+	}
+
+
+def _online_context() -> dict:
+	"""How many devices answered the latest ARP sweep, or None before the first one."""
+	sweep = liveness.latest()
+	if sweep is None:
+		return {"online_count": None, "online_age": ""}
+	return {
+		"online_count": len(sweep.responding),
+		"online_age": liveness.age_label(sweep, time.time()),
 	}
 
 

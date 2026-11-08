@@ -1,0 +1,25 @@
+{# Loaded into the page dialog. Errors re-render this form; success closes it. #}
+<form class="form" hx-target="this" hx-swap="outerHTML"
+	{% if editing %}hx-put="/leases/{{ values.ip }}"{% else %}hx-post="/leases"{% endif %}>
+	<div class="dialog-head">
+		<h2>{{ "Edit lease " ~ values.ip if editing else "Add a lease" }}</h2>
+		<button type="button" class="icon-button" aria-label="Close" @click="$dispatch('close-dialog')">×</button>
+	</div>
+	<p class="muted small">{{ "Saving replaces this lease and sets its expiry to now plus the duration." if editing else "Writes a lease straight into Kea, for example to hold an address for a device before it first connects." }}</p>
+	{% if error %}<p class="form-error" role="alert">{{ error }}</p>{% endif %}
+	{% if not editing %}
+	<label class="field"><span>IP address</span>
+		<input name="ip" value="{{ values.ip }}" required autocomplete="off" spellcheck="false" placeholder="172.16.17.40"></label>
+	{% endif %}
+	<label class="field"><span>MAC address</span>
+		<input name="mac" value="{{ values.mac }}" required autocomplete="off" spellcheck="false" placeholder="aa:bb:cc:dd:ee:ff"></label>
+	<label class="field"><span>Hostname</span>
+		<input name="hostname" value="{{ values.hostname }}" autocomplete="off" spellcheck="false"></label>
+	<label class="field"><span>Duration (seconds)</span>
+		<input name="duration" type="number" min="{{ min_seconds }}" max="{{ max_seconds }}" step="60" value="{{ values.duration }}" required>
+		<small class="muted">86400 is one day; the most is {{ max_seconds }} (one week).</small></label>
+	<div class="form-actions">
+		<button type="submit" class="button button-primary">{{ "Save" if editing else "Add lease" }}</button>
+		<button type="button" class="button button-quiet" @click="$dispatch('close-dialog')">Cancel</button>
+	</div>
+</form>

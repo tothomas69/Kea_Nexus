@@ -1,0 +1,49 @@
+{# Redrawn by the filter, by a sweep, every 60 s, and after a lease is saved. #}
+<section id="leases-table" class="card" aria-label="Leases"
+	hx-get="/fragments/leases" hx-include="#lease-filter" hx-trigger="every 60s, leases-changed from:body" hx-swap="outerHTML">
+	{% if kea_error %}<p class="banner banner-error" role="alert">Kea can't be reached right now, so this list may be empty or out of date.</p>{% endif %}
+	{% if sweep_error %}<p class="notice notice-error" role="alert">{{ sweep_error }}</p>{% endif %}
+
+	<div class="card-head">
+		<p class="muted small">
+			{% if query %}{{ rows | length }} of {{ total }} leases match{% else %}{{ total }} lease{{ "s" if total != 1 }}{% endif %}
+			·
+			{% if sweep %}<span class="online-text">{{ online_count }} answered</span> the sweep {{ sweep_age }}. A device that didn't answer may still be on.
+			{% else %}Not checked yet: nobody has swept since KeaNexus started.{% endif %}
+		</p>
+	</div>
+
+	{% if rows %}
+	<div class="table-wrap">
+	<table class="data-table">
+		<thead><tr>
+			<th scope="col">IP address</th><th scope="col">Hostname</th><th scope="col">MAC</th>
+			<th scope="col">Expires</th><th scope="col">Type</th><th scope="col">Online</th>
+			{% if is_admin %}<th scope="col"><span class="visually-hidden">Actions</span></th>{% endif %}
+		</tr></thead>
+		<tbody>
+		{% for row in rows %}
+			<tr class="{{ 'row-online' if row.online }}{{ ' row-declined' if row.declined }}">
+				<td class="mono nowrap">{{ row.ip }}</td>
+				<td class="mono">{{ row.hostname or "—" }}</td>
+				<td class="mono nowrap">{{ row.mac or "—" }}</td>
+				<td class="nowrap">{{ "declined" if row.declined else row.expires }}</td>
+				<td><span class="chip chip-type-{{ row.type }}">{{ row.type }}</span></td>
+				<td>{% if row.online %}<span class="online-dot" aria-hidden="true"></span> yes{% elif row.online is none %}<span class="muted">—</span>{% else %}<span class="muted">no answer</span>{% endif %}</td>
+				{% if is_admin %}
+				<td class="row-actions">
+					<button class="button button-quiet" hx-get="/leases/{{ row.ip }}" hx-target="#dialog-body" hx-swap="innerHTML"
+						@click="$dispatch('open-dialog')">Edit</button>
+				</td>
+				{% endif %}
+			</tr>
+		{% endfor %}
+		</tbody>
+	</table>
+	</div>
+	{% elif query %}
+	<p class="muted">No lease matches "{{ query }}".</p>
+	{% else %}
+	<p class="muted">Kea has no leases right now.</p>
+	{% endif %}
+</section>
