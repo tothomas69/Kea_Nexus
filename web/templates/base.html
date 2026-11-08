@@ -15,7 +15,7 @@
 <script src="/static/vendor/alpinejs-3.17.5.min.js" defer></script>
 </head>
 {# Every HTMX request carries the CSRF token; see web/security.py. #}
-<body hx-headers='{"X-CSRF-Token": "{{ csrf_token }}"}' x-data="{ helpOpen: false }" @keydown.escape.window="helpOpen = false">
+<body{% if user and user.compact_header %} class="header-compact"{% endif %} hx-headers='{"X-CSRF-Token": "{{ csrf_token }}"}' x-data="{ helpOpen: false }" @keydown.escape.window="helpOpen = false">
 
 {# The sign-in page draws its own centred logo, so it has no masthead. #}
 {% if user %}
@@ -58,6 +58,8 @@
 					<svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><path d="M9.5 9a2.5 2.5 0 015 .5c0 1.7-2.5 2-2.5 3.5"></path><path d="M12 17h.01"></path></svg>
 					Help
 				</button>
+				{# Shown here only in the compact header, where it moves out from under the logo. #}
+				<span class="app-version tab-version" title="KeaNexus version">v{{ app_version }}</span>
 			</nav>
 		</div>
 	</div>

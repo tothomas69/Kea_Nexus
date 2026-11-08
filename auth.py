@@ -190,7 +190,11 @@ def user_from_session_token(token: Optional[str]) -> Optional[dict]:
 
 def public_user(stored_user: dict) -> dict:
 	"""The fields callers may hold on to: never the password hash."""
-	return {"username": stored_user["username"], "role": stored_user["role"]}
+	return {
+		"username": stored_user["username"],
+		"role": stored_user["role"],
+		"compact_header": bool(stored_user.get("compact_header", 0)),
+	}
 
 
 # --- User management (admin actions) ---------------------------------------------

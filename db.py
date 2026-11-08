@@ -137,6 +137,8 @@ def init_db() -> None:
 				last_login_at    TEXT NOT NULL DEFAULT ''
 			)
 		""")
+		# Display preference, added after the users table first shipped.
+		_ensure_column(conn, "users", "compact_header", "INTEGER NOT NULL DEFAULT 0")
 		conn.commit()
 
 
@@ -601,6 +603,17 @@ def set_user_disabled(username: str, is_disabled: bool) -> bool:
 			"UPDATE users SET is_disabled = ?, session_version = session_version + 1"
 			" WHERE username = ?",
 			(int(is_disabled), username),
+		)
+		conn.commit()
+		return cursor.rowcount == 1
+
+
+def set_compact_header(username: str, compact: bool) -> bool:
+	"""Save one user's header choice. Deliberately leaves session_version alone:
+	a display preference is not a security change and must not sign them out."""
+	with _connect() as conn:
+		cursor = conn.execute(
+			"UPDATE users SET compact_header = ? WHERE username = ?", (int(compact), username)
 		)
 		conn.commit()
 		return cursor.rowcount == 1

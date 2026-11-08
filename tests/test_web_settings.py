@@ -261,3 +261,32 @@ class TestActivityRecorded:
 			"added the viewer login pat",
 			"saved the DHCP settings",
 		]
+
+
+class TestDisplay:
+	def test_viewer_can_reach_display_and_sees_it_in_the_menu(self, client):
+		_sign_in(client, role="viewer")
+		page = client.get("/settings/display").text
+		assert "Compact header" in page
+		assert 'href="/settings/display"' in page
+		assert 'href="/settings/users"' not in page
+
+	def test_turning_compact_on_and_off(self, client):
+		headers = _sign_in(client, role="viewer")
+		assert "header-compact" not in client.get("/settings/display").text
+		response = client.put("/settings/display", data={"compact_header": "on"}, headers=headers)
+		assert response.headers["HX-Redirect"] == "/settings/display"
+		page = client.get("/settings/display").text
+		assert 'class="header-compact"' in page
+		assert "checked" in page
+		client.put("/settings/display", data={}, headers=headers)
+		assert "header-compact" not in client.get("/").text
+
+	def test_saving_keeps_the_session(self, client):
+		headers = _sign_in(client)
+		client.put("/settings/display", data={"compact_header": "on"}, headers=headers)
+		assert client.get("/settings/display").status_code == 200
+
+	def test_csrf_required(self, client):
+		_sign_in(client)
+		assert client.put("/settings/display", data={"compact_header": "on"}).status_code == 403
