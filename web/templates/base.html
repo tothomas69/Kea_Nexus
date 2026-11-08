@@ -16,7 +16,10 @@
 
 <header class="masthead">
 	<div class="masthead-inner">
-		<a href="/" class="masthead-logo"><img src="/brand/keanexus_logo.png" alt="KeaNexus home"></a>
+		<div class="masthead-brand">
+			<a href="/" class="masthead-logo"><img src="/brand/keanexus_logo.png" alt="KeaNexus home"></a>
+			<span class="app-version" title="KeaNexus version">v{{ app_version }}</span>
+		</div>
 		<div class="masthead-main">
 			{% if user %}
 			<div class="masthead-bar">
@@ -77,7 +80,7 @@
 			<img src="/brand/keanexus_logo.png" alt="" class="modal-logo">
 			<div>
 				<h2 id="help-title">Help</h2>
-				<p class="muted">KeaNexus documentation</p>
+				<p class="muted">KeaNexus documentation · v{{ app_version }}</p>
 			</div>
 			<button class="icon-button" aria-label="Close help" @click="helpOpen = false">×</button>
 		</div>
