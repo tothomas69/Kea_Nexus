@@ -45,11 +45,4 @@
 
 {% include "overview/_charts.html" %}
 
-<div class="modal-backdrop" x-data="{ dialogOpen: false }" x-show="dialogOpen" x-cloak
-	@open-dialog.window="dialogOpen = true" @close-dialog.window="dialogOpen = false"
-	@keydown.escape.window="dialogOpen = false" @click.self="dialogOpen = false">
-	<div class="modal modal-narrow" role="dialog" aria-modal="true" aria-label="Edit address">
-		<div id="dialog-body" class="modal-body"></div>
-	</div>
-</div>
 {% endblock %}

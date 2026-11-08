@@ -140,8 +140,9 @@ signed-in user. Routes marked **admin** also depend on `require_admin`.
 | `DELETE /address/{ip}/static` **admin** | delete a static entry |
 | `GET /quarantine` | registry, group actions, audit log |
 | `POST /quarantine/{name}` · `POST /quarantine/{name}/release` **admin** | quarantine or release one device |
-| `POST /quarantine/group/{tag}` · `.../release` **admin** | group actions |
-| `POST /quarantine/devices` · `PUT`/`DELETE /quarantine/devices/{name}` **admin** | registry CRUD |
+| `POST /devices/{name}/quarantine` · `.../release` **admin** | the Quarantine screen's per-device actions |
+| `POST /groups/{tag}/quarantine` · `.../release` **admin** | group actions |
+| `GET /devices/new` · `GET /devices/{name}` · `POST /devices` · `PUT`/`DELETE /devices/{name}` **admin** | registry CRUD (moved out of `/quarantine/...` in phase 2: `POST /quarantine/{name}` would have collided with a device called "devices") |
 | `GET /leases` | leases table, filter, search by MAC or hostname |
 | `POST /leases/sweep` | "Check who's online" (allowed for viewers, as today) |
 | `POST /leases`, `PUT /leases/{ip}` **admin** | add or edit a lease |
@@ -198,7 +199,7 @@ old UI working the whole time.
      `ui_dashboard.py`, via vendored vega-embed. *(Done. The builders moved to
      `dashboard_charts.py`, shared by both UIs, which also fixed the trend
      axis showing UTC as local time.)*
-2. **Quarantine.**
+2. **Quarantine.** *(Done.)*
 3. **Leases**, with the background liveness sweep (decision 3).
 4. **Reservations.**
 5. **Maintenance.**

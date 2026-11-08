@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}Quarantine · KeaNexus{% endblock %}
+{% block content %}
+
+<div class="screen-head">
+	<div>
+		<h1>Quarantine</h1>
+		<p class="muted">Devices are identified by the hostname on their lease, not by MAC, since a device can change its MAC.</p>
+	</div>
+	{% if is_admin %}
+	<button class="button button-primary" hx-get="/devices/new" hx-target="#dialog-body" hx-swap="innerHTML"
+		@click="$dispatch('open-dialog')">Add device</button>
+	{% endif %}
+</div>
+{% if not is_admin %}<p class="muted small">Viewers can see everything here but can't make changes.</p>{% endif %}
+
+{% include "quarantine/_registry.html" %}
+
+<div class="explainers">
+	<details class="card explainer">
+		<summary>What do Kea, ARP, Pi-hole and Fingerprint mean?</summary>
+		<dl>
+			<dt>Kea</dt>
+			<dd>Adds a DHCP deny rule for the device's MAC, so it can't renew or get a new lease. On its own this doesn't drop a live connection; the device keeps working until its lease runs out, which is why the other steps run too.</dd>
+			<dt>ARP</dt>
+			<dd>A background loop tells the device its gateway lives at a black-hole MAC address. This is what cuts a live connection right away.</dd>
+			<dt>Pi-hole</dt>
+			<dd>Blocks every DNS lookup from the device's address, on both Pi-holes, so a connection that survives the ARP step still can't resolve a name.</dd>
+			<dt>Fingerprint</dt>
+			<dd>Refreshes the device's OS fingerprint with an nmap scan. It runs on Quarantine and Release alike: it keeps identity current and is not part of enforcement, so a failed scan doesn't mean the action failed.</dd>
+		</dl>
+	</details>
+	<details class="card explainer">
+		<summary>Manual cleanup, if a device can't be released</summary>
+		{% include "quarantine/_manual_cleanup.html" %}
+	</details>
+</div>
+
+{% include "quarantine/_log.html" %}
+{% endblock %}
