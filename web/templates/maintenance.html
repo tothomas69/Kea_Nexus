@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block title %}Maintenance · KeaNexus{% endblock %}
+{% block content %}
+<div class="screen-head">
+	<div>
+		<h1>Maintenance</h1>
+		<p class="muted">Actions that change Kea at once, for everyone on the network.</p>
+	</div>
+</div>
+{% if not is_admin %}<p class="muted small">Viewers can see the state here but can't make changes.</p>{% endif %}
+{% include "maintenance/_panels.html" %}
+{% endblock %}

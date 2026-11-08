@@ -108,6 +108,24 @@ class KeaClient:
 
 	# ─── DHCP service control ─────────────────────────────────────────────────
 
+	def get_dhcp_enabled(self) -> Optional[bool]:
+		"""Whether Kea is serving DHCP right now, or None when it doesn't say.
+
+		Read from status-get's dhcp-state, which reports a disable by any origin
+		(a user command, HA, a lost database). A Kea that doesn't include
+		dhcp-state gives None: the caller shows "unknown" rather than guessing,
+		since dhcp-disable can carry an auto re-enable timer that fires on
+		Kea's side without anyone being told. Raises KeaError if Kea can't be
+		reached.
+		"""
+		r = self.call("status-get")
+		if r.get("result") != 0:
+			raise KeaError(r.get("text", "status-get failed"))
+		dhcp_state = (r.get("arguments") or {}).get("dhcp-state")
+		if not isinstance(dhcp_state, dict) or "globally-disabled" not in dhcp_state:
+			return None
+		return not dhcp_state["globally-disabled"]
+
 	def enable_dhcp(self) -> None:
 		"""Re-enable DHCP after it was disabled."""
 		r = self.call("dhcp-enable")
@@ -314,6 +332,7 @@ READ_ONLY_COMMANDS = frozenset(
 		"lease4-get-by-hw-address",
 		"lease4-get-by-hostname",
 		"config-get",
+		"status-get",
 	}
 )
 

@@ -1162,3 +1162,44 @@ a:hover {
 	background: #f3f4f6;
 	color: #4b5563;
 }
+
+/* --- Maintenance ----------------------------------------------------------- */
+
+#maintenance-panels > .card + .card {
+	margin-top: 20px;
+}
+.notice-block {
+	margin: 0 0 16px;
+}
+.state-row {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	margin-bottom: 8px;
+}
+.state {
+	font-size: 14px;
+	font-weight: 600;
+}
+.state-on {
+	color: #166534;
+}
+.state-off {
+	color: var(--danger);
+}
+.state-unknown {
+	color: var(--text-faint);
+}
+.state-actions {
+	margin-left: auto;
+	display: flex;
+	gap: 8px;
+}
+.card-danger {
+	border-color: #fecaca;
+}
+.button-danger {
+	background: var(--danger);
+	border-color: var(--danger);
+	color: #fff;
+}

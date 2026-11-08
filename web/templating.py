@@ -29,7 +29,7 @@ NAV_ITEMS: list[tuple[str, Optional[str]]] = [
 	("Leases", "/leases"),
 	("Reservations", "/reservations"),
 	("Quarantine", "/quarantine"),
-	("Maintenance", None),
+	("Maintenance", "/maintenance"),
 	("Settings", None),
 ]
 
