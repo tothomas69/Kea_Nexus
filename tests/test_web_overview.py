@@ -364,3 +364,16 @@ class TestHealth:
 			patch("web.health.httpx.get", side_effect=httpx.ConnectError("no route")),
 		):
 			assert service_health(StubKea())[-1] == {"name": "Quarantine svc", "up": False}
+
+
+class TestActivityRecorded:
+	def test_static_entry_logged_and_shown(self, client):
+		headers = _sign_in(client)
+		client.post("/address/172.16.17.10/static", data={"hostname": "nas"}, headers=headers)
+		assert db.get_activity()[0]["summary"] == "saved the static entry for 172.16.17.10"
+		assert (
+			"tom saved the static entry for 172.16.17.10"
+			in client.get("/fragments/activity", headers=_HTMX).text
+		)
+		client.delete("/address/172.16.17.10/static", headers=headers)
+		assert db.get_activity()[0]["summary"] == "deleted the static entry for 172.16.17.10"

@@ -107,7 +107,7 @@ The address map is re-rendered every 30 s with `hx-trigger="every 30s"`.
 
 These need a decision before their phase starts:
 
-1. **Activity feed.** `quarantine_log` covers quarantine and release.
+1. **Activity feed.** *(Done: `activity_log`, written by every web write route, merged into the Overview's Activity by time.)* `quarantine_log` covers quarantine and release.
    Reservation, static-entry and DHCP enable/disable changes are not logged
    anywhere. Proposal: a new append-only `activity_log` table, written by the
    web app's write routes. New leases are not logged: Kea does not report them

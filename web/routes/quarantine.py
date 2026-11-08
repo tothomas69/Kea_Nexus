@@ -256,6 +256,7 @@ def create_device(
 		notes=values["notes"],
 	)
 	_check_presence(values["friendly_name"])
+	db.insert_activity(user["username"], f"registered {values['friendly_name']} for quarantine")
 	return _closed_dialog()
 
 
@@ -294,6 +295,7 @@ def update_device(
 		notes=values["notes"],
 	)
 	_check_presence(friendly_name)
+	db.insert_activity(user["username"], f"edited the registry entry for {friendly_name}")
 	return _closed_dialog()
 
 
@@ -313,8 +315,12 @@ def delete_device(
 	MAX_RELEASE_ATTEMPTS_BEFORE_FORCE times.
 	"""
 	existing = _device_or_404(friendly_name)
-	if not existing.get("is_quarantined") or (force and release_attempts.may_force(friendly_name)):
-		return _delete(friendly_name)
+	if not existing.get("is_quarantined"):
+		return _delete(user, friendly_name, "deleted the registry entry for")
+	if force and release_attempts.may_force(friendly_name):
+		return _delete(
+			user, friendly_name, "force-deleted, without releasing, the registry entry for"
+		)
 
 	try:
 		result = trigger_release(friendly_name)
@@ -323,14 +329,15 @@ def delete_device(
 	except QuarantineServiceError as exc:
 		released, reason = False, str(exc)
 	if released:
-		return _delete(friendly_name)
+		return _delete(user, friendly_name, "released and deleted the registry entry for")
 
 	release_attempts.record_failure(friendly_name)
 	error = f"Not deleted: the release did not fully succeed. {reason}"
 	return _device_form(request, kea, _form_values(existing), db.get_device(friendly_name), error)
 
 
-def _delete(friendly_name: str) -> Response:
+def _delete(user: dict, friendly_name: str, what_happened: str) -> Response:
 	db.delete_device(friendly_name)
 	release_attempts.clear(friendly_name)
+	db.insert_activity(user["username"], f"{what_happened} {friendly_name}")
 	return _closed_dialog()

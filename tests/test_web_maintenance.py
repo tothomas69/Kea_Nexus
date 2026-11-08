@@ -9,6 +9,7 @@ from unittest.mock import patch
 import pytest
 from fastapi.testclient import TestClient
 
+import db
 from kea import KeaError
 from tests.test_web_overview import _HTMX, _LEASES, _SECRET, StubKea, _sign_in
 from web import cache
@@ -238,3 +239,27 @@ class TestAccess:
 	def test_viewer_sees_state(self, client):
 		_sign_in(client, role="viewer")
 		assert "can't make changes" in client.get("/maintenance").text
+
+
+class TestActivityRecorded:
+	def test_each_action_is_logged_with_who_did_it(self, client, kea):
+		headers = _sign_in(client)
+		client.post("/maintenance/dhcp/disable", data={"seconds": "0"}, headers=headers)
+		client.post("/maintenance/dhcp/enable", headers=headers)
+		client.post("/maintenance/declined/clear", headers=headers)
+		client.post("/maintenance/wipe", data={"confirm": "WIPE"}, headers=headers)
+		summaries = [row["summary"] for row in db.get_activity()]
+		assert summaries == [
+			"wiped every lease",
+			"cleared 1 declined lease",
+			"turned DHCP on",
+			"turned DHCP off until turned back on",
+		]
+		assert {row["username"] for row in db.get_activity()} == {"tom"}
+
+	def test_refused_actions_are_not_logged(self, client, kea):
+		headers = _sign_in(client)
+		kea.refuse_writes = True
+		client.post("/maintenance/dhcp/disable", data={"seconds": "60"}, headers=headers)
+		client.post("/maintenance/declined/clear", headers=headers)
+		assert db.get_activity() == []

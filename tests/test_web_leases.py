@@ -12,6 +12,7 @@ from unittest.mock import patch
 import pytest
 from fastapi.testclient import TestClient
 
+import db
 from kea import KeaError
 from quarantine_client import QuarantineServiceError
 from tests.test_web_overview import _HTMX, _SECRET, StubKea, _sign_in
@@ -246,3 +247,14 @@ class TestLivenessSwitch:
 			with TestClient(create_app(start_background_work=False, start_liveness_sweep=True)):
 				pass
 		start.assert_called_once()
+
+
+class TestActivityRecorded:
+	def test_add_logged(self, client, kea):
+		headers = _sign_in(client)
+		client.post(
+			"/leases", data={"ip": "172.16.17.40", "mac": "aa:bb:cc:dd:ee:ff"}, headers=headers
+		)
+		assert (
+			db.get_activity()[0]["summary"] == "added a lease for 172.16.17.40 (aa:bb:cc:dd:ee:ff)"
+		)

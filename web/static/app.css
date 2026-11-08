@@ -812,6 +812,7 @@ a:hover {
 .tone-quarantine { background: #dc2626; }
 .tone-release { background: #16a34a; }
 .tone-warn { background: #d97706; }
+.tone-admin { background: var(--accent); }
 
 /* --- Charts --------------------------------------------------------------- */
 

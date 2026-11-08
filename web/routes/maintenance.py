@@ -9,6 +9,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, Response
 
+import db
 from kea import KeaClient, KeaError
 from web import cache
 from web.deps import current_user, kea_client, require_admin
@@ -104,6 +105,8 @@ def disable_dhcp(
 	if error:
 		context = {"seconds": seconds, "max_seconds": MAX_AUTO_ENABLE_SECONDS, "error": error}
 		return render(request, "maintenance/_disable_form.html", context)
+	until = f"for {auto_enable_seconds} s" if auto_enable_seconds else "until turned back on"
+	db.insert_activity(user["username"], f"turned DHCP off {until}")
 	return Response(headers={"HX-Trigger": f"{MAINTENANCE_CHANGED_EVENT}, close-dialog"})
 
 
@@ -114,6 +117,7 @@ def enable_dhcp(
 	try:
 		kea.enable_dhcp()
 		notice = {"ok": True, "text": "DHCP is on again."}
+		db.insert_activity(user["username"], "turned DHCP on")
 	except KeaError as exc:
 		notice = {"ok": False, "text": f"Kea refused: {exc}"}
 	return _panels(request, kea, user, notice)
@@ -122,7 +126,7 @@ def enable_dhcp(
 # --- Declined leases ------------------------------------------------------------------
 
 
-def _clear(kea: KeaClient, addresses: list[str]) -> list[str]:
+def _clear(user: dict, kea: KeaClient, addresses: list[str]) -> list[str]:
 	"""Delete each lease; return one message per address Kea refused."""
 	errors = []
 	for address in addresses:
@@ -131,6 +135,11 @@ def _clear(kea: KeaClient, addresses: list[str]) -> list[str]:
 		except KeaError as exc:
 			errors.append(f"{address}: {exc}")
 	cache.forget("leases", "pool_stats")
+	cleared = len(addresses) - len(errors)
+	if cleared:
+		db.insert_activity(
+			user["username"], f"cleared {cleared} declined lease{'s' if cleared != 1 else ''}"
+		)
 	return errors
 
 
@@ -145,7 +154,7 @@ def clear_all_declined(
 	request: Request, user: dict = Depends(require_admin), kea: KeaClient = Depends(kea_client)
 ) -> Response:
 	addresses = [row["ip"] for row in declined_rows(read_kea(kea)["leases"], int(time.time()))]
-	errors = _clear(kea, addresses)
+	errors = _clear(user, kea, addresses)
 	return _panels(request, kea, user, _cleared_notice(len(addresses) - len(errors), errors))
 
 
@@ -162,7 +171,7 @@ def clear_one_declined(
 		raise HTTPException(
 			status_code=_HTTP_NOT_FOUND, detail="No declined lease for that address."
 		)
-	errors = _clear(kea, [ip])
+	errors = _clear(user, kea, [ip])
 	return _panels(request, kea, user, _cleared_notice(1 - len(errors), errors))
 
 
@@ -204,6 +213,7 @@ def wipe_leases(
 		}
 		return render(request, "maintenance/_wipe_form.html", context)
 	cache.forget("leases", "pool_stats")
+	db.insert_activity(user["username"], "wiped every lease")
 	return Response(
 		headers={"HX-Trigger": f"{MAINTENANCE_CHANGED_EVENT}, leases-changed, close-dialog"}
 	)

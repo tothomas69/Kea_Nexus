@@ -12,6 +12,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request, Response
 
+import db
 from kea import KeaClient, KeaError
 from quarantine_client import QuarantineServiceError
 from web import cache, liveness
@@ -155,7 +156,9 @@ def edit_lease_form(
 	return _lease_form(request, values, editing=True)
 
 
-def _save_lease(request: Request, kea: KeaClient, values: dict, editing: bool) -> Response:
+def _save_lease(
+	request: Request, user: dict, kea: KeaClient, values: dict, editing: bool
+) -> Response:
 	error, duration_seconds = validate_lease(
 		values["ip"], values["mac"], values["duration"], _subnet(read_kea(kea)["config"])
 	)
@@ -166,6 +169,8 @@ def _save_lease(request: Request, kea: KeaClient, values: dict, editing: bool) -
 		write(values["ip"], values["mac"], values["hostname"], duration_seconds)
 	except KeaError as exc:
 		return _lease_form(request, values, editing, f"Kea refused the lease: {exc}")
+	verb = "edited the lease for" if editing else "added a lease for"
+	db.insert_activity(user["username"], f"{verb} {values['ip']} ({values['mac']})")
 	return _saved()
 
 
@@ -185,7 +190,7 @@ def add_lease(
 		"hostname": hostname.strip(),
 		"duration": duration.strip(),
 	}
-	return _save_lease(request, kea, values, editing=False)
+	return _save_lease(request, user, kea, values, editing=False)
 
 
 @router.put("/leases/{ip}")
@@ -205,4 +210,4 @@ def update_lease(
 		"hostname": hostname.strip(),
 		"duration": duration.strip(),
 	}
-	return _save_lease(request, kea, values, editing=True)
+	return _save_lease(request, user, kea, values, editing=True)

@@ -100,6 +100,7 @@ async def save_dhcp_settings(
 	except KeaError as exc:
 		return _dhcp_form(request, user, values, [f"Kea refused the change: {exc}"])
 	cache.forget("config", "pool_stats")
+	db.insert_activity(user["username"], "saved the DHCP settings")
 	return _dhcp_form(
 		request, user, settings_values(with_settings_applied(config, values)), [], saved=True
 	)
@@ -203,6 +204,7 @@ def create_user(
 		auth.create_user(values["username"], password, role)
 	except auth.UserManagementError as exc:
 		return _user_form(request, user, None, values, str(exc))
+	db.insert_activity(user["username"], f"added the {role} login {values['username']}")
 	return _users_saved(request, user, ended_own_session=False)
 
 
@@ -230,6 +232,18 @@ def update_user(
 			changed = True
 	except auth.UserManagementError as exc:
 		return _user_form(request, user, target, values, str(exc))
+	if changed:
+		changed_parts = [
+			part
+			for part, did_change in (
+				("role", values["role"] != target["role"]),
+				("password", bool(password)),
+			)
+			if did_change
+		]
+		db.insert_activity(
+			user["username"], f"changed the {' and '.join(changed_parts)} of {target['username']}"
+		)
 	is_self = target["username"].lower() == user["username"].lower()
 	return _users_saved(request, user, ended_own_session=changed and is_self)
 
@@ -256,4 +270,6 @@ def _set_disabled(request: Request, user: dict, username: str, disabled: bool) -
 			{"username": target["username"], "role": target["role"]},
 			str(exc),
 		)
+	action = "disabled" if disabled else "enabled"
+	db.insert_activity(user["username"], f"{action} the login {target['username']}")
 	return _users_saved(request, user, ended_own_session=False)
