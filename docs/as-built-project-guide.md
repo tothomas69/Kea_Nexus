@@ -489,8 +489,12 @@ Overview, and 1b adds its charts. Phase 2 is the Quarantine screen, phase 3 the 
       `QuarantineServiceError` becomes a notice above the table
 - **Reservations (`routes/reservations.py`, `reservations_data.py`).** Kea's
   host reservations with KeaNexus labels, fixed first by address then
-  name-only. Hostname shows four states: the name, `offline`, `none sent`, or
-  `hidden, save to fix` (an old Kea `hostname` override). A quarantined
+  name-only. Hostname shows four states: the name, `no lease`, `none sent`, or
+  `hidden, save to fix` (an old Kea `hostname` override). An **Online** column
+  reads the latest ARP sweep (`liveness.latest()`): `yes` (green row), `no
+  answer`, or `—` before any sweep. A fixed reservation is checked at its
+  reserved address, a name-only one at its live lease's address
+  (`reservation_rows(config, leases, labels, responding)`). A quarantined
   device's row is red with a chip. Reservations Kea keys on something other
   than a MAC are listed but not editable. Admins add, edit and delete in the
   page dialog
@@ -936,7 +940,7 @@ module (`--cov=.` in `pyproject.toml`), `web/` included. That includes
 | `tests/test_leases_data.py`                 | `lease_rows` (numeric sort, fields, masked hostname, type from reservation, online none/true/false, declined, Kea's default lifetime), `filter_rows`, `validate_lease` (bad address, outside subnet, bad MAC, duration not a number or out of range), `normalized_mac` |
 | `tests/test_web_liveness.py`                | `sweep_now` keeps the latest and dedupes the count, a failed sweep keeps the previous result, leases without an address skipped; the loop runs, survives a failed pass, is idempotent and stops; interval env var (default, floor, junk); `age_label` |
 | `tests/test_web_leases.py`                  | Leases screen with a recording stub Kea: sign-in, table, filter and no match, Kea down, viewer sees no edit controls; sweep (viewer allowed, sweeps every lease not just the filtered ones, online rows, service down as a notice, CSRF) and the Overview's online count; forms (new, prefilled edit, unknown 404, admin-only); writes (add with MAC normalised, invalid not sent, Kea refusal shown, update, unknown 404, viewer 403); the liveness switch and the lifespan starting the loop |
-| `tests/test_reservations_data.py`           | `reservation_rows` (order, all four hostname states, label from KeaNexus then legacy Kea hostname, quarantined flag, non-MAC reservations not editable), `validate_reservation` (MAC, label, duplicates, address checks, editing itself), config edits (add leaves the input untouched, edit keeps DROP and other fields and drops Kea's hostname, remove, find) |
+| `tests/test_reservations_data.py`           | `reservation_rows` (order, online before/after a sweep for fixed and name-only, all four hostname states, label from KeaNexus then legacy Kea hostname, quarantined flag, non-MAC reservations not editable), `validate_reservation` (MAC, label, duplicates, address checks, editing itself), config edits (add leaves the input untouched, edit keeps DROP and other fields and drops Kea's hostname, remove, find) |
 | `tests/test_web_reservations.py`            | Reservations screen with an in-memory Kea config: table with labels, viewer view, Kea down; forms (new, edit by any-case MAC, unknown 404); writes (add writes Kea then the label, invalid not sent, Kea refusal leaves the label alone, Kea unreachable, edit reads a fresh config and keeps a DROP added after page load, label moves with the MAC, vanished reservation 404, delete, delete refused for a quarantined device, delete failures, viewer 403, CSRF) |
 | `tests/test_maintenance_data.py`            | `declined_rows` (only declined, numeric order, Kea's default lifetime), `validate_auto_enable` bounds, `wipe_confirmed` exact word |
 | `tests/test_web_maintenance.py`             | Maintenance screen with a recording stub Kea: on/off/unknown/unreachable states, clean pool, Kea down; disable with timer, bad timer not sent, refusals, enable; clear all and one declined, a live lease refused, failures reported; wipe needs the word, wipes the configured subnet, refusal shown; every route refused to viewers and without CSRF |

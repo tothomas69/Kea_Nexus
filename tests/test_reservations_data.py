@@ -76,6 +76,31 @@ class TestRows:
 		assert rd.reservation_rows(None, [], {}) == []
 
 
+class TestOnline:
+	def _rows(self, responding, leases=()):
+		config = _config(
+			{"hw-address": _MAC_A, "ip-address": "172.16.17.9"},
+			{"hw-address": _MAC_B},
+		)
+		return {
+			row["mac"]: row["online"]
+			for row in rd.reservation_rows(config, list(leases), {}, responding)
+		}
+
+	def test_unknown_before_any_sweep(self):
+		assert self._rows(None) == {_MAC_A: None, _MAC_B: None}
+
+	def test_fixed_reservation_checked_at_its_reserved_address(self):
+		assert self._rows(frozenset({"172.16.17.9"})) == {_MAC_A: True, _MAC_B: False}
+
+	def test_name_only_reservation_checked_at_its_lease(self):
+		leases = [_lease("172.16.17.150", _MAC_B)]
+		assert self._rows(frozenset({"172.16.17.150"}), leases) == {_MAC_A: False, _MAC_B: True}
+
+	def test_name_only_reservation_without_a_lease_did_not_answer(self):
+		assert self._rows(frozenset({"172.16.17.150"}))[_MAC_B] is False
+
+
 class TestValidate:
 	CONFIG = _config({"hw-address": _MAC_A, "ip-address": "172.16.17.10"})
 
