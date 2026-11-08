@@ -345,8 +345,8 @@ class TestHealth:
 		):
 			entries = service_health(StubKea())
 		assert entries[1:] == [
-			{"name": "Pi-hole 1", "up": True},
-			{"name": "Pi-hole 2", "up": False},
+			{"name": "DNS1", "up": True},
+			{"name": "DNS2", "up": False},
 		]
 
 	def test_quarantine_service_needs_a_2xx(self):
@@ -394,7 +394,7 @@ class TestPiholeHealth:
 			patch.dict(os.environ, env, clear=True),
 			patch("web.health.httpx.get", return_value=httpx.Response(401)) as get,
 		):
-			assert service_health(StubKea())[-1] == {"name": "Pi-hole 1", "up": True}
+			assert service_health(StubKea())[-1] == {"name": "DNS1", "up": True}
 		_args, kwargs = get.call_args
 		assert kwargs["verify"] is False
 		assert kwargs["timeout"] > 2.0
