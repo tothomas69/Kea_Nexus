@@ -1,22 +1,14 @@
 """
 test_helpers.py — Tests for pure utility functions in helpers.py.
-The Streamlit-cached loaders and get_client live in streamlit_adapter.py.
 """
-
-from unittest.mock import patch
-
-import pytest
 
 from helpers import (
 	build_hostname_override_sets,
 	build_reservation_type_sets,
-	chip,
 	distinct_real_hostnames,
 	fmt_ttl,
-	html_safe_mac,
 	lease_for_reservation,
 	lease_type,
-	leases_to_df,
 	pool_stats_with_fallback,
 	real_hostname,
 )
@@ -53,37 +45,7 @@ class TestFmtTtl:
 # ─── chip ─────────────────────────────────────────────────────────────────────
 
 
-class TestChip:
-	def test_contains_label(self):
-		assert "active" in chip("active", "green")
-
-	def test_contains_css_class(self):
-		assert 'class="chip green"' in chip("active", "green")
-
-	def test_is_span_element(self):
-		result = chip("test", "red")
-		assert result.startswith("<span")
-		assert result.endswith("</span>")
-
-	def test_different_classes_produce_different_output(self):
-		assert chip("x", "green") != chip("x", "red")
-
-
 # ─── html_safe_mac ────────────────────────────────────────────────────────────
-
-
-class TestHtmlSafeMac:
-	def test_encodes_colons(self):
-		assert html_safe_mac("d2:de:e1:4d:e6:73") == "d2&#58;de&#58;e1&#58;4d&#58;e6&#58;73"
-
-	def test_no_literal_colon_left_to_match_a_markdown_shortcode(self):
-		assert ":" not in html_safe_mac("d2:de:e1:4d:e6:73")
-
-	def test_empty_string_passthrough(self):
-		assert html_safe_mac("") == ""
-
-	def test_no_colons_unaffected(self):
-		assert html_safe_mac("gateway") == "gateway"
 
 
 # ─── leases_to_df ─────────────────────────────────────────────────────────────
@@ -102,60 +64,6 @@ def _make_lease(
 		"valid-lft": valid_lft,
 		"state": state,
 	}
-
-
-@pytest.fixture
-def frozen_time():
-	with patch("helpers.time.time", return_value=_FIXED_NOW):
-		yield
-
-
-class TestLeasesToDf:
-	def test_returns_dataframe_with_expected_columns(self, frozen_time):
-		df = leases_to_df([_make_lease("10.0.0.1")])
-		assert set(["IP", "Hostname", "MAC", "Expires", "Status", "_state"]).issubset(df.columns)
-
-	def test_rows_sorted_by_ip_numerically(self, frozen_time):
-		leases = [_make_lease("10.0.0.10"), _make_lease("10.0.0.2"), _make_lease("10.0.0.1")]
-		df = leases_to_df(leases)
-		assert list(df["IP"]) == ["10.0.0.1", "10.0.0.2", "10.0.0.10"]
-
-	def test_active_lease_shows_ok_status(self, frozen_time):
-		df = leases_to_df([_make_lease("10.0.0.1", state=0)])
-		assert "[OK] active" in df.iloc[0]["Status"]
-
-	def test_declined_lease_shows_declined_status(self, frozen_time):
-		df = leases_to_df([_make_lease("10.0.0.1", state=1)])
-		assert "declined" in df.iloc[0]["Status"]
-
-	def test_missing_hostname_shown_as_dash(self, frozen_time):
-		df = leases_to_df([_make_lease("10.0.0.1", hostname="")])
-		assert df.iloc[0]["Hostname"] == "-"
-
-	def test_hostname_preserved_when_present(self, frozen_time):
-		df = leases_to_df([_make_lease("10.0.0.1", hostname="myhost")])
-		assert df.iloc[0]["Hostname"] == "myhost"
-
-	def test_missing_mac_shown_as_dash(self, frozen_time):
-		df = leases_to_df([_make_lease("10.0.0.1", mac="")])
-		assert df.iloc[0]["MAC"] == "-"
-
-	def test_empty_lease_list_returns_empty_dataframe(self, frozen_time):
-		df = leases_to_df([])
-		assert len(df) == 0
-
-	def test_expired_lease_shows_expired(self, frozen_time):
-		# cltt + valid_lft < now → expired
-		lease = {
-			"ip-address": "10.0.0.1",
-			"hostname": "",
-			"hw-address": "",
-			"cltt": _FIXED_NOW - 200,
-			"valid-lft": 100,
-			"state": 0,
-		}
-		df = leases_to_df([lease])
-		assert df.iloc[0]["Expires"] == "expired"
 
 
 # ─── build_reservation_type_sets / lease_type / real_hostname ────────────────

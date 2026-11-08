@@ -1,9 +1,9 @@
 """
-dashboard_charts.py — The pool and lease charts, as Altair specs both UIs render.
+dashboard_charts.py — The Overview's pool and lease charts, as Altair specs.
 
-Moved out of ui_dashboard.py so the web UI shows the very same charts: the
-Streamlit Dashboard hands each chart to st.altair_chart(), and the web
-Overview embeds chart.to_dict() and draws it with vega-embed. Every builder
+The Overview embeds each chart's to_dict() and draws it in the browser with
+the vendored vega-embed, so Vega-Lite's version must match Altair's schema
+(see web/static/vendor/VERSIONS.md). Every builder
 returns the chart plus its table-view twin, so no value is reachable only by
 reading a mark or hovering. Pure: plain data in, specs out, no UI framework.
 """

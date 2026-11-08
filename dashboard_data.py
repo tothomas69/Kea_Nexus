@@ -1,11 +1,9 @@
 """
-dashboard_data.py — Pure data shaping for the Dashboard tab's metrics and charts.
+dashboard_data.py — Pure data shaping behind the Overview's figures and charts.
 
-Kept out of `ui_dashboard.py` on purpose: `ui_*.py` needs a live Streamlit
-server and is excluded from coverage, so anything with real logic in it would
-be untestable. Every function here takes plain data and returns plain data —
-no Streamlit, no Kea client, no database — which is what makes the Dashboard's
-numbers checkable.
+Every function here takes plain data and returns plain data — no web
+framework, no Kea client, no database — which is what makes the numbers
+checkable.
 
 All timestamps in and out are UTC; converting for display is the renderer's
 job, matching this project's "UTC internally, convert at the edge" convention.
@@ -44,7 +42,7 @@ def _seconds_until_expiry(lease: dict, now_epoch: float) -> float:
 
 	Kea reports `cltt` (client last transmission time) plus `valid-lft`
 	rather than an expiry timestamp, so expiry is derived — the same
-	arithmetic `ui_leases.py` and `ui_ipam.py` already do.
+	arithmetic address_map.py and the Leases screen use.
 	"""
 	cltt = lease.get("cltt", 0)
 	valid_lifetime = lease.get("valid-lft", _DEFAULT_VALID_LIFETIME_SECONDS)

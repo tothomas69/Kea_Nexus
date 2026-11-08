@@ -2,7 +2,7 @@
 test_dashboard_data.py — Tests for dashboard_data.py's pure shaping functions.
 
 Everything here is plain data in, plain data out — no Streamlit, no Kea, no
-database — which is the whole reason this logic lives outside ui_dashboard.py.
+database — which is what makes it testable on its own.
 Time is always passed in explicitly so no test races the clock.
 """
 

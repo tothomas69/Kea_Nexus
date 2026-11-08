@@ -6,15 +6,10 @@ pool right now" and keeps no history of its own. Any trend chart therefore has
 to be assembled from readings taken over time, which is what the loop here
 does — one row in `db.pool_samples` per interval.
 
-**Known limitation, and the reason this lives in the Streamlit container rather
-than a service of its own:** Streamlit does not execute `app.py` until a
-browser session actually connects (the same trap already documented for
-`init_db()` in the quarantine service). So after a container restart, sampling
-does not resume until somebody next opens KeaNexus. Once it has started it runs
-for the life of the process, independent of whether anyone is still watching,
-which is the property that actually matters — the alternative of sampling
-inside the page render would only ever record while a browser was open, and
-would draw a flat line across every overnight gap.
+The web app's lifespan starts it at container start, and it runs for the life
+of the process whether or not anyone is watching. Sampling inside the page
+render instead would only record while a browser was open, and would draw a
+flat line across every overnight gap.
 
 Consumers must therefore treat gaps as gaps: `db.get_pool_samples` returns
 exactly the readings that were taken, and nothing interpolates across a period
@@ -94,8 +89,8 @@ def _run_sampler_loop(stop_event: threading.Event) -> None:
 def start_pool_sampler() -> None:
 	"""Start the background sampler once per process. Idempotent.
 
-	Called from app.py behind @st.cache_resource, but guarded here too — a
-	second loop would double every sample, and the guard costs nothing.
+	Called from the web app's lifespan. Guarded anyway: a second loop would
+	double every sample, and the guard costs nothing.
 	"""
 	global _sampler_thread, _stop_event
 	with _registry_lock:

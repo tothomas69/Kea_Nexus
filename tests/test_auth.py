@@ -2,8 +2,7 @@
 test_auth.py — Tests for auth.py: credential checks, session validity, the
 signed session token, the first-admin bootstrap, and the user-management rules.
 
-Every test runs against a temporary database (temp_db). The Streamlit session
-glue built on these is tested in test_streamlit_adapter.py.
+Every test runs against a temporary database (temp_db).
 """
 
 import os

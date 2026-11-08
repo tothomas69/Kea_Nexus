@@ -24,7 +24,7 @@ from address_map import (
 )
 from dashboard_data import leases_issued_since
 
-# Same zone the Streamlit UI shows times in (ui_quarantine.py, ui_users.py).
+# The household's own zone; every time on screen is shown in it.
 LOCAL_TIMEZONE = ZoneInfo("America/New_York")
 
 # Two display-only statuses layered over address_map's classification.

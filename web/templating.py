@@ -21,9 +21,8 @@ _TEMPLATES_DIRECTORY = Path(__file__).resolve().parent / "templates"
 templates = Jinja2Templates(directory=_TEMPLATES_DIRECTORY)
 templates.env.globals["app_version"] = APP_VERSION
 
-# (label, path). A path of None means that screen has not moved over from the
-# Streamlit UI yet; base.html shows it greyed out. Each migration phase fills
-# one in (see docs/fastapi-htmx-migration.md).
+# (label, path). A path of None shows the item greyed out in base.html, for a
+# screen that isn't built yet.
 NAV_ITEMS: list[tuple[str, Optional[str]]] = [
 	("Overview", "/"),
 	("Leases", "/leases"),

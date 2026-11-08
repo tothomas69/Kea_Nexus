@@ -42,8 +42,6 @@ addopts = "--cov=. --cov-report=term-missing --cov-fail-under=80"
 # Streamlit UI entry point and page modules cannot be unit-tested without a
 # running Streamlit server; exclude them so they don't drag down total coverage.
 omit = [
-    "app.py",
-    "ui_*.py",
     ".venv/*",
     "tests/*",
 ]
