@@ -100,3 +100,33 @@ class TestRecordLogin:
 		user = db.get_user("tom")
 		assert user["last_login_at"]
 		assert user["session_version"] == 1
+
+
+class TestCompactHeader:
+	def test_off_by_default_and_saved_per_user(self, temp_db):
+		db.init_db()
+		db.insert_user("tom", "hash", "admin")
+		db.insert_user("ann", "hash", "viewer")
+		assert db.get_user("tom")["compact_header"] == 0
+		assert db.set_compact_header("tom", True) is True
+		assert db.get_user("tom")["compact_header"] == 1
+		assert db.get_user("ann")["compact_header"] == 0
+
+	def test_changing_it_does_not_sign_anyone_out(self, temp_db):
+		db.init_db()
+		db.insert_user("tom", "hash", "admin")
+		version = db.get_user("tom")["session_version"]
+		db.set_compact_header("tom", True)
+		assert db.get_user("tom")["session_version"] == version
+
+	def test_unknown_user(self, temp_db):
+		db.init_db()
+		assert db.set_compact_header("nobody", True) is False
+
+	def test_added_to_an_existing_users_table(self, temp_db):
+		db.init_db()
+		with db._connect() as conn:
+			conn.execute("ALTER TABLE users DROP COLUMN compact_header")
+		db.init_db()
+		db.insert_user("tom", "hash", "admin")
+		assert db.get_user("tom")["compact_header"] == 0

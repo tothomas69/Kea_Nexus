@@ -1,0 +1,14 @@
+<section class="card">
+	<form class="form" hx-put="/settings/display">
+		<label class="check display-option">
+			<input type="checkbox" name="compact_header" value="on"{% if user.compact_header %} checked{% endif %}>
+			<span>
+				<strong>Compact header</strong>
+				<span class="muted small">Less space above the logo, a smaller search box, Sign out with your name beneath it, the version beside Help, and smaller key figures on the Overview.</span>
+			</span>
+		</label>
+		<div class="form-actions">
+			<button class="button button-primary" type="submit">Save</button>
+		</div>
+	</form>
+</section>

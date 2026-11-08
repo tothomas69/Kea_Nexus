@@ -27,7 +27,10 @@ def test_masthead_and_help_show_the_version(temp_db):
 		with TestClient(create_app(start_background_work=False)) as client:
 			_sign_in(client)
 			page = client.get("/help").text
-	assert page.count(f"v{APP_VERSION}") == 2
+	# Under the logo (normal header), beside Help (compact header; CSS picks
+	# which one shows) and in the Help header.
+	assert page.count(f"v{APP_VERSION}") == 3
+	assert f'class="app-version tab-version" title="KeaNexus version">v{APP_VERSION}' in page
 
 
 def test_sign_in_page_shows_no_version_or_masthead(temp_db):

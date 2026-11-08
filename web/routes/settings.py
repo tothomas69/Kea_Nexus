@@ -273,3 +273,21 @@ def _set_disabled(request: Request, user: dict, username: str, disabled: bool) -
 	action = "disabled" if disabled else "enabled"
 	db.insert_activity(user["username"], f"{action} the login {target['username']}")
 	return _users_saved(request, user, ended_own_session=False)
+
+
+@router.get("/settings/display")
+def display_settings_page(request: Request, user: dict = Depends(current_user)) -> Response:
+	"""Per-user display choices. Open to viewers: it changes only their own screen."""
+	context = {"user": user, "is_admin": _is_admin(user), "section": "display", "saved": False}
+	return render(request, "settings.html", context)
+
+
+@router.put("/settings/display")
+def save_display_settings(
+	request: Request,
+	user: dict = Depends(current_user),
+	compact_header: Optional[str] = Form(None),
+) -> Response:
+	"""Save the header choice and reload, since the header sits outside the form."""
+	db.set_compact_header(user["username"], compact_header is not None)
+	return redirect(request, "/settings/display")

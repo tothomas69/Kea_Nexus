@@ -290,7 +290,7 @@ override_macs)` / `distinct_real_hostnames(leases, config)` — a Kea
   `get_activity(limit)` (newest first)
 - Table: `users` — app login accounts (username PK `COLLATE NOCASE`, password_hash,
   role `admin`/`viewer` enforced by a CHECK, session_version, is_disabled,
-  created_at, last_login_at). Usernames compare case-insensitively so "Tom" and
+  created_at, last_login_at, compact_header). Usernames compare case-insensitively so "Tom" and
   "tom" can't become two accounts. `session_version` is the logout lever: every
   password, role or disable change bumps it, which invalidates that user's open
   sessions and cookies (see `auth.py`). Stores hashes only, never passwords
@@ -303,7 +303,8 @@ override_macs)` / `distinct_real_hostnames(leases, config)` — a Kea
 - `insert_pool_sample(...)`, `get_pool_samples(since=None, limit=10000)` (oldest-first, since every caller plots on a time axis), `prune_pool_samples(retention_days)`
 - `count_users()`, `count_active_admins()`, `get_user(username)`, `list_users()` (never returns hashes),
   `insert_user(...)`, `update_password_hash(...)`, `set_user_role(...)`, `set_user_disabled(...)`,
-  `record_login(username)`. The three updates each bump `session_version`; each query is a
+  `record_login(username)`, `set_compact_header(username, compact)` (a display
+  preference: it deliberately does not bump `session_version`). The three updates each bump `session_version`; each query is a
   literal string, never assembled, so Bandit has nothing to flag. `USER_ROLES` is the role list
 
 ### Dashboard Data (`dashboard_data.py`)
@@ -539,6 +540,16 @@ Overview, and 1b adds its charts. Phase 2 is the Quarantine screen, phase 3 the 
   run forwards. Saved onto a config **read fresh from Kea**, touching only those
   fields, so reservations and their DROP classes are left alone. Viewers see a
   disabled form
+- **Display (`/settings/display`, every signed-in user).** A per-user
+  **compact header** switch, stored in `users.compact_header` and carried on
+  the session user by `auth.public_user`, so `base.html` adds
+  `class="header-compact"` to `<body>`. Compact mode (all in `.header-compact`
+  CSS, default look unchanged): half the space above the logo, a search box half
+  as wide and short, Sign out lined up with the status dots with the username
+  in bold blue hanging centred below it, the version beside Help instead of
+  under the logo, the page starting at the logo's bottom edge, and Overview key
+  figures one size smaller with tighter spacing and a 12px gap above and below.
+  Saving sends `HX-Redirect` back to the page, since the header is outside the form
 - **Users (`/settings/users`, admins only).** List, add, edit role and
   password, disable and enable. All rules come from `auth.py`
   (`UserManagementError` is shown as-is); the route only checks the two
@@ -597,7 +608,8 @@ Overview, and 1b adds its charts. Phase 2 is the Quarantine screen, phase 3 the 
   `GET /maintenance`, `GET /fragments/maintenance`, `GET`/`POST /maintenance/dhcp/disable`,
   `POST /maintenance/dhcp/enable`, `POST /maintenance/declined/clear`,
   `POST /maintenance/declined/{ip}/clear`, `GET`/`POST /maintenance/wipe` (admin),
-  `GET /settings` (any user), `PUT /settings/dhcp`, `GET /settings/users`,
+  `GET /settings` (any user), `PUT /settings/dhcp`, `GET`/`PUT /settings/display`
+  (any signed-in user, own preference only), `GET /settings/users`,
   `GET /fragments/users`, `GET /settings/users/new`, `GET /settings/users/{name}`,
   `POST /settings/users`, `PUT /settings/users/{name}`,
   `POST /settings/users/{name}/{disable,enable}` (admin),

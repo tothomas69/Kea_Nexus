@@ -138,7 +138,11 @@ class TestSessionToken:
 
 	def test_public_user_never_includes_the_hash(self, temp_db):
 		_add_user()
-		assert auth.public_user(db.get_user("tom")) == {"username": "tom", "role": "admin"}
+		assert auth.public_user(db.get_user("tom")) == {
+			"username": "tom",
+			"role": "admin",
+			"compact_header": False,
+		}
 
 
 class TestUserManagement:
