@@ -1,10 +1,48 @@
 {% extends "base.html" %}
 {% block title %}Overview · KeaNexus{% endblock %}
+{% block head %}<script src="/static/overview.js" defer></script>{% endblock %}
 {% block content %}
-<section class="card placeholder">
-	<h1>Overview</h1>
-	<p>The new KeaNexus interface is being built here, one screen at a time.
-	The key figures, the Address Map with hover details, Quarantine and Activity arrive in the next update.</p>
-	<p class="muted">Until then, everything is still available in the current KeaNexus UI. Help works now: try it in the menu.</p>
-</section>
+
+{% if kea_error %}
+<p class="banner banner-error" role="alert">Kea can't be reached right now, so the figures and the map may be incomplete. They will fill in on their own once it answers.</p>
+{% endif %}
+
+{% include "overview/_kpis.html" %}
+
+<div class="overview-columns">
+	<section class="card map-card" aria-labelledby="map-title"
+		x-data="addressMap({{ csrf_token | tojson | forceescape }}, {{ is_admin | tojson }})"
+		@htmx:after-settle.window="load()">
+		<div class="map-heading">
+			<div class="map-heading-left">
+				<h2 id="map-title">Address Map</h2>
+				<span class="muted small">Hover for details</span>
+			</div>
+			<div class="map-subnet">{{ subnet }}</div>
+			<div></div>
+		</div>
+		<ul class="legend" aria-label="Legend">
+			{% for item in legend %}
+			<li><span class="swatch cell-{{ item.status }}" aria-hidden="true"></span>{{ item.label }}</li>
+			{% endfor %}
+		</ul>
+		<div class="map-area" @mouseleave="leave()">
+			{% include "overview/_address_map.html" %}
+			{% include "overview/_hover_card.html" %}
+		</div>
+	</section>
+
+	<div class="side-column">
+		{% include "overview/_quarantine_card.html" %}
+		{% include "overview/_activity.html" %}
+	</div>
+</div>
+
+<div class="modal-backdrop" x-data="{ dialogOpen: false }" x-show="dialogOpen" x-cloak
+	@open-dialog.window="dialogOpen = true" @close-dialog.window="dialogOpen = false"
+	@keydown.escape.window="dialogOpen = false" @click.self="dialogOpen = false">
+	<div class="modal modal-narrow" role="dialog" aria-modal="true" aria-label="Edit address">
+		<div id="dialog-body" class="modal-body"></div>
+	</div>
+</div>
 {% endblock %}

@@ -7,6 +7,8 @@
 <link rel="icon" href="/brand/keanexus_logo.png">
 <link rel="stylesheet" href="/static/app.css">
 <script src="/static/vendor/htmx-2.0.11.min.js" defer></script>
+{# Page scripts that register Alpine components must load before Alpine itself. #}
+{% block head %}{% endblock %}
 <script src="/static/vendor/alpinejs-3.17.5.min.js" defer></script>
 </head>
 {# Every HTMX request carries the CSRF token; see web/security.py. #}
@@ -24,6 +26,7 @@
 					<input type="search" placeholder="Search arrives in a later phase" disabled>
 					<kbd>⌘K</kbd>
 				</label>
+				<div class="health" hx-get="/fragments/health" hx-trigger="load, every 30s" aria-live="polite"></div>
 				<div class="account">
 					<span class="account-name">{{ user.username }}{% if user.role != "admin" %} · viewer{% endif %}</span>
 					<button class="button button-quiet" hx-post="/logout">Sign out</button>

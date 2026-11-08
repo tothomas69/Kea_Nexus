@@ -1,0 +1,13 @@
+<section id="activity" class="card side-card" aria-labelledby="activity-title"
+	hx-get="/fragments/activity" hx-trigger="every 30s, overview-changed from:body" hx-swap="outerHTML">
+	<h2 id="activity-title">Activity</h2>
+	{% for line in activity %}
+	<div class="activity-line">
+		<span class="activity-time mono">{{ line.when }}</span>
+		<span class="activity-dot tone-{{ line.tone }}" aria-hidden="true"></span>
+		<span>{{ line.text }}</span>
+	</div>
+	{% else %}
+	<p class="muted small">No quarantine actions yet.</p>
+	{% endfor %}
+</section>

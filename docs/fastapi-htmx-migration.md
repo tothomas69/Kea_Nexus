@@ -114,9 +114,10 @@ These need a decision before their phase starts:
    as events, and polling for differences is noisy.
 2. **Service health dots.**
    - Kea: `get_status()`, already there.
-   - Pi-hole ×2: a cheap authenticated `GET` through `PiholeClient`. This means
-     the web container needs the Pi-hole env vars, which today only the
-     quarantine service has.
+   - Pi-hole ×2: *(settled in phase 1)* no credentials needed after all. Any
+     HTTP answer from the instance, even a 401, proves it is up, so the web
+     container only needs `PIHOLE_API_URL` / `PIHOLE_SECONDARY_API_URL`, never
+     the password.
    - Quarantine service: new `GET /health` on `keanexus-quarantine`, with no
      auth and no data, returning `{"ok": true}`.
 3. **"Online now" KPI.** Today the ARP sweep only runs when someone presses the
@@ -190,8 +191,11 @@ old UI working the whole time.
    assets, the `keanexus-web` compose service. Add `GET /health` to the
    quarantine service.
 1. **Overview.** KPIs with the pool bar, the address map with hover and pin,
-   the quarantine card, health dots, and the charts from `ui_dashboard.py`.
-   Activity uses `quarantine_log` only until decision 1 is made.
+   the quarantine card, health dots. Activity uses `quarantine_log` only until
+   decision 1 is made. *(Done. The charts were split out to keep this PR
+   reviewable.)*
+   - **1b. Charts.** The utilisation trend, expiry and composition charts from
+     `ui_dashboard.py`, via vendored vega-embed.
 2. **Quarantine.**
 3. **Leases**, with the background liveness sweep (decision 3).
 4. **Reservations.**

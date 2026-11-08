@@ -9,11 +9,26 @@ records for out-of-scope addresses.
 
 import html as _html
 import time as _time
-from dataclasses import dataclass
 from typing import Optional
 
 import streamlit as st
 
+from address_map import (
+	STATUS_BROADCAST,
+	STATUS_DECLINED,
+	STATUS_FREE,
+	STATUS_GATEWAY,
+	STATUS_LEASED,
+	STATUS_NETWORK,
+	STATUS_RESERVED,
+	STATUS_SCOPE,
+	STATUS_STATIC,
+	AddressRow,
+	classify_addresses,
+	gateway_ip,
+	subnet_prefix,
+	subnet_reservations,
+)
 from db import (
 	delete_static_entry,
 	get_reservation_labels,
@@ -21,21 +36,22 @@ from db import (
 	get_static_entry,
 	upsert_static_entry,
 )
-from helpers import build_hostname_override_sets, fmt_ttl, html_safe_mac, real_hostname
+from helpers import build_hostname_override_sets, html_safe_mac
 from streamlit_adapter import get_client
 from ui_access import read_only, read_only_notice, refuse_if_viewer
 
 # --- Status constants ---------------------------------------------------------
 
-_NET = "network"
-_BCAST = "broadcast"
-_GATEWAY = "gateway"
-_LEASED = "leased"
-_DECLINED = "declined"
-_RESERVED = "reserved"
-_STATIC = "static"
-_SCOPE = "scope"  # in DHCP pool, currently unassigned
-_FREE = "free"  # outside pool, no record
+# Classification lives in address_map.py, shared with the web UI's Address Map.
+_NET = STATUS_NETWORK
+_BCAST = STATUS_BROADCAST
+_GATEWAY = STATUS_GATEWAY
+_LEASED = STATUS_LEASED
+_DECLINED = STATUS_DECLINED
+_RESERVED = STATUS_RESERVED
+_STATIC = STATUS_STATIC
+_SCOPE = STATUS_SCOPE
+_FREE = STATUS_FREE
 
 _CHIP_STYLE: dict[str, tuple[str, str]] = {
 	_NET: ("#f6f8fa", "#57606a"),
@@ -55,113 +71,6 @@ _COL_HEADERS = ["IP Address", "Status", "Label", "Real Hostname", "MAC", "Expire
 _STATUS_COL = 1  # header for this column is centered to match its chip
 _CELL = "font-family:monospace;font-size:11px;color:#1f2328"
 _HEADER_CENTER = ";text-align:center"
-
-
-# --- IP row data model --------------------------------------------------------
-
-
-@dataclass
-class _IpRow:
-	"""Fully resolved state for a single IP address in the subnet."""
-
-	ip: str
-	last_octet: int
-	status: str
-	label: str = ""  # admin-assigned name: reservation label, static hostname, or "gateway"
-	hostname: str = ""  # ONLY the device's real DHCP-negotiated hostname, from a live lease
-	mac: str = ""
-	info: str = ""  # time-to-expiry for leases, "offline" for reservations with no lease
-	notes: str = ""  # tooltip on status chip (static entries: description + notes)
-	editable: bool = False  # True when this address accepts a static record
-
-
-# --- Classification -----------------------------------------------------------
-
-
-def _classify_all(
-	prefix: str,
-	pool_start_octet: int,
-	pool_end_octet: int,
-	gateway_ip: str,
-	leases: list[dict],
-	reservations: list[dict],
-	static_entries: list[dict],
-	labels: dict[str, str],
-	override_ips: set,
-	override_macs: set,
-) -> list[_IpRow]:
-	"""Return one _IpRow for every address .0–.255 in the subnet.
-
-	`labels` maps lowercase MAC -> reservation label. The override sets come
-	from build_hostname_override_sets() so a legacy Kea-side reservation
-	"hostname" never masquerades as the device's real hostname.
-	"""
-	now = int(_time.time())
-	lease_map = {lease["ip-address"]: lease for lease in leases if "ip-address" in lease}
-	res_map = {r["ip-address"]: r for r in reservations if "ip-address" in r}
-	static_map = {s["ip_address"]: s for s in static_entries}
-
-	rows = []
-	for octet in range(256):
-		ip = f"{prefix}.{octet}"
-		row = _IpRow(ip=ip, last_octet=octet, status=_FREE)
-
-		if octet == 0:
-			row.status = _NET
-		elif octet == 255:
-			row.status = _BCAST
-		elif ip == gateway_ip:
-			row.status = _GATEWAY
-			row.label = "gateway"
-			row.editable = True
-		elif ip in lease_map:
-			lease = lease_map[ip]
-			if lease.get("state", 0) == 1:
-				row.status = _DECLINED
-			elif ip in res_map:
-				# Active lease for a fixed reservation — show the permanent status
-				row.status = _RESERVED
-			else:
-				row.status = _LEASED
-			# real_hostname() returns "" when Kea is echoing a reservation override
-			row.hostname = real_hostname(lease, override_ips, override_macs) or ""
-			row.mac = lease.get("hw-address", "") or ""
-			if ip in res_map:
-				# Same fallback as the Reservations tab: SQLite label first, then
-				# any legacy Kea "hostname" on a not-yet-resaved reservation
-				res = res_map[ip]
-				res_mac = (res.get("hw-address", "") or row.mac).lower()
-				row.label = labels.get(res_mac, "") or res.get("hostname", "") or ""
-			ttl = lease.get("cltt", 0) + lease.get("valid-lft", 86400) - now
-			row.info = fmt_ttl(ttl)
-		elif ip in res_map:
-			res = res_map[ip]
-			row.status = _RESERVED
-			row.mac = res.get("hw-address", "") or ""
-			row.label = labels.get(row.mac.lower(), "") or res.get("hostname", "") or ""
-			# No lease means no real hostname to show; "offline" replaces the old
-			# redundant "reserved" text (the status chip already says that)
-			row.info = "offline"
-		elif ip in static_map:
-			s = static_map[ip]
-			row.status = _STATIC
-			# Static "hostname" is admin-typed, not device-reported -> it's a label.
-			# Real Hostname stays empty since there's no lease to report one.
-			row.label = s.get("hostname", "") or ""
-			row.mac = s.get("mac_address", "") or ""
-			# Description no longer has a column; surface it in the hover tooltip
-			row.notes = " — ".join(
-				part for part in (s.get("description", ""), s.get("notes", "")) if part
-			)
-			row.editable = True
-		elif pool_start_octet <= octet <= pool_end_octet:
-			row.status = _SCOPE
-		else:
-			row.status = _FREE
-			row.editable = True
-
-		rows.append(row)
-	return rows
 
 
 # --- HTML rendering -----------------------------------------------------------
@@ -242,7 +151,7 @@ _HEADER_CELL = (
 
 
 def _render_table(
-	rows: list[_IpRow],
+	rows: list[AddressRow],
 	prefix: str,
 	pool_start_octet: int,
 	pool_end_octet: int,
@@ -314,36 +223,30 @@ def render_ipam(leases: list[dict], config: Optional[dict]) -> None:
 		return
 	read_only_notice()
 
-	subnet_str = (config.get("subnet4") or [{}])[0].get("subnet", "172.16.17.0/24")
-	# "172.16.17.0/24" → "172.16.17"
-	prefix = ".".join(subnet_str.split("/")[0].split(".")[:3])
+	prefix = subnet_prefix(config)
 
 	kea = get_client()
 	pool_start_ip, pool_end_ip, _ = kea.get_pool_range(config)
 	pool_start_octet = int(pool_start_ip.split(".")[-1])
 	pool_end_octet = int(pool_end_ip.split(".")[-1])
 
-	gateway_ip = ""
-	for opt in (config.get("subnet4") or [{}])[0].get("option-data", []):
-		if opt.get("name") == "routers":
-			gateway_ip = opt.get("data", "")
-
-	reservations = (config.get("subnet4") or [{}])[0].get("reservations", [])
+	reservations = subnet_reservations(config)
 	static_entries = get_static_entries()
 	labels = {r["mac_address"].lower(): r["label"] for r in get_reservation_labels()}
 	override_ips, override_macs = build_hostname_override_sets(config)
 
-	all_rows = _classify_all(
+	all_rows = classify_addresses(
 		prefix,
 		pool_start_octet,
 		pool_end_octet,
-		gateway_ip,
+		gateway_ip(config),
 		leases,
 		reservations,
 		static_entries,
 		labels,
 		override_ips,
 		override_macs,
+		now_epoch=int(_time.time()),
 	)
 
 	# Status summary counts
