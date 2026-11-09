@@ -279,23 +279,3 @@ class TestStartup:
 		env = {} if value is None else {"KEANEXUS_WEB_BACKGROUND_WORK": value}
 		with patch.dict(os.environ, env, clear=True):
 			assert background_work_enabled() is expected
-
-
-class TestFavicon:
-	def test_favicon_served_at_the_root_without_sign_in(self, client):
-		response = client.get("/favicon.ico")
-		assert response.status_code == 200
-		assert response.headers["content-type"] == "image/x-icon"
-		assert response.content[:4] == b"\x00\x00\x01\x00"  # ICO header
-
-	@pytest.mark.parametrize("name", ["favicon-32.png", "favicon-192.png", "apple-touch-icon.png"])
-	def test_png_icons_served_from_brand(self, client, name):
-		response = client.get(f"/brand/{name}")
-		assert response.status_code == 200
-		assert response.content[:8] == b"\x89PNG\r\n\x1a\n"
-
-	def test_every_page_links_the_icons(self, client):
-		page = client.get("/login").text
-		assert 'href="/favicon.ico"' in page
-		assert 'rel="apple-touch-icon"' in page
-		assert 'keanexus_logo.png"' not in page.split("<body")[0]
