@@ -6,7 +6,7 @@
 		<p class="muted small">
 			{{ rows | length }} reservation{{ "s" if rows | length != 1 }} ·
 			{% if sweep %}<span class="online-text">{{ online_count }} answered</span> the ARP sweep {{ sweep_age }}. A device that didn't answer may still be on.
-			{% else %}Not checked yet: nobody has swept since KeaNexus started. Use <a href="/leases">Check who's online</a> on Leases.{% endif %}
+			{% else %}Not checked yet: no sweep has run. Use <a href="/leases">Check who's online</a> on Leases.{% endif %}
 		</p>
 	</div>
 	<div class="table-wrap">

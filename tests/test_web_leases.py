@@ -1,6 +1,7 @@
 """
 test_web_leases.py — The web UI's Leases screen: the table and filter, the
-sweep (open to viewers), and adding or editing a lease (admins only).
+sweep (open to viewers), and adding, editing or removing expired leases
+(admins only).
 
 Kea is the Overview tests' stub with write methods recorded; the quarantine
 service's sweep is patched where web/liveness.py calls it.
@@ -27,9 +28,10 @@ _SWEEP = "web.liveness.trigger_liveness_sweep"
 class RecordingKea(StubKea):
 	"""The Overview stub plus recorded lease writes, optionally refused by Kea."""
 
-	def __init__(self, refuse=False):
-		super().__init__()
+	def __init__(self, refuse=False, reachable=True):
+		super().__init__(reachable=reachable)
 		self.refuse = refuse
+		self.refuse_deletes = set()
 		self.writes = []
 
 	def add_lease(self, ip, mac, hostname="", valid_lft=86400, subnet_id=1):
@@ -37,6 +39,11 @@ class RecordingKea(StubKea):
 
 	def update_lease(self, ip, mac, hostname="", valid_lft=86400, subnet_id=1):
 		self._write("update", ip, mac, hostname, valid_lft)
+
+	def delete_lease(self, ip):
+		if ip in self.refuse_deletes:
+			raise KeaError("lease locked")
+		self.writes.append(("delete", ip))
 
 	def _write(self, *record):
 		if self.refuse:
@@ -241,6 +248,118 @@ class TestWrites:
 		)
 		assert response.status_code == 403
 		assert kea.writes == []
+
+
+class OneLiveLease(RecordingKea):
+	"""Kea with one lease still running and one that ran out."""
+
+	def get_leases(self):
+		return [
+			{
+				"ip-address": "172.16.17.20",
+				"hw-address": "aa:bb:cc:00:00:20",
+				"cltt": 0,
+				"valid-lft": 1,
+			},
+			{
+				"ip-address": "172.16.17.21",
+				"hw-address": "aa:bb:cc:00:00:21",
+				"cltt": 4_000_000_000,
+				"valid-lft": 3600,
+			},
+		]
+
+
+class TestRemoveExpired:
+	def test_button_shows_the_count_to_admins(self, client):
+		_sign_in(client)
+		page = client.get("/leases").text
+		assert 'hx-post="/leases/remove-expired"' in page
+		assert "Remove 2 expired" in page
+
+	def test_no_button_for_viewers(self, client):
+		_sign_in(client, role="viewer")
+		assert "/leases/remove-expired" not in client.get("/leases").text
+
+	def test_no_button_when_nothing_expired(self, client):
+		_sign_in(client)
+		client.app.dependency_overrides[kea_client] = lambda: _NothingExpired()
+		assert "/leases/remove-expired" not in client.get("/leases").text
+
+	def test_removes_only_expired_and_logs_it(self, client):
+		headers = _sign_in(client)
+		kea = OneLiveLease()
+		client.app.dependency_overrides[kea_client] = lambda: kea
+		response = client.post("/leases/remove-expired", headers=headers)
+		assert kea.writes == [("delete", "172.16.17.20")]
+		assert "Removed 1 expired lease." in response.text
+		assert 'id="leases-table"' in response.text
+		assert db.get_activity()[0]["summary"] == "removed 1 expired lease: 172.16.17.20"
+
+	def test_removes_all_from_the_stub(self, client, kea):
+		headers = _sign_in(client)
+		response = client.post("/leases/remove-expired", headers=headers)
+		assert kea.writes == [("delete", "172.16.17.164"), ("delete", "172.16.17.177")]
+		assert "Removed 2 expired leases." in response.text
+		assert "172.16.17.164, 172.16.17.177" in db.get_activity()[0]["summary"]
+
+	def test_one_refusal_does_not_stop_the_rest(self, client, kea):
+		headers = _sign_in(client)
+		kea.refuse_deletes = {"172.16.17.164"}
+		response = client.post("/leases/remove-expired", headers=headers)
+		assert kea.writes == [("delete", "172.16.17.177")]
+		assert (
+			"Removed 1 expired lease. Kea refused 1: 172.16.17.164 (lease locked)" in response.text
+		)
+		assert "notice-error" in response.text
+
+	def test_nothing_expired(self, client):
+		headers = _sign_in(client)
+		kea = _NothingExpired()
+		client.app.dependency_overrides[kea_client] = lambda: kea
+		response = client.post("/leases/remove-expired", headers=headers)
+		assert kea.writes == []
+		assert "No lease has expired" in response.text
+		assert db.get_activity() == []
+
+	def test_kea_unreachable(self, client):
+		headers = _sign_in(client)
+		client.app.dependency_overrides[kea_client] = lambda: RecordingKea(reachable=False)
+		response = client.post("/leases/remove-expired", headers=headers)
+		assert "read the leases from Kea: Cannot reach Kea" in response.text
+
+	def test_reads_kea_not_the_cache(self, client, kea):
+		headers = _sign_in(client)
+		cache.cached("leases", 30, lambda: [])
+		client.post("/leases/remove-expired", headers=headers)
+		assert ("delete", "172.16.17.164") in kea.writes
+
+	def test_viewer_refused(self, client, kea):
+		headers = _sign_in(client, role="viewer")
+		assert client.post("/leases/remove-expired", headers=headers).status_code == 403
+		assert kea.writes == []
+
+	def test_long_list_shortened_in_the_log(self, client):
+		headers = _sign_in(client)
+		kea = _ManyExpired()
+		client.app.dependency_overrides[kea_client] = lambda: kea
+		client.post("/leases/remove-expired", headers=headers)
+		summary = db.get_activity()[0]["summary"]
+		assert summary.startswith("removed 12 expired leases: 172.16.17.1, ")
+		assert summary.endswith("172.16.17.10 and 2 more")
+
+
+class _NothingExpired(RecordingKea):
+	def get_leases(self):
+		return [{"ip-address": "172.16.17.21", "cltt": 4_000_000_000, "valid-lft": 3600}]
+
+
+class _ManyExpired(RecordingKea):
+	def get_leases(self):
+		return [
+			{"ip-address": f"172.16.17.{octet}", "cltt": 0, "valid-lft": 1}
+			for octet in range(1, 13)
+		]
 
 
 class TestLivenessSwitch:
