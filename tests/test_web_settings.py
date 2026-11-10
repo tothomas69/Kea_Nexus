@@ -20,6 +20,8 @@ from web.routes.settings import USERS_CHANGED_EVENT
 from web.security import CSRF_COOKIE_NAME, CSRF_HEADER_NAME
 
 _OTHER_PASSWORD = "another-long-password"  # pragma: allowlist secret
+_TOO_SHORT_PASSWORD = "short"  # pragma: allowlist secret
+_UNCONFIRMED_PASSWORD = "aaaaaaaaaaaaaa"  # pragma: allowlist secret
 _SETTINGS = {
 	"pool_start": "172.16.17.100",
 	"pool_end": "172.16.17.150",
@@ -171,7 +173,14 @@ class TestUsers:
 		("data", "message"),
 		[
 			({"username": "pat", "password": "a", "confirm": "b"}, "match"),
-			({"username": "pat", "password": "short", "confirm": "short"}, "at least"),
+			(
+				{
+					"username": "pat",
+					"password": _TOO_SHORT_PASSWORD,
+					"confirm": _TOO_SHORT_PASSWORD,
+				},
+				"at least",
+			),
 			({"username": "pat", "password": "", "confirm": ""}, "Set a password"),
 			(
 				{"username": "bad name", "password": _OTHER_PASSWORD, "confirm": _OTHER_PASSWORD},
@@ -206,7 +215,7 @@ class TestUsers:
 		auth.create_user("pat", _OTHER_PASSWORD, "viewer")
 		client.put(
 			"/settings/users/pat",
-			data={"role": "admin", "password": "aaaaaaaaaaaaaa", "confirm": "b"},
+			data={"role": "admin", "password": _UNCONFIRMED_PASSWORD, "confirm": "b"},
 			headers=headers,
 		)
 		assert db.get_user("pat")["role"] == "viewer"
