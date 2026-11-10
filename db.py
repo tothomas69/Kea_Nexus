@@ -3,6 +3,7 @@ db.py — SQLite persistence layer for KeaNexus.
 Manages the local database for IPAM static address records and app users.
 """
 
+import json
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
@@ -135,6 +136,16 @@ def init_db() -> None:
 				is_disabled      INTEGER NOT NULL DEFAULT 0,
 				created_at       TEXT NOT NULL,
 				last_login_at    TEXT NOT NULL DEFAULT ''
+			)
+		""")
+		# The latest ARP sweep only, so the Leases screen and Address Map show
+		# who answered even straight after a restart. One row: id is fixed at 1.
+		conn.execute("""
+			CREATE TABLE IF NOT EXISTS liveness_sweep (
+				id                INTEGER PRIMARY KEY CHECK (id = 1),
+				checked_at_epoch  REAL NOT NULL,
+				checked           INTEGER NOT NULL,
+				seen_macs         TEXT NOT NULL
 			)
 		""")
 		# Display preference, added after the users table first shipped.
@@ -516,6 +527,35 @@ def prune_pool_samples(retention_days: int) -> int:
 		cursor = conn.execute("DELETE FROM pool_samples WHERE sampled_at < ?", (cutoff,))
 		conn.commit()
 		return cursor.rowcount
+
+
+# --- Liveness sweep ----------------------------------------------------------------
+
+
+def save_liveness_sweep(seen_macs: dict[str, str], checked: int, checked_at_epoch: float) -> None:
+	"""Replace the stored sweep with this one. seen_macs is {ip: mac}."""
+	assert checked >= 0, "checked must not be negative"
+	with _connect() as conn:
+		conn.execute(
+			"INSERT OR REPLACE INTO liveness_sweep (id, checked_at_epoch, checked, seen_macs) VALUES (1, ?, ?, ?)",
+			(checked_at_epoch, checked, json.dumps(seen_macs, sort_keys=True)),
+		)
+		conn.commit()
+
+
+def get_liveness_sweep() -> Optional[dict]:
+	"""The stored sweep as {seen_macs, checked, checked_at_epoch}, or None if none was saved."""
+	with _connect() as conn:
+		row = conn.execute(
+			"SELECT checked_at_epoch, checked, seen_macs FROM liveness_sweep WHERE id = 1"
+		).fetchone()
+	if row is None:
+		return None
+	return {
+		"seen_macs": json.loads(row["seen_macs"]),
+		"checked": row["checked"],
+		"checked_at_epoch": row["checked_at_epoch"],
+	}
 
 
 # --- Users -----------------------------------------------------------------------

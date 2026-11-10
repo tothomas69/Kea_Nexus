@@ -448,3 +448,23 @@ class TestActivityLog:
 	def test_long_summary_trimmed(self, temp_db):
 		db.insert_activity("tom", "x" * 1000)
 		assert len(db.get_activity()[0]["summary"]) == 300
+
+
+class TestLivenessSweep:
+	def test_none_before_the_first_sweep(self, temp_db):
+		assert db.get_liveness_sweep() is None
+
+	def test_keeps_only_the_latest(self, temp_db):
+		db.save_liveness_sweep({"10.0.0.1": "aa:bb:cc:00:00:01"}, 254, 1000.5)
+		db.save_liveness_sweep({"10.0.0.2": ""}, 10, 2000.0)
+		assert db.get_liveness_sweep() == {
+			"seen_macs": {"10.0.0.2": ""},
+			"checked": 10,
+			"checked_at_epoch": 2000.0,
+		}
+		with db._connect() as conn:
+			assert conn.execute("SELECT COUNT(*) FROM liveness_sweep").fetchone()[0] == 1
+
+	def test_negative_count_raises(self, temp_db):
+		with pytest.raises(AssertionError):
+			db.save_liveness_sweep({}, -1, 0.0)

@@ -10,3 +10,11 @@ coverage/
 
 # YAML forbids tabs, and .prettierrc sets useTabs — never let prettier near this.
 docker-compose.yml
+
+# Jinja templates: Prettier parses them as plain HTML and rewraps {{ }} and
+# {% %} across lines, which changes the rendered text.
+web/templates/
+
+# Hand-wrapped Markdown: Prettier's reflow pulls continuation lines out of
+# nested list items.
+*.md

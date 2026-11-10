@@ -51,6 +51,7 @@ class TestLeaseRows:
 			"expires": "1h 0m",
 			"type": "dynamic",
 			"declined": False,
+			"expired": False,
 			"online": None,
 		}
 
@@ -72,6 +73,29 @@ class TestLeaseRows:
 	def test_missing_lifetime_uses_kea_default(self):
 		lease = {"ip-address": "172.16.17.5", "cltt": _NOW}
 		assert ld.lease_rows([lease], None, None, _NOW)[0]["expires"] == "24h 0m"
+
+
+class TestExpired:
+	def test_row_marked_expired(self):
+		rows = ld.lease_rows([_lease("172.16.17.5", seconds_left=0)], None, None, _NOW)
+		assert rows[0]["expired"] and rows[0]["expires"] == "expired"
+
+	def test_only_run_out_leases_sorted_by_address(self):
+		leases = [
+			_lease("172.16.17.100", seconds_left=-60),
+			_lease("172.16.17.20", seconds_left=1),
+			_lease("172.16.17.9", seconds_left=0),
+			_lease("172.16.17.30", state=1, seconds_left=-1),
+			{"hw-address": "no-address"},
+		]
+		assert ld.expired_lease_ips(leases, _NOW) == [
+			"172.16.17.9",
+			"172.16.17.30",
+			"172.16.17.100",
+		]
+
+	def test_none_expired(self):
+		assert ld.expired_lease_ips([_lease("172.16.17.5")], _NOW) == []
 
 
 class TestFilterRows:

@@ -7,6 +7,19 @@ import pytest
 import db
 
 
+@pytest.fixture(autouse=True)
+def no_bootstrap_admin_from_dotenv(monkeypatch):
+	"""Remove the first-admin env vars before every test.
+
+	kea.py and others call load_dotenv() on import, so a developer's .env puts
+	KEANEXUS_USERNAME / KEANEXUS_PASSWORD into os.environ. The app would then
+	create an extra admin at startup, and tests that count admins would fail on
+	that machine only. A test that needs these vars sets them itself.
+	"""
+	monkeypatch.delenv("KEANEXUS_USERNAME", raising=False)
+	monkeypatch.delenv("KEANEXUS_PASSWORD", raising=False)
+
+
 @pytest.fixture
 def temp_db(tmp_path):
 	"""Redirect all db module operations to a temporary SQLite file."""

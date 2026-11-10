@@ -1,20 +1,24 @@
 """
-test_web_liveness.py — Tests for web/liveness.py: the latest sweep, the
-background loop and the age label. The quarantine service is always patched.
+test_web_liveness.py — Tests for web/liveness.py: the latest sweep, saving it
+to SQLite, the background loop and the age label. The quarantine service is
+always patched.
 """
 
+import sqlite3
 import threading
 import time
 from unittest.mock import MagicMock, patch
 
 import pytest
 
+import db
 from quarantine_client import QuarantineServiceError
 from web import liveness
 
 
 @pytest.fixture(autouse=True)
-def clean_state():
+def clean_state(temp_db):
+	"""Every test gets its own database: sweep_now saves each result there."""
 	liveness.stop_sweep_loop()
 	liveness.reset()
 	yield
@@ -61,6 +65,49 @@ class TestSweepNow:
 			result = liveness.sweep_now(["10.0.0.1"])
 		with pytest.raises(TypeError):
 			result.seen_macs["10.0.0.2"] = ""
+
+
+class TestStoredSweep:
+	def test_a_sweep_is_saved(self):
+		with patch(
+			"web.liveness.trigger_liveness_sweep", return_value={"10.0.0.1": "aa:bb:cc:00:00:01"}
+		):
+			result = liveness.sweep_now(["10.0.0.1", "10.0.0.2"])
+		stored = db.get_liveness_sweep()
+		assert stored == {
+			"seen_macs": {"10.0.0.1": "aa:bb:cc:00:00:01"},
+			"checked": 2,
+			"checked_at_epoch": result.checked_at_epoch,
+		}
+
+	def test_survives_a_restart(self):
+		with patch("web.liveness.trigger_liveness_sweep", return_value={"10.0.0.1": ""}):
+			saved = liveness.sweep_now(["10.0.0.1"])
+		liveness.reset()
+		restored = liveness.latest()
+		assert restored is not saved
+		assert restored == saved
+		with pytest.raises(TypeError):
+			restored.seen_macs["10.0.0.2"] = ""
+
+	def test_nothing_stored_reads_the_database_once(self):
+		with patch("web.liveness.db.get_liveness_sweep", return_value=None) as read:
+			assert liveness.latest() is None
+			assert liveness.latest() is None
+		read.assert_called_once()
+
+	def test_unreadable_database_means_not_checked(self):
+		with patch("web.liveness.db.get_liveness_sweep", side_effect=sqlite3.OperationalError):
+			assert liveness.latest() is None
+
+	def test_unwritable_database_keeps_the_sweep_in_memory(self):
+		with (
+			patch("web.liveness.trigger_liveness_sweep", return_value={"10.0.0.1": ""}),
+			patch("web.liveness.db.save_liveness_sweep", side_effect=OSError("read-only")),
+		):
+			result = liveness.sweep_now(["10.0.0.1"])
+		assert liveness.latest() is result
+		assert db.get_liveness_sweep() is None
 
 
 class TestNetworkAddresses:

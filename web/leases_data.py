@@ -41,9 +41,7 @@ def lease_rows(
 		leases, key=lambda item: KeaClient.ip_to_int(item.get("ip-address", "0.0.0.0"))
 	):
 		ip = lease.get("ip-address", "")
-		seconds_left = (
-			lease.get("cltt", 0) + lease.get("valid-lft", DEFAULT_LEASE_SECONDS) - now_epoch
-		)
+		seconds_left = _seconds_left(lease, now_epoch)
 		rows.append(
 			{
 				"ip": ip,
@@ -52,10 +50,32 @@ def lease_rows(
 				"expires": fmt_ttl(seconds_left),
 				"type": lease_type(lease, fixed_ips, reserved_macs, name_hosts),
 				"declined": lease.get("state", _LEASE_STATE_DEFAULT) != _LEASE_STATE_DEFAULT,
+				"expired": seconds_left <= 0,
 				"online": None if live_ips is None else ip in live_ips,
 			}
 		)
 	return rows
+
+
+def _seconds_left(lease: dict, now_epoch: int) -> int:
+	"""Seconds until the lease runs out: last renewal plus lifetime, minus now."""
+	return lease.get("cltt", 0) + lease.get("valid-lft", DEFAULT_LEASE_SECONDS) - now_epoch
+
+
+def expired_lease_ips(leases: list[dict], now_epoch: int) -> list[str]:
+	"""Addresses of every lease whose time has run out, sorted by address.
+
+	Kea keeps an expired lease until it reclaims it, and keeps a reclaimed one
+	for hold-reclaimed-time after that. A lease added by hand with a short
+	duration stays too. "Remove expired" deletes these. Declined leases count
+	when their probation time has run out, the same as any other lease.
+	"""
+	expired = [
+		lease["ip-address"]
+		for lease in leases
+		if lease.get("ip-address") and _seconds_left(lease, now_epoch) <= 0
+	]
+	return sorted(expired, key=KeaClient.ip_to_int)
 
 
 def filter_rows(rows: list[dict], query: str) -> list[dict]:

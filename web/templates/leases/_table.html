@@ -1,16 +1,22 @@
-{# Redrawn by the filter, by a sweep, every 60 s, and after a lease is saved. #}
+{# Redrawn by the filter, by a sweep, every 60 s, after a lease is saved, and after expired leases are removed. #}
 <section id="leases-table" class="card" aria-label="Leases"
 	hx-get="/fragments/leases" hx-include="#lease-filter" hx-trigger="every 60s, leases-changed from:body" hx-swap="outerHTML">
 	{% if kea_error %}<p class="banner banner-error" role="alert">Kea can't be reached right now, so this list may be empty or out of date.</p>{% endif %}
 	{% if sweep_error %}<p class="notice notice-error" role="alert">{{ sweep_error }}</p>{% endif %}
+	{% if notice %}<p class="notice {{ 'notice-ok' if notice.ok else 'notice-error' }}" role="status">{{ notice.text }}</p>{% endif %}
 
 	<div class="card-head">
 		<p class="muted small">
 			{% if query %}{{ rows | length }} of {{ total }} leases match{% else %}{{ total }} lease{{ "s" if total != 1 }}{% endif %}
 			·
 			{% if sweep %}<span class="online-text">{{ online_count }} answered</span> the sweep {{ sweep_age }}. A device that didn't answer may still be on.
-			{% else %}Not checked yet: nobody has swept since KeaNexus started.{% endif %}
+			{% else %}Not checked yet: no sweep has run.{% endif %}
 		</p>
+		{% if is_admin and expired_count %}
+		<button class="button" hx-post="/leases/remove-expired" hx-include="#lease-filter" hx-target="#leases-table" hx-swap="outerHTML"
+			hx-disabled-elt="this"
+			hx-confirm="Remove {{ expired_count }} expired lease{{ 's' if expired_count != 1 }} from Kea? This can't be undone, but a device that comes back simply gets a new lease.">Remove {{ expired_count }} expired</button>
+		{% endif %}
 	</div>
 
 	{% if rows %}

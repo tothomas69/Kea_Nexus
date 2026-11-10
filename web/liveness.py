@@ -14,18 +14,25 @@ to Kea, so an ARP reply is the only place KeaNexus can learn it is there and
 what its hardware address is. Like the Address Map, this assumes a /24.
 
 A sweep only proves presence. A device that didn't answer is shown unchanged,
-never as offline, and nothing here outlives the process: after a restart the
-screens say "not checked yet" until the first sweep.
+never as offline.
+
+The latest sweep is also saved to SQLite (db.save_liveness_sweep), so after a
+restart the screens show the last result with its real age instead of "not
+checked yet". The age label keeps an old result from looking current. A
+database failure is logged and never stops a sweep: the in-memory result is
+what the screens use.
 """
 
 import logging
 import os
+import sqlite3
 import threading
 import time
 from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Callable, Mapping, Optional
 
+import db
 from address_map import subnet_prefix
 from kea import KeaClient
 from quarantine_client import trigger_liveness_sweep
@@ -58,15 +65,45 @@ class SweepResult:
 
 
 _latest: Optional[SweepResult] = None
+# True once latest() has looked in the database, so a process with no stored
+# sweep asks SQLite once, not on every page.
+_loaded_from_db = False
 _lock = threading.Lock()
 _stop_event: Optional[threading.Event] = None
 _thread: Optional[threading.Thread] = None
 
 
 def latest() -> Optional[SweepResult]:
-	"""The most recent sweep, or None if none has finished since the process started."""
+	"""The most recent sweep, or None if none has ever been saved.
+
+	The first call after a start reads the stored sweep from SQLite.
+	"""
+	global _latest, _loaded_from_db
 	with _lock:
+		if _latest is None and not _loaded_from_db:
+			_latest = _load_stored()
+			_loaded_from_db = True
 		return _latest
+
+
+def _load_stored() -> Optional[SweepResult]:
+	try:
+		stored = db.get_liveness_sweep()
+	except (sqlite3.Error, OSError, ValueError):
+		_logger.warning("Couldn't read the stored liveness sweep", exc_info=True)
+		return None
+	if stored is None:
+		return None
+	return SweepResult(
+		MappingProxyType(dict(stored["seen_macs"])), stored["checked"], stored["checked_at_epoch"]
+	)
+
+
+def _store(result: SweepResult) -> None:
+	try:
+		db.save_liveness_sweep(dict(result.seen_macs), result.checked, result.checked_at_epoch)
+	except (sqlite3.Error, OSError):
+		_logger.warning("Couldn't save the liveness sweep", exc_info=True)
 
 
 def sweep_now(ip_addresses: list[str]) -> SweepResult:
@@ -76,14 +113,16 @@ def sweep_now(ip_addresses: list[str]) -> SweepResult:
 	result = SweepResult(seen_macs, len(set(ip_addresses)), time.time())
 	with _lock:
 		_latest = result
+	_store(result)
 	return result
 
 
 def reset() -> None:
-	"""Forget the latest sweep. Used by tests."""
-	global _latest
+	"""Forget the latest sweep in memory, so the next latest() reads SQLite again. Used by tests."""
+	global _latest, _loaded_from_db
 	with _lock:
 		_latest = None
+		_loaded_from_db = False
 
 
 def sweep_interval_seconds() -> int:
