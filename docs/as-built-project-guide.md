@@ -46,7 +46,7 @@ keanexus/
 ├── pool_history.py     — Background sampler building the pool utilisation time series
 ├── db.py               — SQLite persistence layer (static records, labels, registry, logs, users)
 ├── Makefile            — Developer setup (`make setup`) and test runner (`make test`)
-├── static/             — Brand assets (logos, the orb favicon set), served at /brand
+├── static/             — Brand assets (keanexus_logo.png), served at /brand
 ├── web/                — The KeaNexus UI: FastAPI + HTMX (routes/, templates/, static/)
 ├── quarantine_service/ — Optional keanexus-quarantine FastAPI service (compose profile "quarantine")
 ├── docs/               — PRD, this guide, design docs (incl. the FastAPI + HTMX migration record)
@@ -627,11 +627,7 @@ Overview, and 1b adds its charts. Phase 2 is the Quarantine screen, phase 3 the 
   `GET /search?q=` (any signed-in user),
   `GET /help` (table of contents: fragment for HTMX, full page otherwise),
   `GET /help/{filename}` (404 off the allowlist), `GET /healthz` (no auth; the
-  image's HEALTHCHECK), `GET /favicon.ico` (no auth; browsers request it at the
-  root on their own). The favicon is a white orb with a light cyan core:
-  `static/favicon.ico` (16/32/48), `favicon-32.png`, `favicon-192.png` and
-  `apple-touch-icon.png` (on white, since iOS paints transparency black),
-  linked from `base.html`
+  image's HEALTHCHECK)
 - `static/vendor/` — htmx, Alpine.js and vega / vega-lite / vega-embed, vendored at pinned versions with
   hashes in `VERSIONS.md`. No CDN (must work when the WAN is down) and no Node
   build step. Vega-Lite's version must match the schema Altair emits; see
