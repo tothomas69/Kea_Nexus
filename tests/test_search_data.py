@@ -24,8 +24,7 @@ DEVICES = [
 	{
 		"friendly_name": "kids_ipad",
 		"hostname": "kids-ipad",
-		"last_seen_ip_address": "172.16.17.120",
-		"is_quarantined": 1,
+		"group_tag": "kids",
 	},
 ]
 
@@ -39,8 +38,8 @@ def test_devices_first_then_addresses():
 	assert [result["title"] for result in results] == ["kids_ipad", "kids-ipad"]
 	assert results[0] == {
 		"title": "kids_ipad",
-		"detail": "kids-ipad · 172.16.17.120 · quarantined",
-		"href": "/quarantine",
+		"detail": "kids-ipad · kids · registered",
+		"href": "/devices",
 		"kind": "device",
 	}
 	assert results[1]["href"] == "/leases?q=172.16.17.120"

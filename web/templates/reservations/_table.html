@@ -18,9 +18,9 @@
 		</tr></thead>
 		<tbody>
 		{% for row in rows %}
-			<tr class="{{ 'row-quarantined' if row.quarantined }}{{ ' row-online' if row.online and not row.quarantined }}">
+			<tr class="{{ 'row-dropped' if row.dropped }}{{ ' row-online' if row.online and not row.dropped }}">
 				<td class="mono nowrap">{{ row.ip or "—" }}</td>
-				<td class="strong">{{ row.label or "—" }}{% if row.quarantined %} <span class="chip chip-quarantined">quarantined</span>{% endif %}</td>
+				<td class="strong">{{ row.label or "—" }}{% if row.dropped %} <span class="chip chip-dropped" title="This reservation has Kea's DROP class: Kea ignores the device's DHCP requests.">DROP</span>{% endif %}</td>
 				<td class="mono">
 					{% if row.hostname_state == "offline" %}<span class="muted" title="Kea holds no lease for this device right now.">no lease</span>
 					{% elif row.hostname_state == "masked" %}<span class="muted" title="An old Kea hostname setting hides the device's own name. Edit and save this reservation to clear it.">hidden, save to fix</span>

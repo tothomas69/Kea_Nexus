@@ -3,7 +3,7 @@ test_web_overview.py — The web UI's Overview routes, the Kea read cache and
 the header health checks.
 
 Kea is a stub that subclasses KeaClient (so get_pool_range and friends are
-real) with canned reads; the quarantine service is patched where called.
+real) with canned reads.
 """
 
 import os
@@ -16,8 +16,7 @@ from fastapi.testclient import TestClient
 import auth
 import db
 from kea import KeaClient, KeaError, ServiceStatus
-from quarantine_client import QuarantineServiceError
-from web import cache
+from web import cache, liveness
 from web.deps import kea_client
 from web.health import pihole_auth_url, service_health
 from web.main import create_app
@@ -134,16 +133,23 @@ class TestOverviewPage:
 		page = client.get("/").text
 		assert '"device": "kids_ipad"' in page
 
-	def test_quarantine_card_lists_devices(self, client):
+	def test_no_quarantine_left_on_the_page(self, client):
 		_sign_in(client)
 		_register_kids_ipad()
-		assert "Quarantine kids_ipad" in client.get("/").text
-
-	def test_viewer_sees_disabled_switches(self, client):
-		_sign_in(client, role="viewer")
-		_register_kids_ipad()
 		page = client.get("/").text
-		assert "Viewers can&#39;t make changes" in page or "Viewers can't make changes" in page
+		assert "quarantine" not in page.lower()
+
+	def test_devices_tile_counts_registered_and_online(self, client):
+		_sign_in(client)
+		_register_kids_ipad()  # kids-ipad holds 172.16.17.164 in _LEASES
+		assert "Online: not checked yet" in client.get("/").text
+		with patch("web.liveness.arp_sweep", return_value={"172.16.17.164": "f0:18:98:3a:77:10"}):
+			liveness.sweep_now(["172.16.17.164"])
+		assert "1 online now" in client.get("/").text
+
+	def test_devices_tile_with_nothing_registered(self, client):
+		_sign_in(client)
+		assert "None registered yet" in client.get("/").text
 
 	def test_kea_down_still_renders_with_a_banner(self, client, stub_kea):
 		_sign_in(client)
@@ -176,64 +182,16 @@ class TestOverviewPage:
 	def test_fragments(self, client):
 		_sign_in(client)
 		assert 'id="address-map"' in client.get("/fragments/address-map", headers=_HTMX).text
-		assert 'id="quarantine-card"' in client.get("/fragments/quarantine", headers=_HTMX).text
+		assert client.get("/fragments/quarantine", headers=_HTMX).status_code == 404
 		assert 'id="activity"' in client.get("/fragments/activity", headers=_HTMX).text
 
 	def test_health_fragment(self, client):
 		_sign_in(client)
 		with patch.dict(os.environ, {}, clear=False):
-			os.environ.pop("QUARANTINE_SERVICE_URL", None)
 			os.environ.pop("PIHOLE_API_URL", None)
 			os.environ.pop("PIHOLE_SECONDARY_API_URL", None)
 			text = client.get("/fragments/health", headers=_HTMX).text
 		assert "Kea 3.0.3" in text
-
-
-class TestQuarantineActions:
-	def test_viewer_is_refused(self, client):
-		headers = _sign_in(client, role="viewer")
-		_register_kids_ipad()
-		assert client.post("/quarantine/kids_ipad", headers=headers).status_code == 403
-
-	def test_unknown_device_is_not_found(self, client):
-		headers = _sign_in(client)
-		assert client.post("/quarantine/nobody", headers=headers).status_code == 404
-
-	def test_quarantine_shows_the_service_summary_and_signals_a_redraw(self, client):
-		headers = _sign_in(client)
-		_register_kids_ipad()
-		with patch(
-			"web.routes.overview.trigger_quarantine",
-			return_value={"summary": "Kids Ipad is off the network."},
-		) as trigger:
-			response = client.post("/quarantine/kids_ipad", headers=headers)
-		trigger.assert_called_once_with("kids_ipad")
-		assert "Kids Ipad is off the network." in response.text
-		assert response.headers["HX-Trigger"] == "overview-changed"
-
-	def test_release_calls_release(self, client):
-		headers = _sign_in(client)
-		_register_kids_ipad()
-		with patch("web.routes.overview.trigger_release", return_value={}) as trigger:
-			response = client.post("/quarantine/kids_ipad/release", headers=headers)
-		trigger.assert_called_once_with("kids_ipad")
-		assert "Done." in response.text
-
-	def test_service_failure_is_shown_not_raised(self, client):
-		headers = _sign_in(client)
-		_register_kids_ipad()
-		with patch(
-			"web.routes.overview.trigger_quarantine",
-			side_effect=QuarantineServiceError("unreachable"),
-		):
-			response = client.post("/quarantine/kids_ipad", headers=headers)
-		assert response.status_code == 200
-		assert "unreachable" in response.text
-
-	def test_needs_csrf(self, client):
-		_sign_in(client)
-		_register_kids_ipad()
-		assert client.post("/quarantine/kids_ipad", headers=_HTMX).status_code == 403
 
 
 class TestStaticEntries:
@@ -353,21 +311,17 @@ class TestHealth:
 			{"name": "DNS2", "up": False},
 		]
 
-	def test_quarantine_service_needs_a_2xx(self):
-		env = {"QUARANTINE_SERVICE_URL": "http://q:8600/"}
-		with (
-			patch.dict(os.environ, env, clear=True),
-			patch("web.health.httpx.get", return_value=httpx.Response(401)),
-		):
-			assert service_health(StubKea())[-1] == {"name": "Quarantine svc", "up": False}
-
 	def test_unreachable_is_down(self):
-		env = {"QUARANTINE_SERVICE_URL": "http://q:8600"}
 		with (
-			patch.dict(os.environ, env, clear=True),
+			patch.dict(os.environ, {"PIHOLE_API_URL": "http://pihole1"}, clear=True),
 			patch("web.health.httpx.get", side_effect=httpx.ConnectError("no route")),
 		):
-			assert service_health(StubKea())[-1] == {"name": "Quarantine svc", "up": False}
+			assert service_health(StubKea())[-1] == {"name": "DNS1", "up": False}
+
+	def test_no_quarantine_service_dot(self):
+		"""QUARANTINE_SERVICE_URL left in an old .env must not bring the dot back."""
+		with patch.dict(os.environ, {"QUARANTINE_SERVICE_URL": "http://q:8600"}, clear=True):
+			assert [entry["name"] for entry in service_health(StubKea())] == ["Kea 3.0.3"]
 
 
 class TestPiholeHealth:
@@ -435,15 +389,6 @@ class TestPiholeHealth:
 			patch("web.health.httpx.get", return_value=reply),
 		):
 			assert service_health(StubKea())[-1] == {"name": "DNS1", "up": True}
-
-	def test_quarantine_probe_still_verifies_tls(self):
-		env = {"QUARANTINE_SERVICE_URL": "https://q:8600"}
-		with (
-			patch.dict(os.environ, env, clear=True),
-			patch("web.health.httpx.get", return_value=httpx.Response(200)) as get,
-		):
-			service_health(StubKea())
-		assert get.call_args.kwargs["verify"] is True
 
 	def test_blank_url_shows_no_dot(self):
 		with patch.dict(os.environ, {"PIHOLE_API_URL": "  "}, clear=True):

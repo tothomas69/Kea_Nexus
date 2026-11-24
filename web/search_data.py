@@ -1,6 +1,6 @@
 """
 search_data.py — What the header's search (⌘K) finds: any address in the
-map with a label, a hostname or a MAC, and any device in the quarantine
+map with a label, a hostname or a MAC, and any device in the device
 registry. Pure, so the matching rules are unit-tested.
 """
 
@@ -32,14 +32,13 @@ def _address_result(row: AddressRow) -> dict:
 
 
 def _device_result(device: dict) -> dict:
-	state = "quarantined" if device.get("is_quarantined") else "registered"
 	detail = " · ".join(
-		part for part in (device.get("hostname"), device.get("last_seen_ip_address"), state) if part
+		part for part in (device.get("hostname"), device.get("group_tag"), "registered") if part
 	)
 	return {
 		"title": device["friendly_name"],
 		"detail": detail,
-		"href": "/quarantine",
+		"href": "/devices",
 		"kind": "device",
 	}
 

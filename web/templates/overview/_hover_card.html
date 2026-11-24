@@ -21,12 +21,9 @@
 			<template x-if="focus.notes"><dt>Notes</dt></template>
 			<template x-if="focus.notes"><dd x-text="focus.notes"></dd></template>
 		</dl>
-		<template x-if="pinned !== null && isAdmin && (focus.editable || focus.device)">
+		<template x-if="pinned !== null && isAdmin && focus.editable">
 			<div class="hover-card-actions">
-				<button type="button" class="button button-primary" x-show="focus.editable" @click="editStatic(focus)">Edit</button>
-				<button type="button" class="button" :class="focus.quarantined ? 'button-release' : 'button-danger-soft'"
-					x-show="focus.device" :disabled="busy" @click="quarantineAction(focus)"
-					x-text="busy ? 'Working…' : (focus.quarantined ? 'Release' : 'Quarantine')"></button>
+				<button type="button" class="button button-primary" @click="editStatic(focus)">Edit</button>
 			</div>
 		</template>
 		<p class="hover-card-hint" x-show="pinned === null">Click the square to pin</p>

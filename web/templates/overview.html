@@ -16,7 +16,7 @@
 
 <div class="overview-columns">
 	<section class="card map-card" aria-labelledby="map-title"
-		x-data="addressMap({{ csrf_token | tojson | forceescape }}, {{ is_admin | tojson }})"
+		x-data="addressMap({{ is_admin | tojson }})"
 		@htmx:after-settle.window="load()">
 		<div class="map-heading">
 			<div class="map-heading-left">
@@ -38,7 +38,6 @@
 	</section>
 
 	<div class="side-column">
-		{% include "overview/_quarantine_card.html" %}
 		{% include "overview/_activity.html" %}
 	</div>
 </div>

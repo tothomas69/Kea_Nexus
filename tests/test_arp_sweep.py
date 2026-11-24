@@ -1,5 +1,5 @@
 """
-test_quarantine_liveness.py — Tests for quarantine_service/liveness.py.
+test_arp_sweep.py — Tests for web/arp_sweep.py.
 
 scapy's srp is always patched: these tests care that the right addresses
 are probed and that the right replies are believed, never about real
@@ -9,8 +9,9 @@ packets on a real interface.
 from unittest.mock import patch
 
 import pytest
+from scapy.error import Scapy_Exception
 
-from quarantine_service.liveness import MAX_SWEEP_ADDRESSES, sweep
+from web.arp_sweep import MAX_SWEEP_ADDRESSES, ArpSweepError, sweep
 
 
 class _Reply:
@@ -33,7 +34,7 @@ def _answered(*ip_addresses: str) -> list:
 class TestSweep:
 	def test_returns_only_addresses_that_answered(self):
 		with patch(
-			"quarantine_service.liveness.srp",
+			"web.arp_sweep.srp",
 			return_value=(_answered("172.16.17.10"), []),
 		):
 			result = sweep(["172.16.17.10", "172.16.17.11"])
@@ -42,13 +43,13 @@ class TestSweep:
 
 	def test_answering_macs_are_lowercased(self):
 		with patch(
-			"quarantine_service.liveness.srp",
+			"web.arp_sweep.srp",
 			return_value=([(None, _Reply("172.16.17.40", "DE:AD:BE:EF:00:01"))], []),
 		):
 			assert sweep(["172.16.17.40"]) == {"172.16.17.40": "de:ad:be:ef:00:01"}
 
 	def test_probes_every_requested_address_in_one_call(self):
-		with patch("quarantine_service.liveness.srp", return_value=([], [])) as mock_srp:
+		with patch("web.arp_sweep.srp", return_value=([], [])) as mock_srp:
 			sweep(["172.16.17.10", "172.16.17.11", "172.16.17.12"])
 
 		assert mock_srp.call_count == 1, "sweep must batch, not probe one IP at a time"
@@ -56,7 +57,7 @@ class TestSweep:
 		assert packets.pdst == ["172.16.17.10", "172.16.17.11", "172.16.17.12"]
 
 	def test_deduplicates_and_sorts_targets(self):
-		with patch("quarantine_service.liveness.srp", return_value=([], [])) as mock_srp:
+		with patch("web.arp_sweep.srp", return_value=([], [])) as mock_srp:
 			sweep(["172.16.17.11", "172.16.17.10", "172.16.17.11"])
 
 		assert mock_srp.call_args.args[0].pdst == ["172.16.17.10", "172.16.17.11"]
@@ -65,7 +66,7 @@ class TestSweep:
 		"""A broadcast sweep can pick up gratuitous ARP or a proxy-ARP router
 		answering for a range — those must not mark a lease live."""
 		with patch(
-			"quarantine_service.liveness.srp",
+			"web.arp_sweep.srp",
 			return_value=(_answered("172.16.17.10", "172.16.17.99"), []),
 		):
 			result = sweep(["172.16.17.10"])
@@ -73,33 +74,33 @@ class TestSweep:
 		assert result == {"172.16.17.10": "aa:bb:cc:00:00:0a"}
 
 	def test_empty_input_sends_nothing(self):
-		with patch("quarantine_service.liveness.srp", return_value=([], [])) as mock_srp:
+		with patch("web.arp_sweep.srp", return_value=([], [])) as mock_srp:
 			assert sweep([]) == {}
 
 		mock_srp.assert_not_called()
 
 	def test_blank_and_whitespace_addresses_are_dropped(self):
-		with patch("quarantine_service.liveness.srp", return_value=([], [])) as mock_srp:
+		with patch("web.arp_sweep.srp", return_value=([], [])) as mock_srp:
 			assert sweep(["", "   "]) == {}
 
 		mock_srp.assert_not_called()
 
 	def test_whitespace_around_an_address_is_stripped(self):
-		with patch("quarantine_service.liveness.srp", return_value=([], [])) as mock_srp:
+		with patch("web.arp_sweep.srp", return_value=([], [])) as mock_srp:
 			sweep([" 172.16.17.10 "])
 
 		assert mock_srp.call_args.args[0].pdst == ["172.16.17.10"]
 
 	def test_uses_arp_interface_env_var_when_set(self, monkeypatch):
 		monkeypatch.setenv("ARP_INTERFACE", "eth0")
-		with patch("quarantine_service.liveness.srp", return_value=([], [])) as mock_srp:
+		with patch("web.arp_sweep.srp", return_value=([], [])) as mock_srp:
 			sweep(["172.16.17.10"])
 
 		assert mock_srp.call_args.kwargs["iface"] == "eth0"
 
 	def test_explicit_interface_overrides_env_var(self, monkeypatch):
 		monkeypatch.setenv("ARP_INTERFACE", "eth0")
-		with patch("quarantine_service.liveness.srp", return_value=([], [])) as mock_srp:
+		with patch("web.arp_sweep.srp", return_value=([], [])) as mock_srp:
 			sweep(["172.16.17.10"], interface="eth1")
 
 		assert mock_srp.call_args.kwargs["iface"] == "eth1"
@@ -108,12 +109,26 @@ class TestSweep:
 		"""A blank `ARP_INTERFACE=` line in .env sets the var to "", which
 		scapy must not receive as an interface name."""
 		monkeypatch.setenv("ARP_INTERFACE", "")
-		with patch("quarantine_service.liveness.srp", return_value=([], [])) as mock_srp:
+		with patch("web.arp_sweep.srp", return_value=([], [])) as mock_srp:
 			sweep(["172.16.17.10"])
 
 		assert mock_srp.call_args.kwargs["iface"] is None
 
 	def test_rejects_more_addresses_than_the_cap(self):
 		too_many = [f"10.0.{i // 256}.{i % 256}" for i in range(MAX_SWEEP_ADDRESSES + 1)]
-		with pytest.raises(AssertionError, match="more than the"):
+		with pytest.raises(ValueError, match="more than the"):
 			sweep(too_many)
+
+	@pytest.mark.parametrize(
+		("raised", "message"),
+		[
+			(PermissionError("Operation not permitted"), "NET_RAW"),
+			(OSError("No such device"), "No such device"),
+			(Scapy_Exception("Interface 'eth9' not found"), "eth9"),
+		],
+	)
+	def test_send_failures_become_one_error(self, raised, message):
+		"""The Leases notice and the loop's log line read one type, with a usable reason."""
+		with patch("web.arp_sweep.srp", side_effect=raised):
+			with pytest.raises(ArpSweepError, match=message):
+				sweep(["172.16.17.10"])

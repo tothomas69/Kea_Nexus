@@ -10,3 +10,5 @@ markdown>=3.7
 # is vendored Vega-Lite 6.4.1, which must match the schema Altair emits (see
 # web/static/vendor/VERSIONS.md); a major bump would change that schema.
 altair>=6.3,<7
+# ARP sweeps for "Check who's online" (web/arp_sweep.py).
+scapy>=2.6.0

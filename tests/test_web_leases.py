@@ -3,8 +3,8 @@ test_web_leases.py — The web UI's Leases screen: the table and filter, the
 sweep (open to viewers), and adding, editing or removing expired leases
 (admins only).
 
-Kea is the Overview tests' stub with write methods recorded; the quarantine
-service's sweep is patched where web/liveness.py calls it.
+Kea is the Overview tests' stub with write methods recorded; the ARP sweep
+is patched where web/liveness.py calls it.
 """
 
 import os
@@ -15,14 +15,14 @@ from fastapi.testclient import TestClient
 
 import db
 from kea import KeaError
-from quarantine_client import QuarantineServiceError
 from tests.test_web_overview import _HTMX, _SECRET, StubKea, _sign_in
 from web import cache, liveness
+from web.arp_sweep import ArpSweepError
 from web.deps import kea_client
 from web.main import create_app, liveness_sweep_enabled
 from web.routes.leases import LEASES_CHANGED_EVENT
 
-_SWEEP = "web.liveness.trigger_liveness_sweep"
+_SWEEP = "web.liveness.arp_sweep"
 
 
 class RecordingKea(StubKea):
@@ -130,9 +130,9 @@ class TestSweep:
 		assert response.text.count("row-online") == 1
 		assert "no answer" in response.text
 
-	def test_service_down_is_a_notice(self, client):
+	def test_sweep_failure_is_a_notice(self, client):
 		headers = _sign_in(client)
-		with patch(_SWEEP, side_effect=QuarantineServiceError("unreachable")):
+		with patch(_SWEEP, side_effect=ArpSweepError("unreachable")):
 			response = client.post("/leases/sweep", headers=headers)
 		assert response.status_code == 200
 		assert "unreachable" in response.text
@@ -363,19 +363,15 @@ class _ManyExpired(RecordingKea):
 
 
 class TestLivenessSwitch:
-	@pytest.mark.parametrize(
-		("switch", "url", "enabled"),
-		[
-			("on", "http://10.0.0.2:8600", True),
-			("off", "http://10.0.0.2:8600", False),
-			("on", "", False),
-		],
-	)
-	def test_needs_the_switch_and_a_service(self, switch, url, enabled):
-		with patch.dict(
-			os.environ, {"KEANEXUS_WEB_LIVENESS_SWEEP": switch, "QUARANTINE_SERVICE_URL": url}
-		):
+	@pytest.mark.parametrize(("switch", "enabled"), [("on", True), ("ON", True), ("off", False)])
+	def test_follows_the_switch(self, switch, enabled):
+		with patch.dict(os.environ, {"KEANEXUS_WEB_LIVENESS_SWEEP": switch}):
 			assert liveness_sweep_enabled() is enabled
+
+	def test_on_by_default(self):
+		with patch.dict(os.environ):
+			os.environ.pop("KEANEXUS_WEB_LIVENESS_SWEEP", None)
+			assert liveness_sweep_enabled() is True
 
 	def test_lifespan_starts_the_loop(self, temp_db):
 		with (

@@ -270,7 +270,7 @@ class TestPoolStatsWithFallback:
 
 class TestReservationEdits:
 	"""The edits both UIs use. The regression they guard: the Streamlit tab rebuilt
-	a reservation from the form, dropping the quarantine service's DROP class."""
+	a reservation from the form, dropping fields like Kea's DROP class."""
 
 	MAC_A = "aa:aa:aa:aa:aa:01"
 	MAC_B = "bb:bb:bb:bb:bb:02"
@@ -314,7 +314,7 @@ class TestReservationEdits:
 		]
 		assert len(original["subnet4"][0]["reservations"]) == 2
 
-	def test_quarantined(self):
-		assert helpers.is_quarantined_reservation({"client-classes": ["DROP"]})
-		assert not helpers.is_quarantined_reservation({"client-classes": None})
-		assert not helpers.is_quarantined_reservation({})
+	def test_drop_class(self):
+		assert helpers.has_drop_class({"client-classes": ["DROP"]})
+		assert not helpers.has_drop_class({"client-classes": None})
+		assert not helpers.has_drop_class({})

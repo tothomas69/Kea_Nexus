@@ -18,9 +18,7 @@ _DOCS_DIRECTORY = Path(__file__).resolve().parent / "docs"
 # (display title, filename). Operator-facing only — the as-built guide and PRD
 # are developer notes and stay out of the app.
 ARTICLES: list[tuple[str, str]] = [
-	("Siri Shortcut Setup", "siri-shortcut-setup.md"),
-	("Quarantine Design", "quarantine-feature-design.md"),
-	("Quarantine Troubleshooting", "quarantine-troubleshooting.md"),
+	("Devices and Who's Online", "devices-and-whos-online.md"),
 ]
 
 _ALLOWED_FILENAMES = {filename for _, filename in ARTICLES}

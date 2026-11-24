@@ -15,8 +15,8 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request, Res
 
 import db
 from kea import KeaClient, KeaError
-from quarantine_client import QuarantineServiceError
 from web import cache, liveness
+from web.arp_sweep import ArpSweepError
 from web.deps import current_user, kea_client, require_admin
 from web.kea_reads import read_kea
 from web.leases_data import (
@@ -105,8 +105,8 @@ def sweep_leases(
 		liveness.sweep_network(kea)
 	except KeaError as exc:
 		error = f"Couldn't read Kea to know what to sweep: {exc}"
-	except QuarantineServiceError as exc:
-		error = f"The sweep needs the quarantine service, which didn't answer: {exc}"
+	except ArpSweepError as exc:
+		error = f"The sweep couldn't run: {exc}"
 	context = {
 		"user": user,
 		"is_admin": user.get("role") == "admin",

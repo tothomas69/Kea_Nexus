@@ -201,21 +201,6 @@ class TestLeasesIssuedSince:
 			dd.leases_issued_since([_sample(0), _sample(5)], 0, _BASE_TIME)
 
 
-class TestQuarantinedCount:
-	def test_counts_only_the_live_flag(self):
-		"""last_quarantined_at is never cleared on release, so it cannot
-		answer "quarantined right now"."""
-		devices = [
-			{"is_quarantined": 1, "last_quarantined_at": "2026-08-01T00:00:00+00:00"},
-			{"is_quarantined": 0, "last_quarantined_at": "2026-08-01T00:00:00+00:00"},
-			{"is_quarantined": 0, "last_quarantined_at": ""},
-		]
-		assert dd.quarantined_count(devices) == 1
-
-	def test_empty_registry(self):
-		assert dd.quarantined_count([]) == 0
-
-
 class TestUtcNow:
 	def test_returns_an_aware_utc_datetime(self):
 		now = dd.utc_now()

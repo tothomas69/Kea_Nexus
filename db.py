@@ -73,9 +73,11 @@ def init_db() -> None:
 				notes                  TEXT NOT NULL DEFAULT ''
 			)
 		""")
-		# device_registry may already exist from before these columns existed —
-		# CREATE TABLE IF NOT EXISTS above is a no-op in that case, so they
-		# have to be retrofitted explicitly.
+		# os_fingerprint, last_seen_* and the two quarantine columns were written
+		# by the removed keanexus-quarantine service. Nothing reads or writes
+		# them now; they stay so an existing database needs no migration and
+		# nothing it held is lost. device_registry may predate some columns,
+		# and CREATE TABLE IF NOT EXISTS is a no-op then, so they're retrofitted.
 		_ensure_column(conn, "device_registry", "last_seen_at", "TEXT NOT NULL DEFAULT ''")
 		_ensure_column(conn, "device_registry", "is_quarantined", "INTEGER NOT NULL DEFAULT 0")
 		conn.execute("""
@@ -110,18 +112,8 @@ def init_db() -> None:
 		conn.execute(
 			"CREATE INDEX IF NOT EXISTS idx_activity_log_occurred_at ON activity_log (occurred_at)"
 		)
-		conn.execute("""
-			CREATE TABLE IF NOT EXISTS quarantine_log (
-				log_id         INTEGER PRIMARY KEY AUTOINCREMENT,
-				friendly_name  TEXT NOT NULL,
-				action         TEXT NOT NULL,
-				step           TEXT NOT NULL,
-				succeeded      INTEGER NOT NULL,
-				attempt_count  INTEGER NOT NULL,
-				detail         TEXT NOT NULL DEFAULT '',
-				occurred_at    TEXT NOT NULL
-			)
-		""")
+		# quarantine_log, the removed quarantine service's audit trail, is no
+		# longer created; an existing one is left as it is, unread.
 		# Usernames compare case-insensitively so "Tom" and "tom" can't become
 		# two accounts. session_version is bumped on any change that should
 		# end existing logins (password, role, disable); the session cookie
@@ -248,10 +240,9 @@ def delete_reservation_label(mac_address: str) -> None:
 
 
 # --- Device registry -----------------------------------------------------
-# Source of truth for "who is this device" for the quarantine feature.
-# Keyed on friendly_name rather than MAC, since MAC can be changed by the
-# device itself. hostname + os_fingerprint are the durable identity signal;
-# last_seen_mac_address / last_seen_ip_address are breadcrumbs, not identity.
+# Friendly names for devices, shown on the Devices screen, the Address Map and
+# in Search. Keyed on friendly_name rather than MAC, since a device can change
+# its MAC; the hostname on its lease is what finds it on the network.
 
 
 def get_devices() -> list[dict]:
@@ -270,91 +261,27 @@ def get_device(friendly_name: str) -> Optional[dict]:
 	return dict(row) if row else None
 
 
-def upsert_device(
-	friendly_name: str,
-	hostname: str,
-	group_tag: str = "",
-	os_fingerprint: str = "",
-	last_seen_mac_address: str = "",
-	last_seen_ip_address: str = "",
-	last_seen_at: str = "",
-	last_quarantined_at: str = "",
-	is_quarantined: bool = False,
-	notes: str = "",
-) -> None:
-	"""Insert or update a device registry entry.
+def upsert_device(friendly_name: str, hostname: str, group_tag: str = "", notes: str = "") -> None:
+	"""Insert a device registry entry, or update its hostname, group tag and notes.
 
-	is_quarantined defaults to False, same as every other field here — this
-	function does a plain overwrite, not a read-modify-write, so a caller
-	that isn't intentionally changing quarantine state must read the
-	existing value and pass it through explicitly (same convention already
-	used for last_quarantined_at etc across every other upsert_device call
-	site), or a routine edit (notes, group_tag) would silently un-quarantine
-	the device in the UI.
+	Only those columns are written: the leftover quarantine-era columns keep
+	whatever they held (see init_db).
 	"""
 	assert friendly_name, "friendly_name must be a non-empty string"
 	assert hostname, "hostname must be a non-empty string"
 	with _connect() as conn:
 		conn.execute(
 			"""
-			INSERT INTO device_registry (
-				friendly_name, hostname, group_tag, os_fingerprint,
-				last_seen_mac_address, last_seen_ip_address, last_seen_at,
-				last_quarantined_at, is_quarantined, notes
-			)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			INSERT INTO device_registry (friendly_name, hostname, group_tag, notes)
+			VALUES (?, ?, ?, ?)
 			ON CONFLICT(friendly_name) DO UPDATE SET
-				hostname               = excluded.hostname,
-				group_tag              = excluded.group_tag,
-				os_fingerprint         = excluded.os_fingerprint,
-				last_seen_mac_address  = excluded.last_seen_mac_address,
-				last_seen_ip_address   = excluded.last_seen_ip_address,
-				last_seen_at           = excluded.last_seen_at,
-				last_quarantined_at    = excluded.last_quarantined_at,
-				is_quarantined         = excluded.is_quarantined,
-				notes                  = excluded.notes
+				hostname  = excluded.hostname,
+				group_tag = excluded.group_tag,
+				notes     = excluded.notes
 			""",
-			(
-				friendly_name,
-				hostname,
-				group_tag,
-				os_fingerprint,
-				last_seen_mac_address,
-				last_seen_ip_address,
-				last_seen_at,
-				last_quarantined_at,
-				int(is_quarantined),
-				notes,
-			),
+			(friendly_name, hostname, group_tag, notes),
 		)
 		conn.commit()
-
-
-def touch_last_seen(friendly_name: str, mac_address: str = "", ip_address: str = "") -> None:
-	"""Stamp last_seen_at = now for a device, confirmed alive right now.
-
-	Called by the quarantine service's periodic ARP presence probe
-	(presence_check.py) whenever a device answers an ARP request —
-	independent of whether it's ever been quarantined. mac_address/
-	ip_address are optional breadcrumbs; pass empty to leave the existing
-	values untouched (e.g. if the caller only confirmed presence, not a
-	fresh MAC/IP pair). No-ops if the device isn't registered.
-	"""
-	existing = get_device(friendly_name)
-	if existing is None:
-		return
-	upsert_device(
-		existing["friendly_name"],
-		existing["hostname"],
-		group_tag=existing["group_tag"],
-		os_fingerprint=existing["os_fingerprint"],
-		last_seen_mac_address=mac_address or existing["last_seen_mac_address"],
-		last_seen_ip_address=ip_address or existing["last_seen_ip_address"],
-		last_seen_at=datetime.now(timezone.utc).isoformat(),
-		last_quarantined_at=existing["last_quarantined_at"],
-		is_quarantined=bool(existing["is_quarantined"]),
-		notes=existing["notes"],
-	)
 
 
 def delete_device(friendly_name: str) -> None:
@@ -364,10 +291,7 @@ def delete_device(friendly_name: str) -> None:
 		conn.commit()
 
 
-# --- Quarantine log --------------------------------------------------------
-# Append-only audit trail written by the (future) keanexus-quarantine
-# service. Lives here now so the schema and read path can be built and
-# tested ahead of the orchestration logic that will write to it.
+# --- Activity log -----------------------------------------------------------
 
 
 _MAX_ACTIVITY_SUMMARY_LENGTH = 300
@@ -376,9 +300,8 @@ _MAX_ACTIVITY_SUMMARY_LENGTH = 300
 def insert_activity(username: str, summary: str) -> None:
 	"""Append one line to the activity log: who changed what, in plain words.
 
-	Written by the web UI's write routes after the change succeeded. Quarantine
-	and release are not recorded here; quarantine_log already has them step by
-	step. occurred_at is stamped here as UTC.
+	Written by the web UI's write routes after the change succeeded.
+	occurred_at is stamped here as UTC.
 	"""
 	assert username, "username must be a non-empty string"
 	assert summary, "summary must be a non-empty string"
@@ -399,62 +322,6 @@ def get_activity(limit: int = 50) -> list[dict]:
 			"SELECT occurred_at, username, summary FROM activity_log ORDER BY occurred_at DESC, log_id DESC LIMIT ?",
 			(limit,),
 		).fetchall()
-	return [dict(row) for row in rows]
-
-
-def insert_quarantine_log_entry(
-	friendly_name: str,
-	action: str,
-	step: str,
-	succeeded: bool,
-	attempt_count: int,
-	detail: str = "",
-) -> None:
-	"""Append one row to the quarantine audit log.
-
-	action is "quarantine" or "release"; step is "arp", "pihole", "kea", or
-	"nmap_refresh". occurred_at is stamped here as UTC so callers never need
-	to reason about timezones.
-	"""
-	assert friendly_name, "friendly_name must be a non-empty string"
-	assert action in ("quarantine", "release"), "action must be 'quarantine' or 'release'"
-	assert attempt_count >= 1, "attempt_count must be at least 1"
-	occurred_at = datetime.now(timezone.utc).isoformat()
-	with _connect() as conn:
-		conn.execute(
-			"""
-			INSERT INTO quarantine_log (
-				friendly_name, action, step, succeeded, attempt_count, detail, occurred_at
-			)
-			VALUES (?, ?, ?, ?, ?, ?, ?)
-			""",
-			(friendly_name, action, step, int(succeeded), attempt_count, detail, occurred_at),
-		)
-		conn.commit()
-
-
-def get_quarantine_log(friendly_name: Optional[str] = None, limit: int = 100) -> list[dict]:
-	"""Return quarantine log rows, most recent first.
-
-	Filters to a single device when friendly_name is given, otherwise
-	returns the most recent entries across all devices.
-	"""
-	assert limit >= 1, "limit must be at least 1"
-	with _connect() as conn:
-		if friendly_name:
-			rows = conn.execute(
-				"""
-				SELECT * FROM quarantine_log
-				WHERE friendly_name = ?
-				ORDER BY log_id DESC
-				LIMIT ?
-				""",
-				(friendly_name, limit),
-			).fetchall()
-		else:
-			rows = conn.execute(
-				"SELECT * FROM quarantine_log ORDER BY log_id DESC LIMIT ?", (limit,)
-			).fetchall()
 	return [dict(row) for row in rows]
 
 

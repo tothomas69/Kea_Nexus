@@ -10,25 +10,24 @@ from a CDN, so it keeps working when the internet connection is down.
 ## Screens
 
 - **Overview**: pool use, active leases, new leases in the last 24 hours,
-  reservations and quarantined devices. An address map shows all 256 addresses
+  reservations and registered devices. An address map shows all 256 addresses
   in the /24, and hovering over one shows its details, including the MAC that
-  last answered an ARP sweep. Also charts, the quarantine card and an
-  activity feed.
+  last answered an ARP sweep. Also charts and an activity feed.
 - **Leases**: every lease, with a live filter, add and edit, and an Online column.
 - **Reservations**: Kea host reservations with KeaNexus-only labels, add, edit
   and delete, and an Online column.
-- **Quarantine**: the device registry, quarantine and release for one device or
-  a group, and the audit log. Needs the optional quarantine service.
+- **Devices**: the device registry. Give a device a friendly name, a group tag
+  and notes; the table shows its current IP, MAC and whether it's online.
 - **Maintenance**: turn DHCP off and on (with Kea's own re-enable timer),
   clear declined leases, and wipe the lease database.
 - **Settings**: the pool range, lease length and DHCP options. Admins also
   manage **Users** here.
 - **Search**: press ⌘K or Ctrl+K on any screen to find a device, IP address,
   MAC address, hostname or label.
-- **Help**: the Siri Shortcut setup guide and the quarantine design notes.
+- **Help**: how Devices and the "who's online" sweep work, and what to do when
+  the sweep fails.
 
-The header shows the health of Kea, the quarantine service, and the two
-Pi-holes (labelled DNS1 and DNS2).
+The header shows the health of Kea and the two Pi-holes (labelled DNS1 and DNS2).
 
 ## Users and roles
 
@@ -43,10 +42,10 @@ The first time KeaNexus starts with no users, it creates an admin from
 ## Requirements
 
 - **Kea 3.0+** with an HTTP listener on `kea-dhcp4` (see below)
-- Docker and Docker Compose
-- Optional: the `keanexus-quarantine` service (Compose profile `quarantine`).
-  It powers quarantine, the ARP sweep behind the Online columns, and the
-  "On the wire" MAC addresses on the map.
+- Docker and Docker Compose, on a host that sits on the LAN the leases are on.
+  The container runs with host networking and `NET_RAW` so it can ARP-sweep
+  the subnet: that's what fills the Online columns and the map's "On the wire"
+  MAC addresses.
 
 ## Kea configuration
 
@@ -81,29 +80,26 @@ Copy `.env.example` to `.env` and fill it in.
 | `KEA_API_URL`, `KEA_API_USER`, `KEA_API_PASSWORD` | The Kea HTTP listener and its basic-auth login |
 | `KEANEXUS_SECRET` | Signs the session cookie. **Required**: sign-in is refused without it. Changing it signs everyone out |
 | `KEANEXUS_USERNAME`, `KEANEXUS_PASSWORD` | Used only once, to create the first admin |
-| `QUARANTINE_SERVICE_URL`, `QUARANTINE_SERVICE_TOKEN` | The quarantine service. Use the Docker host's LAN IP, not `localhost` |
 | `PIHOLE_API_URL`, `PIHOLE_SECONDARY_API_URL` | Optional. Adds the DNS1 and DNS2 health dots. Include the admin port, for example `http://172.16.17.212:8080` |
 | `POOL_SAMPLE_INTERVAL_SECONDS`, `POOL_SAMPLE_RETENTION_DAYS` | How often the pool chart takes a reading (default 300) and how long readings are kept (default 30 days) |
-
-The quarantine service has its own `quarantine_service/.env`. See
-`quarantine_service/.env.example`.
+| `LIVENESS_SWEEP_INTERVAL_SECONDS`, `KEANEXUS_WEB_LIVENESS_SWEEP`, `ARP_INTERFACE` | Optional. The ARP sweep's interval (default 300), an `off` switch for running without host networking, and the interface to sweep on when the host has several |
 
 ## Running it
 
 ```bash
 git clone git@github.com:tothomas69/Kea_Nexus.git keanexus && cd keanexus
 cp .env.example .env    # then fill it in
-docker compose --profile quarantine up -d --build
+docker compose up -d --build
 ```
 
-The UI listens on host port **8502**. Leave out `--profile quarantine` to run
-without the quarantine service.
+The UI listens on port **8502** of the host itself (host networking, so there
+is no port mapping; `PORT` in `docker-compose.yml` sets it).
 
 ### Updating
 
 ```bash
 cd /root/keanexus && git fetch origin && git reset --hard origin/main
-docker compose --profile quarantine up -d --build --remove-orphans
+docker compose up -d --build --remove-orphans
 ```
 
 Python modules are bind-mounted, so a code-only change takes effect after a
@@ -128,13 +124,12 @@ decision. Read it before adding anything.
 | Path | What it holds |
 | --- | --- |
 | `web/` | The UI: FastAPI app, routes, Jinja templates, static files and vendored JS |
-| `quarantine_service/` | The optional `keanexus-quarantine` service |
 | `kea.py` | The Kea HTTP client, plus the read-only client given to viewers |
 | `auth.py` | Users, roles, argon2 passwords and the signed session token |
-| `db.py` | SQLite: static records, labels, device registry, logs, users, pool samples |
+| `db.py` | SQLite: static records, labels, device registry, activity log, users, pool samples, the last sweep |
 | `address_map.py`, `dashboard_data.py`, `helpers.py` | Pure shaping logic, unit-tested |
 | `version.py` | The version number shown in the UI |
-| `docs/` | The as-built guide, design docs, and the Help articles |
+| `docs/` | The as-built guide, the migration notes, and the Help article |
 
 ## Extending
 

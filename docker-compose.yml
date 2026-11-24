@@ -1,14 +1,23 @@
 name: keanexus
 
 services:
-    # The KeaNexus web UI (FastAPI + HTMX). Host port 8502 is the one the
-    # Streamlit UI used, so Nginx Proxy Manager's upstream doesn't change.
+    # The KeaNexus web UI (FastAPI + HTMX).
     keanexus:
         build: .
         container_name: keanexus
         restart: unless-stopped
-        ports:
-            - "8502:8000"
+        # Host networking, not a bridge: "Check who's online" ARP-sweeps the
+        # LAN, and ARP only reaches devices on the same layer-2 segment. With
+        # host networking `ports:` is ignored, so uvicorn binds 8502 itself
+        # (PORT below): the port the Streamlit UI used, so Nginx Proxy
+        # Manager's upstream (172.16.17.215:8502) doesn't change.
+        network_mode: host
+        # NET_RAW only: enough to open the raw socket an ARP sweep needs.
+        # The container runs as root, so no file capabilities are needed.
+        cap_add:
+            - NET_RAW
+        environment:
+            - PORT=8502
         env_file:
             - .env
         volumes:
@@ -21,32 +30,8 @@ services:
             - ./dashboard_charts.py:/app/dashboard_charts.py
             - ./docs_library.py:/app/docs_library.py
             - ./pool_history.py:/app/pool_history.py
-            - ./quarantine_client.py:/app/quarantine_client.py
             - ./version.py:/app/version.py
             - ./web:/app/web
             - ./static:/app/static
             - ./docs:/app/docs
             - ./data:/app/data
-
-    keanexus-quarantine:
-        build:
-            context: .
-            dockerfile: quarantine_service/Dockerfile
-        container_name: keanexus-quarantine
-        restart: unless-stopped
-        # Host networking, not a bridge — ARP disruption and Kea's own DHCP
-        # broadcast handling both need real L2 access. NET_RAW/NET_ADMIN are
-        # scoped to this container only; KeaNexus and Kea itself stay unprivileged.
-        # See docs/quarantine-feature-design.md, open decisions #1 and #4.
-        network_mode: host
-        cap_add:
-            - NET_RAW
-            - NET_ADMIN
-        env_file:
-            - quarantine_service/.env
-        volumes:
-            - ./data:/app/data
-        # Opt-in only — never builds or starts unless explicitly requested:
-        #   docker compose --profile quarantine up
-        profiles:
-            - quarantine

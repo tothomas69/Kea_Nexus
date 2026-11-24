@@ -1,7 +1,7 @@
 """
 helpers.py - Shared utilities and data transformers for KeaNexus.
 
-No UI framework here: the web app and keanexus-quarantine both import it.
+No UI framework here: plain functions the web app imports.
 """
 
 import copy
@@ -131,7 +131,7 @@ def real_hostname(lease: dict, override_ips: set, override_macs: set) -> str:
 def distinct_real_hostnames(leases: list[dict], config: Optional[dict]) -> list[str]:
 	"""Sorted, de-duplicated real hostnames currently observed across leases.
 
-	Used to populate the quarantine Add Device hostname picker so users
+	Used to populate the Devices screen's hostname picker so users
 	select from hostnames Kea actually saw a device report, rather than
 	risk typing a reservation label that will never match a live lease.
 	"""
@@ -167,11 +167,11 @@ def lease_for_reservation(reservation: dict, leases: list[dict]) -> Optional[dic
 
 # --- Reservation edits ------------------------------------------------------------------
 #
-# A reservation can carry fields KeaNexus doesn't show, the important one being
-# the quarantine service's client-classes ["DROP"]. These edits never rebuild a
+# A reservation can carry fields KeaNexus doesn't show, such as client-classes
+# (["DROP"] makes Kea ignore the device). These edits never rebuild a
 # reservation from the form: they copy the existing entry and change only the
-# MAC and address, so a quarantined device stays off DHCP. Callers pass a config
-# read fresh from Kea, since the quarantine service edits the same config.
+# MAC and address, so those fields survive. Callers pass a config read fresh
+# from Kea, since it can be edited outside KeaNexus.
 
 
 def _matches_mac(reservation: dict, mac: str) -> bool:
@@ -207,6 +207,6 @@ def with_reservation_removed(config: dict, mac: str) -> dict:
 	return updated
 
 
-def is_quarantined_reservation(reservation: dict) -> bool:
-	"""True when the quarantine service's DROP class is on this reservation."""
+def has_drop_class(reservation: dict) -> bool:
+	"""True when Kea's built-in DROP class is on this reservation: Kea ignores the device."""
 	return "DROP" in (reservation.get("client-classes") or [])

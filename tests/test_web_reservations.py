@@ -196,12 +196,20 @@ class TestWrites:
 		assert kea.reservations() == []
 		assert db.get_reservation_label(_RESERVED_MAC) is None
 
-	def test_delete_refuses_a_quarantined_device(self, client, kea):
+	def test_drop_class_reservation_can_be_deleted(self, client, kea):
+		"""No quarantine service owns DROP any more: it's an ordinary reservation."""
 		headers = _sign_in(client)
 		kea.reservations()[0]["client-classes"] = ["DROP"]
 		response = client.delete(f"/reservations/{_RESERVED_MAC}", headers=headers)
-		assert "Release it on the Quarantine screen first" in response.text
-		assert kea.saves == []
+		assert "close-dialog" in response.headers["HX-Trigger"]
+		assert kea.reservations() == []
+
+	def test_drop_class_shows_a_chip(self, client, kea):
+		_sign_in(client)
+		kea.reservations()[0]["client-classes"] = ["DROP"]
+		page = client.get("/reservations").text
+		assert 'class="chip chip-dropped"' in page
+		assert "quarantined" not in page
 
 	@pytest.mark.parametrize(
 		("refuse_read", "message"),

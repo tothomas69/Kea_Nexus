@@ -1,7 +1,7 @@
 """
 test_reservations_data.py — Tests for web/reservations_data.py: the table
 rows, the form rules, and the config edits that must keep fields KeaNexus
-doesn't show (above all the quarantine service's DROP class).
+doesn't show (above all Kea's DROP class).
 """
 
 import pytest
@@ -63,14 +63,14 @@ class TestRows:
 		assert rows[_MAC_A]["label"] == "legacy"
 		assert rows[_MAC_B]["label"] == "New label"
 
-	def test_quarantined_and_non_mac_reservations(self):
+	def test_drop_class_and_non_mac_reservations(self):
 		config = _config(
 			{"hw-address": _MAC_A, "client-classes": ["DROP"]},
 			{"client-id": "01:02", "ip-address": "172.16.17.5"},
 		)
 		rows = rd.reservation_rows(config, [], {})
 		assert rows[0]["editable"] is False and rows[0]["mac"] == ""
-		assert rows[1]["quarantined"] is True
+		assert rows[1]["dropped"] is True
 
 	def test_no_config(self):
 		assert rd.reservation_rows(None, [], {}) == []

@@ -196,15 +196,6 @@ def leases_issued_since(
 	return issued if issued >= 0 else None
 
 
-def quarantined_count(devices: list[dict]) -> int:
-	"""Devices currently quarantined, per the registry's live flag.
-
-	Counts `is_quarantined`, never `last_quarantined_at` — the timestamp is
-	deliberately never cleared on release, so it cannot answer "right now".
-	"""
-	return sum(1 for device in devices if device.get("is_quarantined"))
-
-
 def utc_now() -> datetime:
 	"""Single seam for 'now', so tests pin time instead of racing it."""
 	return datetime.now(timezone.utc)

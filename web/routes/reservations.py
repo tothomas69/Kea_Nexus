@@ -2,9 +2,9 @@
 reservations.py — The Reservations screen: Kea host reservations with
 KeaNexus's own labels, and add, edit and delete for admins.
 
-Every write reads Kea's config fresh, never from the cache: the quarantine
-service edits the same config (its DROP class), and saving a copy up to two
-minutes old would undo whatever it changed in between. Labels are written to
+Every write reads Kea's config fresh, never from the cache: the config can be
+edited outside KeaNexus, and saving a copy up to two minutes old would undo
+whatever changed in between. Labels are written to
 the database only after Kea accepts the change, so a refused save leaves both
 sides as they were.
 """
@@ -15,7 +15,6 @@ from typing import Optional
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, Response
 
 import db
-from helpers import is_quarantined_reservation
 from kea import KeaClient, KeaError
 from web import cache, liveness
 from web.deps import current_user, kea_client, require_admin
@@ -189,15 +188,6 @@ def delete_reservation(
 	reservation = find_reservation(config, mac)
 	if reservation is None:
 		raise HTTPException(status_code=_HTTP_NOT_FOUND, detail="No reservation for that MAC.")
-	if is_quarantined_reservation(reservation):
-		# Deleting this entry would also delete the quarantine service's DROP
-		# class, putting the device back on DHCP behind the service's back.
-		return _delete_refused(
-			request,
-			mac,
-			config,
-			"This device is quarantined. Release it on the Quarantine screen first.",
-		)
 	try:
 		kea.save_config(with_reservation_removed(config, mac))
 	except KeaError as exc:

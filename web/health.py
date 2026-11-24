@@ -5,7 +5,6 @@ Each check answers one question, "is this service answering?", quickly and
 without credentials:
 
 - Kea: version-get through the read-only client.
-- keanexus-quarantine: its unauthenticated GET /health.
 - Pi-hole primary and secondary: GET /api/auth must come back as Pi-hole's
   own JSON, which always holds a "session" object, signed in or not (a 401
   included). No password is needed, so the web container never holds Pi-hole
@@ -39,7 +38,6 @@ _CHECK_TIMEOUT_SECONDS = 2.0
 _PIHOLE_CHECK_TIMEOUT_SECONDS = 5.0
 _DEFAULT_SCHEME = "http://"
 _API_SUFFIX = "/api"
-_QUARANTINE_URL_ENV = "QUARANTINE_SERVICE_URL"
 _PIHOLE_URL_ENVS = (("DNS1", "PIHOLE_API_URL"), ("DNS2", "PIHOLE_SECONDARY_API_URL"))
 _HTTP_SERVER_ERROR = 500
 
@@ -51,11 +49,6 @@ def _get(url: str, timeout_seconds: float, verify_tls: bool) -> Optional[httpx.R
 	except httpx.HTTPError as error:
 		logger.warning("Health check for %s failed: %s", url, error)
 		return None
-
-
-def _answers_with_success(url: str) -> bool:
-	response = _get(url, _CHECK_TIMEOUT_SECONDS, verify_tls=True)
-	return response is not None and response.is_success
 
 
 def _is_pihole_auth_reply(response: httpx.Response) -> bool:
@@ -113,12 +106,4 @@ def service_health(kea: KeaClient) -> list[dict]:
 		base_url: Optional[str] = os.environ.get(env_name)
 		if base_url and base_url.strip():
 			entries.append({"name": name, "up": _pihole_answers(base_url)})
-	quarantine_url = os.environ.get(_QUARANTINE_URL_ENV)
-	if quarantine_url:
-		entries.append(
-			{
-				"name": "Quarantine svc",
-				"up": _answers_with_success(quarantine_url.rstrip("/") + "/health"),
-			}
-		)
 	return entries

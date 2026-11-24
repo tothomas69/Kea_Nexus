@@ -58,7 +58,7 @@ _hasher = PasswordHasher()
 # Verifying against a real hash for unknown usernames makes a failed login
 # take the same time whether or not the username exists, so login timing
 # can't be used to discover valid usernames. Built lazily because hashing
-# is deliberately slow and most imports (tests, the quarantine service)
+# is deliberately slow and most imports (tests, scripts)
 # never log anyone in.
 _timing_decoy_hash: Optional[str] = None
 

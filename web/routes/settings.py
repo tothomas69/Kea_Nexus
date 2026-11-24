@@ -3,7 +3,7 @@ settings.py — The Settings screen: the subnet's DHCP settings, and (admins
 only) the Users panel.
 
 DHCP settings are saved onto a config read fresh from Kea, for the same
-reason as Reservations: the quarantine service edits the same config.
+reason as Reservations: Kea's config can be edited outside KeaNexus.
 User rules all live in auth.py; this module only collects input and shows
 the UserManagementError message auth.py raises.
 """

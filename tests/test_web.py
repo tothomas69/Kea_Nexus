@@ -13,6 +13,7 @@ from unittest.mock import patch
 import pytest
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
+from markupsafe import escape
 
 import auth
 import db
@@ -216,14 +217,15 @@ class TestHelp:
 		assert response.status_code == 200
 		assert "<header" not in response.text
 		for article in table_of_contents():
-			assert article["title"] in response.text
+			# Jinja escapes the title (an apostrophe becomes &#39;), as markupsafe does.
+			assert str(escape(article["title"])) in response.text
 
 	def test_direct_visit_gets_a_full_page(self, client):
 		_add_user()
 		_sign_in(client)
 		response = client.get("/help")
 		assert "<header" in response.text
-		assert "Siri Shortcut Setup" in response.text
+		assert "Devices and Who&#39;s Online" in response.text
 
 	def test_every_table_of_contents_link_lands_on_a_real_heading(self, client):
 		_add_user()
@@ -245,7 +247,7 @@ class TestHelp:
 		_add_user()
 		_sign_in(client)
 		with patch("web.help_content.read_article", side_effect=FileNotFoundError):
-			assert client.get("/help/siri-shortcut-setup.md").status_code == 404
+			assert client.get("/help/devices-and-whos-online.md").status_code == 404
 
 	def test_section_headings_skip_code_blocks(self):
 		source = "# Title\n\n## First\n\n```bash\n## not a heading\n```\n\n## Second step\n"

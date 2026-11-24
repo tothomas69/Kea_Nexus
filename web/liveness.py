@@ -2,8 +2,8 @@
 liveness.py — Who is on the network right now, from ARP sweeps.
 
 Kea knows which addresses are leased, not which devices are powered on: a
-lease outlives its device by hours. keanexus-quarantine shares the LAN segment
-and can ARP-sweep it (see quarantine_client.trigger_liveness_sweep). This
+lease outlives its device by hours. The web container shares the LAN segment
+(host networking + NET_RAW) and ARP-sweeps it (see web/arp_sweep.py). This
 module keeps the latest sweep in memory, runs one every
 LIVENESS_SWEEP_INTERVAL_SECONDS in a background thread, and runs one on
 demand for the Leases screen's button.
@@ -35,7 +35,7 @@ from typing import Callable, Mapping, Optional
 import db
 from address_map import subnet_prefix
 from kea import KeaClient
-from quarantine_client import trigger_liveness_sweep
+from web.arp_sweep import sweep as arp_sweep
 
 _logger = logging.getLogger(__name__)
 
@@ -53,7 +53,7 @@ _LAST_HOST_OCTET = 254
 @dataclass(frozen=True)
 class SweepResult:
 	"""One finished sweep. `seen_macs` is {ip: mac} for every address that
-	answered; the MAC is "" when the quarantine service didn't report one."""
+	answered. A MAC can be "" in a sweep saved before MACs were recorded."""
 
 	seen_macs: Mapping[str, str]
 	checked: int
@@ -107,9 +107,9 @@ def _store(result: SweepResult) -> None:
 
 
 def sweep_now(ip_addresses: list[str]) -> SweepResult:
-	"""Sweep these addresses and keep the result. Raises QuarantineServiceError."""
+	"""Sweep these addresses and keep the result. Raises arp_sweep.ArpSweepError."""
 	global _latest
-	seen_macs = MappingProxyType(dict(trigger_liveness_sweep(ip_addresses)))
+	seen_macs = MappingProxyType(dict(arp_sweep(ip_addresses)))
 	result = SweepResult(seen_macs, len(set(ip_addresses)), time.time())
 	with _lock:
 		_latest = result
@@ -146,7 +146,7 @@ def _address_sort_key(ip_address: str) -> tuple:
 
 
 def sweep_network(kea: KeaClient) -> SweepResult:
-	"""Sweep the whole subnet. Raises on Kea or quarantine service failure."""
+	"""Sweep the whole subnet. Raises KeaError or ArpSweepError."""
 	return sweep_now(network_addresses(kea.get_config(), kea.get_leases()))
 
 
@@ -157,8 +157,8 @@ def _run_loop(
 		try:
 			sweep_network(kea_factory())
 		except Exception:
-			# The quarantine service is optional and Kea can blip: either is an
-			# ordinary condition, and a loop that died on it would stop sweeping
+			# Kea can blip and raw sockets can be refused (a container started
+			# without NET_RAW): a loop that died on either would stop sweeping
 			# silently for the life of the process.
 			_logger.warning("Liveness sweep failed; will try again next interval", exc_info=True)
 		stop_event.wait(interval_seconds)
