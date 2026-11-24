@@ -4,10 +4,9 @@ Reservations screen.
 
 The config edits (with_reservation_saved / with_reservation_removed) live in
 helpers.py and are re-exported here. They never rebuild a reservation from
-the form: a reservation can carry fields KeaNexus doesn't show, above all the
-quarantine service's client-classes ["DROP"], and rebuilding it would silently
-let a quarantined device back onto DHCP. An edit copies the existing entry and
-changes only the address and MAC.
+the form: a reservation can carry fields KeaNexus doesn't show, such as
+client-classes ["DROP"], and rebuilding it would silently drop them. An edit
+copies the existing entry and changes only the address and MAC.
 """
 
 import ipaddress
@@ -16,7 +15,7 @@ from typing import Optional
 
 from helpers import (
 	build_hostname_override_sets,
-	is_quarantined_reservation,
+	has_drop_class,
 	lease_for_reservation,
 	real_hostname,
 	with_reservation_removed,
@@ -99,7 +98,8 @@ def reservation_rows(
 				"label": labels.get(mac) or reservation.get("hostname") or "",
 				"hostname": hostname,
 				"hostname_state": state,
-				"quarantined": is_quarantined_reservation(reservation),
+				# Kea's DROP class: Kea ignores this device's DHCP traffic.
+				"dropped": has_drop_class(reservation),
 				"online": _online(reservation, leases, responding),
 				# Kea can also key a reservation on client-id, DUID or circuit-id.
 				# KeaNexus only edits MAC reservations; the rest are shown, not touched.

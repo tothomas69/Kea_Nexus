@@ -14,11 +14,10 @@ const FLIP_UP_FROM_ROW = 9;
 const CARD_GAP_PX = 6;
 
 document.addEventListener("alpine:init", () => {
-	Alpine.data("addressMap", (csrfToken, isAdmin) => ({
+	Alpine.data("addressMap", (isAdmin) => ({
 		cells: [],
 		hovered: null,
 		pinned: null,
-		busy: false,
 		isAdmin: isAdmin,
 
 		init() {
@@ -73,23 +72,11 @@ document.addEventListener("alpine:init", () => {
 		},
 
 		editStatic(cell) {
-			htmx.ajax("GET", `/address/${cell.ip}/static`, { target: "#dialog-body", swap: "innerHTML" });
+			htmx.ajax("GET", `/address/${cell.ip}/static`, {
+				target: "#dialog-body",
+				swap: "innerHTML",
+			});
 			this.$dispatch("open-dialog");
-		},
-
-		quarantineAction(cell) {
-			const name = encodeURIComponent(cell.device);
-			const url = cell.quarantined ? `/quarantine/${name}/release` : `/quarantine/${name}`;
-			this.busy = true;
-			htmx
-				.ajax("POST", url, {
-					target: "#quarantine-card",
-					swap: "outerHTML",
-					headers: { "X-CSRF-Token": csrfToken },
-				})
-				.finally(() => {
-					this.busy = false;
-				});
 		},
 	}));
 });

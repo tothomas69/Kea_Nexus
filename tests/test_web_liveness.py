@@ -1,6 +1,6 @@
 """
 test_web_liveness.py — Tests for web/liveness.py: the latest sweep, saving it
-to SQLite, the background loop and the age label. The quarantine service is
+to SQLite, the background loop and the age label. The ARP sweep itself is
 always patched.
 """
 
@@ -12,8 +12,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 import db
-from quarantine_client import QuarantineServiceError
 from web import liveness
+from web.arp_sweep import ArpSweepError
 
 
 @pytest.fixture(autouse=True)
@@ -41,9 +41,7 @@ _WHOLE_SUBNET_HOSTS = 254
 class TestSweepNow:
 	def test_keeps_the_latest(self):
 		assert liveness.latest() is None
-		with patch(
-			"web.liveness.trigger_liveness_sweep", return_value={"10.0.0.1": "aa:bb:cc:00:00:01"}
-		):
+		with patch("web.liveness.arp_sweep", return_value={"10.0.0.1": "aa:bb:cc:00:00:01"}):
 			result = liveness.sweep_now(["10.0.0.1", "10.0.0.2", "10.0.0.2"])
 		assert result.responding == frozenset({"10.0.0.1"})
 		assert dict(result.seen_macs) == {"10.0.0.1": "aa:bb:cc:00:00:01"}
@@ -51,17 +49,15 @@ class TestSweepNow:
 		assert liveness.latest() is result
 
 	def test_failure_keeps_the_previous_result(self):
-		with patch("web.liveness.trigger_liveness_sweep", return_value={"10.0.0.1": ""}):
+		with patch("web.liveness.arp_sweep", return_value={"10.0.0.1": ""}):
 			first = liveness.sweep_now(["10.0.0.1"])
-		with patch(
-			"web.liveness.trigger_liveness_sweep", side_effect=QuarantineServiceError("down")
-		):
-			with pytest.raises(QuarantineServiceError):
+		with patch("web.liveness.arp_sweep", side_effect=ArpSweepError("down")):
+			with pytest.raises(ArpSweepError):
 				liveness.sweep_now(["10.0.0.1"])
 		assert liveness.latest() is first
 
 	def test_result_cannot_be_changed_after_the_fact(self):
-		with patch("web.liveness.trigger_liveness_sweep", return_value={"10.0.0.1": ""}):
+		with patch("web.liveness.arp_sweep", return_value={"10.0.0.1": ""}):
 			result = liveness.sweep_now(["10.0.0.1"])
 		with pytest.raises(TypeError):
 			result.seen_macs["10.0.0.2"] = ""
@@ -69,9 +65,7 @@ class TestSweepNow:
 
 class TestStoredSweep:
 	def test_a_sweep_is_saved(self):
-		with patch(
-			"web.liveness.trigger_liveness_sweep", return_value={"10.0.0.1": "aa:bb:cc:00:00:01"}
-		):
+		with patch("web.liveness.arp_sweep", return_value={"10.0.0.1": "aa:bb:cc:00:00:01"}):
 			result = liveness.sweep_now(["10.0.0.1", "10.0.0.2"])
 		stored = db.get_liveness_sweep()
 		assert stored == {
@@ -81,7 +75,7 @@ class TestStoredSweep:
 		}
 
 	def test_survives_a_restart(self):
-		with patch("web.liveness.trigger_liveness_sweep", return_value={"10.0.0.1": ""}):
+		with patch("web.liveness.arp_sweep", return_value={"10.0.0.1": ""}):
 			saved = liveness.sweep_now(["10.0.0.1"])
 		liveness.reset()
 		restored = liveness.latest()
@@ -102,7 +96,7 @@ class TestStoredSweep:
 
 	def test_unwritable_database_keeps_the_sweep_in_memory(self):
 		with (
-			patch("web.liveness.trigger_liveness_sweep", return_value={"10.0.0.1": ""}),
+			patch("web.liveness.arp_sweep", return_value={"10.0.0.1": ""}),
 			patch("web.liveness.db.save_liveness_sweep", side_effect=OSError("read-only")),
 		):
 			result = liveness.sweep_now(["10.0.0.1"])
@@ -125,7 +119,7 @@ class TestNetworkAddresses:
 		assert addresses[-1] == "10.9.9.9"
 
 	def test_sweep_network_asks_kea_for_the_subnet(self):
-		with patch("web.liveness.trigger_liveness_sweep", return_value={}) as sweep:
+		with patch("web.liveness.arp_sweep", return_value={}) as sweep:
 			liveness.sweep_network(_kea(["10.0.0.1"]))
 		swept = sweep.call_args.args[0]
 		assert len(swept) == _WHOLE_SUBNET_HOSTS
@@ -140,12 +134,12 @@ class TestLoop:
 		def fake_sweep(addresses):
 			calls.append(addresses)
 			if len(calls) == 1:
-				raise QuarantineServiceError("down")
+				raise ArpSweepError("down")
 			passes.set()
 			return {"10.0.0.1": ""}
 
 		with (
-			patch("web.liveness.trigger_liveness_sweep", side_effect=fake_sweep),
+			patch("web.liveness.arp_sweep", side_effect=fake_sweep),
 			patch("web.liveness.sweep_interval_seconds", return_value=0),
 		):
 			liveness.start_sweep_loop(lambda: _kea([], subnet="10.0.0.0/24"))

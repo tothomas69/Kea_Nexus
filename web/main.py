@@ -22,12 +22,12 @@ from web.deps import NotSignedIn
 from web.liveness import start_sweep_loop
 from web.routes import (
 	auth_routes,
+	devices,
 	help_routes,
 	leases,
 	maintenance,
 	overview,
 	pages,
-	quarantine,
 	reservations,
 	search,
 	settings,
@@ -46,11 +46,10 @@ _BACKGROUND_WORK_ENV = "KEANEXUS_WEB_BACKGROUND_WORK"
 _BACKGROUND_WORK_OFF = "off"
 
 
-# The liveness sweep has its own switch. It needs the optional quarantine
-# service; without its URL
-# there is nothing to sweep through, so the loop doesn't start.
+# The background liveness sweep has its own switch, on by default. Set it to
+# "off" when running somewhere without host networking or NET_RAW (a laptop
+# dev run), where every sweep would only fail and log.
 _LIVENESS_SWEEP_ENV = "KEANEXUS_WEB_LIVENESS_SWEEP"
-_QUARANTINE_URL_ENV = "QUARANTINE_SERVICE_URL"
 
 
 def background_work_enabled() -> bool:
@@ -58,8 +57,7 @@ def background_work_enabled() -> bool:
 
 
 def liveness_sweep_enabled() -> bool:
-	switched_on = os.environ.get(_LIVENESS_SWEEP_ENV, "on").strip().lower() != _BACKGROUND_WORK_OFF
-	return switched_on and bool(os.environ.get(_QUARANTINE_URL_ENV, "").strip())
+	return os.environ.get(_LIVENESS_SWEEP_ENV, "on").strip().lower() != _BACKGROUND_WORK_OFF
 
 
 def _redirect_to_login(request: Request, exc: NotSignedIn) -> Response:
@@ -95,7 +93,7 @@ def create_app(start_background_work: bool = True, start_liveness_sweep: bool = 
 	app.include_router(auth_routes.router)
 	app.include_router(pages.router)
 	app.include_router(overview.router)
-	app.include_router(quarantine.router)
+	app.include_router(devices.router)
 	app.include_router(leases.router)
 	app.include_router(reservations.router)
 	app.include_router(maintenance.router)

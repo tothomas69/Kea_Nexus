@@ -1,11 +1,11 @@
 """
 overview.py — The Overview page: key figures, the Address Map with hover and
-pinned details, the Quarantine card, Activity, and the header's health dots.
+pinned details, Activity, and the header's health dots.
 
-Writes from this page (Quarantine/Release, static entries) are admin-only and
-answer with an "overview-changed" HX-Trigger, which every live panel listens
-for, so the map, the card and Activity all redraw right after an action
-instead of waiting for their 30-second poll.
+Writes from this page (static entries) are admin-only and answer with an
+"overview-changed" HX-Trigger, which every live panel listens for, so the map
+and Activity redraw right after a change instead of waiting for their
+30-second poll.
 """
 
 import re
@@ -32,9 +32,9 @@ from dashboard_charts import (
 )
 from helpers import build_hostname_override_sets
 from kea import KeaClient
-from quarantine_client import QuarantineServiceError, trigger_quarantine, trigger_release
 from web import cache, liveness
 from web.deps import current_user, kea_client, require_admin
+from web.devices_data import device_rows
 from web.health import service_health
 from web.kea_reads import read_kea
 from web.overview_data import (
@@ -43,7 +43,6 @@ from web.overview_data import (
 	legend,
 	map_cells,
 	pool_figures,
-	quarantine_rows,
 )
 from web.templating import render
 
@@ -53,7 +52,6 @@ _HEALTH_CACHE_SECONDS = 20
 _SECONDS_PER_HOUR = 60 * 60
 _HISTORY_WINDOW_SECONDS = 26 * _SECONDS_PER_HOUR  # a day of samples, plus the issued-count baseline
 _ACTIVITY_LINES = 6
-_ACTIVITY_LOG_ROWS = 200
 
 OVERVIEW_CHANGED_EVENT = "overview-changed"
 _HTTP_NOT_FOUND = 404
@@ -99,29 +97,33 @@ def _map_context(kea: KeaClient) -> dict:
 	}
 
 
-def _quarantine_context(notice: Optional[dict] = None) -> dict:
-	return {"devices": quarantine_rows(db.get_devices()), "notice": notice}
-
-
 def _activity_context() -> dict:
-	log_entries = db.get_quarantine_log(limit=_ACTIVITY_LOG_ROWS)
-	admin_entries = db.get_activity(limit=_ACTIVITY_LINES)
-	return {"activity": activity(log_entries, _ACTIVITY_LINES, admin_entries)}
+	return {"activity": activity(db.get_activity(limit=_ACTIVITY_LINES), _ACTIVITY_LINES)}
 
 
-def _kpi_context(stats: Optional[dict], config: Optional[dict]) -> dict:
+def _kpi_context(stats: Optional[dict], config: Optional[dict], leases: list[dict]) -> dict:
 	since = datetime.fromtimestamp(time.time() - _HISTORY_WINDOW_SECONDS, tz=timezone.utc)
 	samples = db.get_pool_samples(since=since.isoformat())
-	devices = db.get_devices()
 	reservations = subnet_reservations(config)
 	return {
 		"pool": pool_figures(stats),
 		"issued": issued_recently(samples, datetime.now(timezone.utc)),
 		"reservation_count": len(reservations),
 		"fixed_count": sum(1 for reservation in reservations if reservation.get("ip-address")),
-		"quarantined_names": [d["friendly_name"] for d in devices if d.get("is_quarantined")],
+		**_devices_context(leases),
 		**_online_context(),
 	}
+
+
+def _devices_context(leases: list[dict]) -> dict:
+	"""The Devices tile: how many are registered, and how many answered the last sweep.
+
+	online is None before any sweep, so the tile can say "not checked yet".
+	"""
+	sweep = liveness.latest()
+	rows = device_rows(db.get_devices(), leases, sweep.seen_macs if sweep else None)
+	online = None if sweep is None else sum(1 for row in rows if row["online"])
+	return {"device_count": len(rows), "devices_online": online}
 
 
 def _online_context() -> dict:
@@ -167,8 +169,7 @@ def overview(
 	request: Request, user: dict = Depends(current_user), kea: KeaClient = Depends(kea_client)
 ) -> Response:
 	context = _map_context(kea)
-	context.update(_kpi_context(context["stats"], context["config"]))
-	context.update(_quarantine_context())
+	context.update(_kpi_context(context["stats"], context["config"], context["leases"]))
 	context.update(_activity_context())
 	context.update(_charts_context(context["leases"], context["config"]))
 	return render(request, "overview.html", {"user": user, "is_admin": _is_admin(user), **context})
@@ -179,15 +180,6 @@ def address_map_fragment(
 	request: Request, user: dict = Depends(current_user), kea: KeaClient = Depends(kea_client)
 ) -> Response:
 	return render(request, "overview/_address_map.html", {"user": user, **_map_context(kea)})
-
-
-@router.get("/fragments/quarantine")
-def quarantine_fragment(request: Request, user: dict = Depends(current_user)) -> Response:
-	return render(
-		request,
-		"overview/_quarantine_card.html",
-		{"user": user, "is_admin": _is_admin(user), **_quarantine_context()},
-	)
 
 
 @router.get("/fragments/activity")
@@ -201,45 +193,6 @@ def health_fragment(
 ) -> Response:
 	services = cache.cached("health", _HEALTH_CACHE_SECONDS, lambda: service_health(kea))
 	return render(request, "overview/_health.html", {"services": services})
-
-
-# --- Quarantine and Release ----------------------------------------------------------------
-
-
-def _run_quarantine_action(
-	request: Request, user: dict, friendly_name: str, release: bool
-) -> Response:
-	if db.get_device(friendly_name) is None:
-		raise HTTPException(status_code=_HTTP_NOT_FOUND, detail="No such registered device.")
-	try:
-		result = trigger_release(friendly_name) if release else trigger_quarantine(friendly_name)
-		notice = {"ok": True, "text": result.get("summary") or "Done."}
-	except QuarantineServiceError as exc:
-		notice = {
-			"ok": False,
-			"text": f"The quarantine service refused or could not be reached: {exc}",
-		}
-	response = render(
-		request,
-		"overview/_quarantine_card.html",
-		{"user": user, "is_admin": True, **_quarantine_context(notice)},
-	)
-	response.headers["HX-Trigger"] = OVERVIEW_CHANGED_EVENT
-	return response
-
-
-@router.post("/quarantine/{friendly_name}")
-def quarantine_device(
-	friendly_name: str, request: Request, user: dict = Depends(require_admin)
-) -> Response:
-	return _run_quarantine_action(request, user, friendly_name, release=False)
-
-
-@router.post("/quarantine/{friendly_name}/release")
-def release_device(
-	friendly_name: str, request: Request, user: dict = Depends(require_admin)
-) -> Response:
-	return _run_quarantine_action(request, user, friendly_name, release=True)
 
 
 # --- Static entries (the IPAM tab's job, now on the pinned card) -----------------------------

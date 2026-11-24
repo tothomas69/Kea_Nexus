@@ -1,5 +1,11 @@
 # Design Doc — Moving the KeaNexus UI from Streamlit to FastAPI + HTMX
 
+> **November 2026:** quarantine has since been removed, along with the
+> `keanexus-quarantine` service. The Quarantine screen became Devices (the
+> registry without enforcement) and the ARP sweep moved into the web container.
+> The quarantine parts below are the record of what was built then, not the
+> current app; see `as-built-project-guide.md` for what exists now.
+
 Status: **proposed**. Nothing here is built yet. Each phase below ships as its own PR.
 
 Target design: the "B2 · Clean Light, refined" artboard on the KeaNexus design canvas.

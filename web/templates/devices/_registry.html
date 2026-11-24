@@ -1,0 +1,54 @@
+{# The device table. Redrawn after a dialog save or delete ("devices-changed"),
+   every 30 s so new leases and sweeps show up, and when the tab comes back. #}
+<section id="registry" class="card" aria-labelledby="registry-title"
+	hx-get="/fragments/devices" hx-trigger="every 30s, devices-changed from:body, page-visible from:body" hx-swap="outerHTML">
+	<div class="card-head">
+		<h2 id="registry-title">Registered devices</h2>
+	</div>
+
+	{% if devices %}
+	<div class="table-wrap">
+	<table class="data-table">
+		<thead>
+			<tr>
+				<th scope="col">Friendly name</th><th scope="col">Hostname</th><th scope="col">Group</th>
+				<th scope="col">IP</th><th scope="col">MAC</th><th scope="col">Online</th>
+				<th scope="col"><span class="visually-hidden">Actions</span></th>
+			</tr>
+		</thead>
+		<tbody>
+		{% for device in devices %}
+			<tr class="{{ 'row-online' if device.online }}">
+				<td class="strong">{{ device.name }}</td>
+				<td class="mono">{{ device.hostname }}</td>
+				<td>{{ device.group or "—" }}</td>
+				{# IP and MAC come from the device's live lease; "—" means no lease carries its hostname right now. #}
+				<td class="mono nowrap">{{ device.ip or "—" }}</td>
+				<td class="mono nowrap">{{ device.mac or "—" }}</td>
+				<td>{% if device.online %}<span class="online-dot" aria-hidden="true"></span> yes{% elif device.online is none %}<span class="muted">—</span>{% else %}<span class="muted">no answer</span>{% endif %}</td>
+				<td class="row-actions">
+					<button class="button button-quiet" {% if not is_admin %}disabled{% endif %}
+						hx-get="/devices/{{ device.name | urlencode }}" hx-target="#dialog-body" hx-swap="innerHTML"
+						@click="$dispatch('open-dialog')">Edit</button>
+				</td>
+			</tr>
+		{% endfor %}
+		</tbody>
+	</table>
+	</div>
+	{% else %}
+	<p class="muted">No devices are registered yet.{% if is_admin %} Use Add device to register one.{% endif %}</p>
+	{% endif %}
+
+	{% if groups %}
+	<h3 class="subhead">Groups</h3>
+	<ul class="group-list">
+		{% for group in groups %}
+		<li class="group-row">
+			<span class="strong">{{ group.tag }}</span>
+			<span class="muted small">{{ group.devices }} device{{ "s" if group.devices != 1 }}</span>
+		</li>
+		{% endfor %}
+	</ul>
+	{% endif %}
+</section>

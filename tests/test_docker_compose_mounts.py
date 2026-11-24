@@ -22,9 +22,7 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent
 _COMPOSE = _REPO_ROOT / "docker-compose.yml"
 
 # Modules the KeaNexus container never imports, so they need no mount.
-# pihole.py exists at the repo root only so quarantine_service can import it;
-# that service gets its code from its own Dockerfile COPY, not a bind mount.
-_NOT_REQUIRED_IN_KEANEXUS = {"pihole.py"}
+_NOT_REQUIRED_IN_KEANEXUS: set[str] = set()
 
 # Mounts that hold runtime state, not code. They are gitignored, so they exist
 # wherever the app has run (a dev Mac, netstack) but not in a fresh clone, and

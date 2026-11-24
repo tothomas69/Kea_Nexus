@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}Devices · KeaNexus{% endblock %}
+{% block content %}
+
+<div class="screen-head">
+	<div>
+		<h1>Devices</h1>
+		<p class="muted">Give a device a friendly name. It's found by the hostname on its lease, not by MAC, since a device can change its MAC.</p>
+	</div>
+	{% if is_admin %}
+	<button class="button button-primary" hx-get="/devices/new" hx-target="#dialog-body" hx-swap="innerHTML"
+		@click="$dispatch('open-dialog')">Add device</button>
+	{% endif %}
+</div>
+{% if not is_admin %}<p class="muted small">Viewers can see everything here but can't make changes.</p>{% endif %}
+
+{% include "devices/_registry.html" %}
+{% endblock %}

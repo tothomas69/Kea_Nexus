@@ -50,7 +50,7 @@ class TestReadArticle:
 			"../../etc/passwd",
 			"/etc/passwd",
 			"as-built-project-guide.md",
-			"siri-shortcut-setup.md/../../.env",
+			"devices-and-whos-online.md/../../.env",
 			"",
 		],
 	)
@@ -63,7 +63,9 @@ class TestReadArticle:
 
 class TestArticleTitle:
 	def test_returns_the_display_title(self):
-		assert docs_library.article_title("siri-shortcut-setup.md") == "Siri Shortcut Setup"
+		assert (
+			docs_library.article_title("devices-and-whos-online.md") == "Devices and Who's Online"
+		)
 
 	def test_rejects_an_unlisted_filename(self):
 		with pytest.raises(KeyError):

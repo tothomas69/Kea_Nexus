@@ -659,17 +659,6 @@ a:hover {
 	color: var(--text-faint);
 	margin-top: 6px;
 }
-.kpi-alert {
-	background: var(--danger-soft);
-	border-color: #fecaca;
-}
-.kpi-alert .kpi-label,
-.kpi-alert .kpi-value {
-	color: #991b1b;
-}
-.kpi-alert .kpi-note {
-	color: #7f1d1d;
-}
 
 .pool-bar {
 	height: 8px;
@@ -783,20 +772,58 @@ a:hover {
 	box-shadow: 0 0 0 2px #111827;
 }
 .cell-pinned {
-	box-shadow: 0 0 0 2px #ffffff, 0 0 0 4px var(--accent);
+	box-shadow:
+		0 0 0 2px #ffffff,
+		0 0 0 4px var(--accent);
 }
 
-.cell-leased { background: #2563eb; border-color: #2563eb; color: #ffffff; }
-.cell-reserved { background: #0f766e; border-color: #0f766e; color: #ffffff; }
-.cell-static { background: #6d28d9; border-color: #6d28d9; color: #ffffff; }
-.cell-quarantined { background: #fee2e2; border-color: #dc2626; color: #991b1b; }
-.cell-unknown { background: #f59e0b; border-color: #d97706; color: #111827; }
-.cell-declined { background: #fff7ed; border-color: #ea580c; color: #9a3412; }
-.cell-scope { background: #dbeafe; border-color: #bfdbfe; color: #1e3a8a; }
-.cell-free { background: #f3f4f6; border-color: #e5e7eb; color: #4b5563; }
-.cell-gateway { background: #111827; border-color: #111827; color: #ffffff; }
+.cell-leased {
+	background: #2563eb;
+	border-color: #2563eb;
+	color: #ffffff;
+}
+.cell-reserved {
+	background: #0f766e;
+	border-color: #0f766e;
+	color: #ffffff;
+}
+.cell-static {
+	background: #6d28d9;
+	border-color: #6d28d9;
+	color: #ffffff;
+}
+
+.cell-unknown {
+	background: #f59e0b;
+	border-color: #d97706;
+	color: #111827;
+}
+.cell-declined {
+	background: #fff7ed;
+	border-color: #ea580c;
+	color: #9a3412;
+}
+.cell-scope {
+	background: #dbeafe;
+	border-color: #bfdbfe;
+	color: #1e3a8a;
+}
+.cell-free {
+	background: #f3f4f6;
+	border-color: #e5e7eb;
+	color: #4b5563;
+}
+.cell-gateway {
+	background: #111827;
+	border-color: #111827;
+	color: #ffffff;
+}
 .cell-network,
-.cell-broadcast { background: #e5e7eb; border-color: #d1d5db; color: #4b5563; }
+.cell-broadcast {
+	background: #e5e7eb;
+	border-color: #d1d5db;
+	color: #4b5563;
+}
 
 .pill {
 	font-size: 11px;
@@ -876,17 +903,10 @@ a:hover {
 	color: var(--text-faint);
 }
 
-/* --- Side cards: Quarantine and Activity --------------------------------- */
+/* --- Side cards: Activity --------------------------------- */
 
 .side-card {
 	padding: 16px 18px;
-}
-.side-card-head {
-	display: flex;
-	align-items: center;
-}
-.side-card-foot {
-	margin: 10px 0 0;
 }
 
 .notice {
@@ -902,50 +922,6 @@ a:hover {
 .notice-error {
 	background: var(--danger-soft);
 	color: var(--danger);
-}
-
-.switch-row {
-	display: flex;
-	align-items: center;
-	gap: 12px;
-	padding: 12px 0;
-	border-bottom: 1px solid #f3f4f6;
-}
-.switch-row-text {
-	flex: 1;
-	min-width: 0;
-	font-size: 13px;
-}
-.switch {
-	width: 44px;
-	height: 24px;
-	border-radius: 999px;
-	border: none;
-	padding: 2px;
-	display: flex;
-	justify-content: flex-start;
-	background: #d1d5db;
-	cursor: pointer;
-	flex: 0 0 auto;
-}
-.switch-on {
-	justify-content: flex-end;
-	background: #dc2626;
-}
-.switch-knob {
-	width: 20px;
-	height: 20px;
-	border-radius: 50%;
-	background: #ffffff;
-	box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
-}
-.switch:disabled {
-	cursor: not-allowed;
-	opacity: 0.55;
-}
-.switch.htmx-request {
-	opacity: 0.6;
-	cursor: progress;
 }
 
 .activity-line {
@@ -967,10 +943,10 @@ a:hover {
 	border-radius: 50%;
 	margin-top: 6px;
 }
-.tone-quarantine { background: #dc2626; }
-.tone-release { background: #16a34a; }
-.tone-warn { background: #d97706; }
-.tone-admin { background: var(--accent); }
+
+.tone-admin {
+	background: var(--accent);
+}
 
 /* --- Charts --------------------------------------------------------------- */
 
@@ -1068,7 +1044,7 @@ a:hover {
 	}
 }
 
-/* --- Screens with tables (Quarantine first, the rest follow) ------------- */
+/* --- Screens with tables ------------- */
 
 .screen-head {
 	display: flex;
@@ -1085,9 +1061,7 @@ a:hover {
 	margin: 0;
 	font-size: 13px;
 }
-.page > .card + .card,
-.page > .card + .explainers,
-.page > .explainers + .card {
+.page > .card + .card {
 	margin-top: 20px;
 }
 .card-head {
@@ -1137,7 +1111,7 @@ a:hover {
 .data-table tbody tr:hover {
 	background: #f9fafb;
 }
-.row-quarantined td {
+.row-dropped td {
 	color: var(--danger);
 }
 /* A table cell, not flex: display:flex takes a td out of table layout and its
@@ -1161,7 +1135,7 @@ a:hover {
 	font-size: 11px;
 	font-weight: 500;
 }
-.chip-quarantined {
+.chip-dropped {
 	background: var(--danger-soft);
 	color: var(--danger);
 }
@@ -1171,21 +1145,6 @@ a:hover {
 }
 .notice p + p {
 	margin-top: 4px;
-}
-.step {
-	display: inline-block;
-	margin-left: 8px;
-	font-family: var(--font-mono);
-}
-.step-ok {
-	color: #166534;
-}
-.step-soft {
-	color: var(--text-faint);
-}
-.step-failed {
-	color: var(--danger);
-	font-weight: 600;
 }
 
 .group-list {
@@ -1200,46 +1159,6 @@ a:hover {
 	padding: 8px 0;
 	border-bottom: 1px solid #f3f4f6;
 	font-size: 13px;
-}
-.group-actions {
-	margin-left: auto;
-	display: flex;
-	gap: 6px;
-}
-.group-actions .button {
-	padding: 4px 10px;
-	font-size: 12px;
-}
-
-.explainers {
-	display: grid;
-	grid-template-columns: repeat(2, minmax(0, 1fr));
-	gap: 20px;
-	align-items: start;
-}
-.explainer summary {
-	cursor: pointer;
-	font-size: 13px;
-	font-weight: 600;
-}
-.explainer dl {
-	margin: 12px 0 0;
-	font-size: 13px;
-}
-.explainer dt {
-	font-weight: 600;
-	margin-top: 10px;
-}
-.explainer dd {
-	margin: 2px 0 0;
-	color: var(--text-muted);
-}
-.explainer pre {
-	overflow-x: auto;
-	padding: 10px 12px;
-	background: #f6f8fa;
-	border-radius: var(--radius-control);
-	font-size: 12px;
 }
 
 .check {
@@ -1258,9 +1177,6 @@ a:hover {
 }
 
 @media (max-width: 760px) {
-	.explainers {
-		grid-template-columns: minmax(0, 1fr);
-	}
 	.screen-head {
 		flex-direction: column;
 	}
