@@ -1,6 +1,6 @@
 {# Redrawn every 30 s and after any change. The cell details ride along as JSON, so the
    hover card reads them locally and hovering costs no requests (see overview.js). #}
-<div id="address-map" hx-get="/fragments/address-map" hx-trigger="every 30s, overview-changed from:body" hx-swap="outerHTML">
+<div id="address-map" hx-get="/fragments/address-map" hx-trigger="every 30s, overview-changed from:body, page-visible from:body" hx-swap="outerHTML">
 	<script type="application/json" id="address-cells">{{ cells | tojson }}</script>
 	<div class="address-grid">
 		{% for cell in cells %}

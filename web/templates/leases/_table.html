@@ -1,6 +1,8 @@
-{# Redrawn by the filter, by a sweep, every 60 s, after a lease is saved, and after expired leases are removed. #}
+{# Redrawn by the filter, by a sweep, every 60 s, after a lease is saved, and after expired leases are removed.
+   The poll waits while a sweep or removal is still running (KeaNexus.busy, static/live.js):
+   swapping the table out mid-request would throw that request's answer away. #}
 <section id="leases-table" class="card" aria-label="Leases"
-	hx-get="/fragments/leases" hx-include="#lease-filter" hx-trigger="every 60s, leases-changed from:body" hx-swap="outerHTML">
+	hx-get="/fragments/leases" hx-include="#lease-filter" hx-trigger="every 60s[!KeaNexus.busy('leases-table')], leases-changed from:body, page-visible[!KeaNexus.busy('leases-table')] from:body" hx-swap="outerHTML">
 	{% if kea_error %}<p class="banner banner-error" role="alert">Kea can't be reached right now, so this list may be empty or out of date.</p>{% endif %}
 	{% if sweep_error %}<p class="notice notice-error" role="alert">{{ sweep_error }}</p>{% endif %}
 	{% if notice %}<p class="notice {{ 'notice-ok' if notice.ok else 'notice-error' }}" role="status">{{ notice.text }}</p>{% endif %}

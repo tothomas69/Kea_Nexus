@@ -1,5 +1,5 @@
 <section id="activity" class="card side-card" aria-labelledby="activity-title"
-	hx-get="/fragments/activity" hx-trigger="every 30s, overview-changed from:body" hx-swap="outerHTML">
+	hx-get="/fragments/activity" hx-trigger="every 30s, overview-changed from:body, page-visible from:body" hx-swap="outerHTML">
 	<h2 id="activity-title">Activity</h2>
 	{% for line in activity %}
 	<div class="activity-line">

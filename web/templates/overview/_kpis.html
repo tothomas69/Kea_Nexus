@@ -1,4 +1,7 @@
-<section class="kpis" aria-label="Key figures">
+{# Redrawn on its own, not only with the page, so the counts follow a sweep or a
+   change made elsewhere: every 30 s, after any Overview action, and on return. #}
+<section id="kpis" class="kpis" aria-label="Key figures"
+	hx-get="/fragments/kpis" hx-trigger="every 30s, overview-changed from:body, page-visible from:body" hx-swap="outerHTML">
 	<div class="card kpi">
 		<div class="kpi-label">Pool utilisation</div>
 		{% if pool %}

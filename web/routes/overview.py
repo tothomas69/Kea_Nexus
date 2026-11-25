@@ -182,6 +182,19 @@ def address_map_fragment(
 	return render(request, "overview/_address_map.html", {"user": user, **_map_context(kea)})
 
 
+@router.get("/fragments/kpis")
+def kpis_fragment(
+	request: Request, user: dict = Depends(current_user), kea: KeaClient = Depends(kea_client)
+) -> Response:
+	"""The key-figures strip on its own, so its counts follow sweeps and changes.
+
+	read_kea is cached, so this poll costs no extra Kea round-trips.
+	"""
+	data = read_kea(kea)
+	context = _kpi_context(data["stats"], data["config"], data["leases"])
+	return render(request, "overview/_kpis.html", context)
+
+
 @router.get("/fragments/activity")
 def activity_fragment(request: Request, user: dict = Depends(current_user)) -> Response:
 	return render(request, "overview/_activity.html", {"user": user, **_activity_context()})
