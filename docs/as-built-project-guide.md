@@ -352,6 +352,16 @@ Overview, and 1b adds its charts. Phase 2 was the Quarantine screen (removed in 
   same `slugify` the markdown `toc` extension uses, so links can't drift from
   the docs. Articles render with `markdown` (`fenced_code`, `tables`, `toc`);
   only `docs_library`'s allowlist is ever read
+- **Live panels (`static/live.js`).** Every panel that polls also listens for
+  `page-visible`, which `live.js` fires on `<body>` when a tab becomes visible
+  again or is restored from the back/forward cache (phones freeze background
+  timers, so a returning tab would otherwise show stale data until its next
+  poll). Panels that host long actions filter their poll with
+  `KeaNexus.busy('<panel-id>')`, true while any element whose `hx-target` is
+  that panel carries `.htmx-request`: a poll that swapped the Leases table
+  mid-sweep, or the Maintenance panels mid-Clear, would drop the action's
+  answer. The Overview's key figures have their own `/fragments/kpis`
+  (30 s, `overview-changed`), so the Online and Devices counts follow a sweep
 - **Overview (`routes/overview.py`, `overview_data.py`, `static/overview.js`).**
   Key figures (pool use with a green/amber/red bar, active leases and new
   leases in 24 h, reservations, and Devices: how many are registered and how

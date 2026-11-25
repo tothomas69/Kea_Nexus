@@ -113,6 +113,16 @@ class TestTable:
 
 
 class TestSweep:
+	def test_table_poll_waits_out_a_running_sweep(self, client):
+		"""A poll landing mid-sweep would replace the table the sweep answers into."""
+		_sign_in(client)
+		page = client.get("/leases").text
+		assert "every 60s[!KeaNexus.busy('leases-table')]" in page
+		# busy() matches on hx-target, so the sweep button must name the table.
+		assert (
+			'hx-post="/leases/sweep" hx-include="#lease-filter" hx-target="#leases-table"' in page
+		)
+
 	def test_viewer_may_sweep_the_whole_subnet(self, client):
 		headers = _sign_in(client, role="viewer")
 		with patch(_SWEEP, return_value={"172.16.17.164": "aa:bb:cc:00:00:a4"}) as sweep:

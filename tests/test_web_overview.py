@@ -84,9 +84,13 @@ class StubKea(KeaClient):
 
 @pytest.fixture(autouse=True)
 def fresh_cache():
+	# The latest sweep lives in process memory too: clear it, or a sweep from
+	# an earlier test leaks into "Online: not checked yet" assertions here.
 	cache.clear()
+	liveness.reset()
 	yield
 	cache.clear()
+	liveness.reset()
 
 
 @pytest.fixture
@@ -184,6 +188,26 @@ class TestOverviewPage:
 		assert 'id="address-map"' in client.get("/fragments/address-map", headers=_HTMX).text
 		assert client.get("/fragments/quarantine", headers=_HTMX).status_code == 404
 		assert 'id="activity"' in client.get("/fragments/activity", headers=_HTMX).text
+
+	def test_kpis_refresh_on_their_own(self, client):
+		"""The strip has its own fragment, so a sweep shows up without a page reload."""
+		_sign_in(client)
+		_register_kids_ipad()
+		page = client.get("/").text
+		assert 'id="kpis"' in page
+		assert "every 30s, overview-changed from:body, page-visible from:body" in page
+		assert "Online: not checked yet" in client.get("/fragments/kpis", headers=_HTMX).text
+		with patch("web.liveness.arp_sweep", return_value={"172.16.17.164": "f0:18:98:3a:77:10"}):
+			liveness.sweep_now(["172.16.17.164"])
+		assert "1 online now" in client.get("/fragments/kpis", headers=_HTMX).text
+
+	def test_live_js_is_loaded_and_panels_wake(self, client):
+		_sign_in(client)
+		page = client.get("/").text
+		assert '<script src="/static/live.js" defer></script>' in page
+		# Health, key figures, map and Activity all listen for the tab coming back.
+		assert page.count("page-visible from:body") == 4
+		assert "KeaNexus" in client.get("/static/live.js").text
 
 	def test_health_fragment(self, client):
 		_sign_in(client)

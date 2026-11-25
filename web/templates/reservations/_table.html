@@ -1,5 +1,5 @@
 <section id="reservations-table" class="card" aria-label="Reservations"
-	hx-get="/fragments/reservations" hx-trigger="every 60s, reservations-changed from:body" hx-swap="outerHTML">
+	hx-get="/fragments/reservations" hx-trigger="every 60s, reservations-changed from:body, page-visible from:body" hx-swap="outerHTML">
 	{% if kea_error %}<p class="banner banner-error" role="alert">Kea can't be reached right now, so reservations can't be shown or changed.</p>{% endif %}
 	{% if rows %}
 	<div class="card-head">

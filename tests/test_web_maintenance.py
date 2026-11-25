@@ -85,6 +85,12 @@ def client(temp_db, kea):
 
 
 class TestPage:
+	def test_poll_waits_out_a_running_action(self, client):
+		_sign_in(client)
+		page = client.get("/maintenance").text
+		assert "every 30s[!KeaNexus.busy('maintenance-panels')]" in page
+		assert 'hx-target="#maintenance-panels"' in page
+
 	def test_shows_state_declined_and_lease_count(self, client):
 		_sign_in(client)
 		page = client.get("/maintenance").text

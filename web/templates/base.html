@@ -7,6 +7,8 @@
 <link rel="icon" href="/brand/keanexus_logo.png">
 <link rel="stylesheet" href="/static/app.css">
 <script src="/static/vendor/htmx-2.0.11.min.js" defer></script>
+{# Wakes the live panels when a tab returns, and lets polls wait out an action. #}
+<script src="/static/live.js" defer></script>
 {# Page scripts that register Alpine components must load before Alpine itself. #}
 {% block head %}{% endblock %}
 <script src="/static/vendor/alpinejs-3.17.5.min.js" defer></script>
@@ -37,7 +39,7 @@
 					</label>
 					<div id="search-results" class="search-panel" x-show="open" x-cloak></div>
 				</div>
-				<div class="health" hx-get="/fragments/health" hx-trigger="load, every 30s" aria-live="polite"></div>
+				<div class="health" hx-get="/fragments/health" hx-trigger="load, every 30s, page-visible from:body" aria-live="polite"></div>
 				<div class="account">
 					<span class="account-name">{{ user.username }}{% if user.role != "admin" %} · viewer{% endif %}</span>
 					<button class="button button-quiet" hx-post="/logout">Sign out</button>

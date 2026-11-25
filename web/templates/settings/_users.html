@@ -1,5 +1,5 @@
 <section id="users" class="card" aria-label="Users"
-	hx-get="/fragments/users" hx-trigger="users-changed from:body" hx-swap="outerHTML">
+	hx-get="/fragments/users" hx-trigger="users-changed from:body, page-visible from:body" hx-swap="outerHTML">
 	<div class="card-head">
 		<h2>Users</h2>
 		<button class="button button-primary" hx-get="/settings/users/new" hx-target="#dialog-body" hx-swap="innerHTML"
